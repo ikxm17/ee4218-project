@@ -10,23 +10,15 @@ Environment setup for Kria KV260 boards. Configures static IP networking, base p
 - Ethernet cable + router
 - Host PC with SD card reader
 
-## 1. Flash SD Card
+## 1. Flash + Prep SD Card
 
-Download the Ubuntu 22.04 image for Kria from [Canonical](https://ubuntu.com/download/amd-xilinx) and flash it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) or `dd`:
-
-```bash
-# Example with dd (replace /dev/sdX with your SD card device)
-xzcat ubuntu-22.04-preinstalled-server-arm64+xlnx-zynqmp.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
-sync
-```
-
-## 2. Prep SD Card (Host-side)
-
-Run on your PC after flashing. This pre-configures static IP and SSH so the board is headless-ready on first boot.
+One command downloads Ubuntu 22.04, flashes it to the SD card, and configures static IP + SSH:
 
 ```bash
-sudo bash setup/prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
+bash setup/prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
 ```
+
+The script prompts for `sudo` only when needed (flashing, mounting). The image (~2 GB) is cached in `~/.cache/kria-setup/` after the first download, so subsequent boards don't re-download.
 
 **Arguments:**
 
@@ -36,16 +28,25 @@ sudo bash setup/prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_
 | `--board-num` | Board number (determines IP: gateway_base + 100 + N) | `1` → `.101` |
 | `--gateway` | Router IP address | `192.168.1.1` |
 | `--ssh-key` | Path to SSH public key (optional, auto-detects `~/.ssh/id_*.pub`) | `~/.ssh/id_ed25519.pub` |
+| `--no-flash` | Skip download + flash (config only on an already-flashed card) | |
+| `--image` | Use a local `.img.xz` file instead of downloading | `~/Downloads/kria.img.xz` |
+| `--clean-cache` | Remove cached image after flashing | |
 
 **Example — 3 boards on a 192.168.1.x network:**
 
 ```bash
-sudo bash setup/prep-sd.sh --device /dev/sdb --board-num 1 --gateway 192.168.1.1  # → 192.168.1.101
-sudo bash setup/prep-sd.sh --device /dev/sdb --board-num 2 --gateway 192.168.1.1  # → 192.168.1.102
-sudo bash setup/prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1  # → 192.168.1.103
+bash setup/prep-sd.sh --device /dev/sdb --board-num 1 --gateway 192.168.1.1  # → 192.168.1.101
+bash setup/prep-sd.sh --device /dev/sdb --board-num 2 --gateway 192.168.1.1  # → 192.168.1.102
+bash setup/prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1  # → 192.168.1.103
 ```
 
-## 3. Boot and SSH In
+**Re-configure an already-flashed card** (e.g., change board number):
+
+```bash
+bash setup/prep-sd.sh --device /dev/sdb --board-num 4 --gateway 192.168.1.1 --no-flash
+```
+
+## 2. Boot and SSH In
 
 1. Insert the SD card into the KV260
 2. Connect Ethernet and power
@@ -56,7 +57,7 @@ sudo bash setup/prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1
 ssh ubuntu@192.168.1.101   # default password: ubuntu
 ```
 
-## 4. Run Setup (On-board)
+## 3. Run Setup (On-board)
 
 ```bash
 sudo bash setup/setup.sh
@@ -83,7 +84,7 @@ sudo bash setup/setup.sh --skip-tailscale
 sudo bash setup/scripts/01-system-base.sh
 ```
 
-## 5. Tailscale Authentication
+## 4. Tailscale Authentication
 
 After setup completes, authenticate each board with Tailscale:
 
@@ -93,7 +94,7 @@ sudo tailscale up
 
 Follow the printed URL to log in. Each board appears in your Tailscale network.
 
-## 6. Verify
+## 5. Verify
 
 ```bash
 sudo bash setup/scripts/99-verify.sh
