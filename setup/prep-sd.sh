@@ -93,6 +93,21 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     exit 1
 fi
 
+# --- Normalize partition path to base device ---
+# /dev/sda1 → /dev/sda, /dev/nvme0n1p2 → /dev/nvme0n1
+if [[ "$DEVICE" =~ ^(/dev/[a-z]+)[0-9]+$ ]]; then
+    BASE="${BASH_REMATCH[1]}"
+elif [[ "$DEVICE" =~ ^(/dev/[a-z0-9]+)p[0-9]+$ ]]; then
+    BASE="${BASH_REMATCH[1]}"
+else
+    BASE="$DEVICE"
+fi
+
+if [ "$BASE" != "$DEVICE" ]; then
+    echo "Note: $DEVICE looks like a partition; using $BASE instead."
+    DEVICE="$BASE"
+fi
+
 # --- Validate --image path ---
 if [ -n "$LOCAL_IMAGE" ] && [ ! -f "$LOCAL_IMAGE" ]; then
     echo "Error: image file not found: $LOCAL_IMAGE"
@@ -108,8 +123,6 @@ fi
 
 # --- Safety: refuse non-removable devices ---
 DEVICE_BASE="$(basename "$DEVICE")"
-# Strip partition suffix to get base device name
-DEVICE_BASE="${DEVICE_BASE%%[0-9]*}"
 REMOVABLE_PATH="/sys/block/$DEVICE_BASE/removable"
 
 if [ ! -f "$REMOVABLE_PATH" ]; then
