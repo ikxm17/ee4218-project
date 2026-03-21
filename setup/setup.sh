@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kria KV260 on-board setup orchestrator
-# Usage: sudo bash setup.sh [--skip-tailscale] [--skip-system-base] ...
+# Usage: sudo bash setup.sh [--skip-<name>] [--skip <NN>] ...
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,18 +9,23 @@ LOG_FILE="$HOME/kria-setup.log"
 
 # --- Parse skip flags ---
 declare -A SKIP=()
-for arg in "$@"; do
-    case "$arg" in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --skip-*)
-            name="${arg#--skip-}"
-            SKIP["$name"]=1
+            SKIP["${1#--skip-}"]=1
+            ;;
+        --skip)
+            [ -n "${2:-}" ] || { echo "Error: --skip requires an argument"; exit 1; }
+            SKIP["$2"]=1
+            shift
             ;;
         *)
-            echo "Unknown argument: $arg"
-            echo "Usage: sudo bash setup.sh [--skip-preflight] [--skip-system-base] [--skip-tailscale] [--skip-verify]"
+            echo "Unknown argument: $1"
+            echo "Usage: sudo bash setup.sh [--skip-<name>] [--skip <NN>] ..."
             exit 1
             ;;
     esac
+    shift
 done
 
 # --- Root check ---
@@ -41,12 +46,18 @@ echo "========================================"
 echo "Log file: $LOG_FILE"
 echo ""
 
-# --- Script name mapping for skip flags ---
-# Extract friendly name from script filename: 01-system-base.sh → system-base
-script_skip_name() {
+# --- Script name/number extraction ---
+# 01-system-base.sh → system-base
+script_name() {
     local base
     base="$(basename "$1" .sh)"
     echo "${base#[0-9][0-9]-}"
+}
+# 01-system-base.sh → 01
+script_number() {
+    local base
+    base="$(basename "$1" .sh)"
+    echo "${base%%-*}"
 }
 
 # --- Run scripts in order ---
@@ -54,10 +65,11 @@ FAILED_STEP=""
 for script in "$SCRIPTS_DIR"/[0-9]*.sh; do
     [ -f "$script" ] || continue
 
-    name="$(script_skip_name "$script")"
+    name="$(script_name "$script")"
+    num="$(script_number "$script")"
 
-    if [ "${SKIP[$name]+set}" = "set" ]; then
-        echo "--- Skipping: $name (--skip-$name) ---"
+    if [ "${SKIP[$name]+set}" = "set" ] || [ "${SKIP[$num]+set}" = "set" ]; then
+        echo "--- Skipping: $num-$name ---"
         echo ""
         continue
     fi

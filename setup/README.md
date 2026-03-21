@@ -120,10 +120,11 @@ This runs all setup scripts in order:
 | `02-tailscale.sh` | Installs Tailscale VPN |
 | `99-verify.sh` | Smoke tests |
 
-**Skip a step:**
+**Skip a step** (by name or number):
 
 ```bash
 sudo bash setup.sh --skip-tailscale
+sudo bash setup.sh --skip 02
 ```
 
 **Re-run a single step:**
@@ -152,7 +153,7 @@ All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if aut
 
 ## Adding Packages Later
 
-Add new numbered scripts to `scripts/`:
+Scripts follow the naming convention `<NN>-<name>.sh`, where `<NN>` is a two-digit number controlling execution order and `<name>` is the step name used for skip flags. For example, `03-pynq.sh` runs third and can be skipped with `--skip-pynq` or `--skip 03`.
 
 ```
 scripts/03-pynq.sh
