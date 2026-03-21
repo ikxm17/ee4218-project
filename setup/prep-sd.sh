@@ -130,12 +130,20 @@ if [ ! -b "$DEVICE" ]; then
 fi
 
 # --- Safety: refuse devices with mounted filesystems ---
-MOUNTED_PARTS="$(lsblk -ln -o MOUNTPOINT "$DEVICE" 2>/dev/null | grep -v '^$' || true)"
+if ! MOUNTED_PARTS="$(lsblk -ln -o MOUNTPOINT "$DEVICE" | awk 'NF')"; then
+    echo "Error: failed to query mount status for $DEVICE."
+    exit 1
+fi
 if [ -n "$MOUNTED_PARTS" ]; then
     echo "Error: $DEVICE has mounted filesystems:"
     lsblk -o NAME,SIZE,MOUNTPOINT "$DEVICE"
+    echo ""
     echo "Refusing to flash a device with active mounts (could be your system drive)."
-    echo "Unmount all partitions first if this is really your SD card."
+    echo "If this is really your SD card, unmount with:"
+    echo "  sudo umount ${DEVICE}*"
+    echo ""
+    echo "Note: Don't use the file explorer eject — that powers off the device"
+    echo "and you'll need to re-plug it."
     exit 1
 fi
 
