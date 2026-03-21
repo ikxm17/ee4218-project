@@ -111,6 +111,8 @@ No forced password change on first login — the board is ready to use immediate
 sudo bash setup.sh
 ```
 
+Scripts follow the naming convention `<NN>-<name>.sh`, where `<NN>` is a two-digit number controlling execution order and `<name>` is the step name used for skip flags.
+
 This runs all setup scripts in order:
 
 | Script | Purpose |
@@ -123,8 +125,8 @@ This runs all setup scripts in order:
 **Skip a step** (by name or number):
 
 ```bash
-sudo bash setup.sh --skip tailscale
-sudo bash setup.sh --skip 02
+sudo bash setup.sh --skip <name>
+sudo bash setup.sh --skip <NN>
 ```
 
 **Re-run a single step:**
@@ -153,17 +155,15 @@ All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if aut
 
 ## Adding Packages Later
 
-Scripts follow the naming convention `<NN>-<name>.sh`, where `<NN>` is a two-digit number controlling execution order and `<name>` is the step name used for skip flags. For example, `03-pynq.sh` runs third and can be skipped with `--skip pynq` or `--skip 03`.
+The orchestrator (`setup.sh`) runs `scripts/[0-9]*.sh` in sorted order. Each script:
+- Is self-contained and can be run independently
+- Should use `set -euo pipefail`
+- Can be skipped with `--skip <name>` or `--skip <NN>` (derived from filename)
 
 ```
 scripts/03-pynq.sh
 scripts/04-tflite.sh
 ```
-
-The orchestrator (`setup.sh`) runs `scripts/[0-9]*.sh` in sorted order. Each script:
-- Is self-contained and can be run independently
-- Should use `set -euo pipefail`
-- Can be skipped with `--skip <name|NN>` (derived from filename)
 
 ## File Structure
 
