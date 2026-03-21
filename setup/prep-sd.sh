@@ -121,9 +121,16 @@ if [ -n "$PASSWORD" ] && ! command -v openssl &>/dev/null; then
     exit 1
 fi
 
-# --- Safety: refuse devices with mounted filesystems ---
+# --- Validate device exists ---
 DEVICE_BASE="$(basename "$DEVICE")"
-MOUNTED_PARTS="$(lsblk -ln -o MOUNTPOINT "$DEVICE" 2>/dev/null | grep -v '^$')"
+if [ ! -b "$DEVICE" ]; then
+    echo "Error: $DEVICE is not a block device (does it exist?)."
+    echo "Plug in your SD card and check with: lsblk"
+    exit 1
+fi
+
+# --- Safety: refuse devices with mounted filesystems ---
+MOUNTED_PARTS="$(lsblk -ln -o MOUNTPOINT "$DEVICE" 2>/dev/null | grep -v '^$' || true)"
 if [ -n "$MOUNTED_PARTS" ]; then
     echo "Error: $DEVICE has mounted filesystems:"
     lsblk -o NAME,SIZE,MOUNTPOINT "$DEVICE"
