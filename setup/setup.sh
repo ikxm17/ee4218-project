@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kria KV260 on-board setup orchestrator
-# Usage: sudo bash setup.sh [--skip-<name>] [--skip <NN>] ...
+# Usage: sudo bash setup.sh [--skip <name|NN>] ...
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,9 +11,6 @@ LOG_FILE="$HOME/kria-setup.log"
 declare -A SKIP=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        --skip-*)
-            SKIP["${1#--skip-}"]=1
-            ;;
         --skip)
             [ -n "${2:-}" ] || { echo "Error: --skip requires an argument"; exit 1; }
             SKIP["$2"]=1
@@ -21,7 +18,7 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: sudo bash setup.sh [--skip-<name>] [--skip <NN>] ..."
+            echo "Usage: sudo bash setup.sh [--skip <name|NN>] ..."
             exit 1
             ;;
     esac
@@ -85,7 +82,7 @@ for script in "$SCRIPTS_DIR"/[0-9]*.sh; do
         echo "  sudo bash $script"
         echo ""
         echo "To resume from the next step, re-run with:"
-        echo "  sudo bash $SCRIPT_DIR/setup.sh --skip-$name"
+        echo "  sudo bash $SCRIPT_DIR/setup.sh --skip $name"
         exit 1
     fi
     echo ""
