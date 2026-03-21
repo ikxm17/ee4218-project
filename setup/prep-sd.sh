@@ -318,7 +318,9 @@ else
     fi
 fi
 
-# Set ownership to ubuntu user (UID/GID 1000 is default for first user)
+# Set ownership — the image ships /home/ubuntu as root-owned and
+# cloud-init does not fix it on first boot.
+sudo chown 1000:1000 "$MOUNT_DIR/home/ubuntu"
 sudo chown -R 1000:1000 "$SSH_DIR"
 sudo chmod 700 "$SSH_DIR"
 sudo chmod 600 "$SSH_DIR/authorized_keys" 2>/dev/null || true
