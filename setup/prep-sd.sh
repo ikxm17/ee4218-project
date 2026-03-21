@@ -277,6 +277,9 @@ echo "Configuring static IP..."
 NETPLAN_DIR="$MOUNT_DIR/etc/netplan"
 sudo mkdir -p "$NETPLAN_DIR"
 
+# Remove default cloud-init netplan config to avoid conflicts
+sudo rm -f "$NETPLAN_DIR/50-cloud-init.yaml"
+
 sed -e "s|__IP_ADDRESS__|$BOARD_IP|g" \
     -e "s|__GATEWAY__|$GATEWAY|g" \
     "$TEMPLATE" | sudo tee "$NETPLAN_DIR/01-static.yaml" > /dev/null
