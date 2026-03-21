@@ -15,7 +15,7 @@ Environment setup for Kria KV260 boards. Configures static IP networking, base p
 One command downloads Ubuntu 22.04, flashes it to the SD card, and configures static IP + SSH:
 
 ```bash
-bash setup/prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
+bash prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
 ```
 
 The script prompts for `sudo` only when needed (flashing, mounting). The image (~2 GB) is cached in `~/.cache/kria-setup/` after the first download, so subsequent boards don't re-download.
@@ -38,15 +38,15 @@ Each board gets a hostname derived from its board number: `kria-01`, `kria-02`, 
 **Example — 3 boards on a 192.168.1.x network:**
 
 ```bash
-bash setup/prep-sd.sh --device /dev/sdb --board-num 1 --gateway 192.168.1.1  # → 192.168.1.101
-bash setup/prep-sd.sh --device /dev/sdb --board-num 2 --gateway 192.168.1.1  # → 192.168.1.102
-bash setup/prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1  # → 192.168.1.103
+bash prep-sd.sh --device /dev/sdb --board-num 1 --gateway 192.168.1.1  # → 192.168.1.101
+bash prep-sd.sh --device /dev/sdb --board-num 2 --gateway 192.168.1.1  # → 192.168.1.102
+bash prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1  # → 192.168.1.103
 ```
 
 **Re-configure an already-flashed card** (e.g., change board number):
 
 ```bash
-bash setup/prep-sd.sh --device /dev/sdb --board-num 4 --gateway 192.168.1.1 --no-flash
+bash prep-sd.sh --device /dev/sdb --board-num 4 --gateway 192.168.1.1 --no-flash
 ```
 
 ## 2. Boot and SSH In
@@ -65,7 +65,7 @@ No forced password change on first login — the board is ready to use immediate
 ## 3. Run Setup (On-board)
 
 ```bash
-sudo bash setup/setup.sh
+sudo bash setup.sh
 ```
 
 This runs all setup scripts in order:
@@ -80,13 +80,13 @@ This runs all setup scripts in order:
 **Skip a step:**
 
 ```bash
-sudo bash setup/setup.sh --skip-tailscale
+sudo bash setup.sh --skip-tailscale
 ```
 
 **Re-run a single step:**
 
 ```bash
-sudo bash setup/scripts/01-system-base.sh
+sudo bash scripts/01-system-base.sh
 ```
 
 ## 4. Tailscale Authentication
@@ -102,14 +102,14 @@ Follow the printed URL to log in. Each board appears in your Tailscale network.
 ## 5. Verify
 
 ```bash
-sudo bash setup/scripts/99-verify.sh
+sudo bash scripts/99-verify.sh
 ```
 
 All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if authenticated).
 
 ## Adding Packages Later
 
-Add new numbered scripts to `setup/scripts/`:
+Add new numbered scripts to `scripts/`:
 
 ```
 scripts/03-pynq.sh
