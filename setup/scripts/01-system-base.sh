@@ -24,6 +24,7 @@ apt-get install -y \
     i2c-tools \
     v4l-utils \
     vim \
+    tmux \
     gh
 
 echo "Enabling SSH..."
