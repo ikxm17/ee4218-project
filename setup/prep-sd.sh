@@ -56,19 +56,26 @@ EOF
 }
 
 # --- Parse arguments ---
+needs_value() {
+    if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "Error: $1 requires a value."
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --device)      DEVICE="$2";      shift 2 ;;
-        --board-num)   BOARD_NUM="$2";   shift 2 ;;
-        --gateway)     GATEWAY="$2";     shift 2 ;;
-        --ssh-key)     SSH_KEY="$2";     shift 2 ;;
-        --password)    PASSWORD="$2";    shift 2 ;;
+        --device)      needs_value "$@"; DEVICE="$2";      shift 2 ;;
+        --board-num)   needs_value "$@"; BOARD_NUM="$2";   shift 2 ;;
+        --gateway)     needs_value "$@"; GATEWAY="$2";     shift 2 ;;
+        --ssh-key)     needs_value "$@"; SSH_KEY="$2";     shift 2 ;;
+        --password)    needs_value "$@"; PASSWORD="$2";    shift 2 ;;
         --no-flash)    NO_FLASH=true;    shift ;;
-        --image)       LOCAL_IMAGE="$2"; shift 2 ;;
+        --image)       needs_value "$@"; LOCAL_IMAGE="$2"; shift 2 ;;
         --clean-cache) CLEAN_CACHE=true; shift ;;
         --help)        usage ;;
         *)
-            echo "Unknown argument: $1"
+            echo "Error: unknown argument: $1"
             echo "Run with --help for usage."
             exit 1
             ;;
@@ -76,8 +83,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validate required args ---
-if [ -z "$DEVICE" ] || [ -z "$BOARD_NUM" ] || [ -z "$GATEWAY" ]; then
-    echo "Error: --device, --board-num, and --gateway are all required."
+MISSING=()
+[ -z "$DEVICE" ]    && MISSING+=("--device")
+[ -z "$BOARD_NUM" ] && MISSING+=("--board-num")
+[ -z "$GATEWAY" ]   && MISSING+=("--gateway")
+if [ ${#MISSING[@]} -gt 0 ]; then
+    echo "Error: missing required argument(s): ${MISSING[*]}"
     echo "Run with --help for usage."
     exit 1
 fi
