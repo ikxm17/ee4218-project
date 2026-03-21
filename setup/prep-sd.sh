@@ -227,19 +227,6 @@ else
         fi
     fi
 
-    # Verify image integrity (xz embeds CRC64 checksums)
-    echo "Verifying image integrity..."
-    if ! xz -t "$IMAGE_PATH"; then
-        echo ""
-        echo "Error: image file is corrupt or incomplete."
-        if [ -z "$LOCAL_IMAGE" ]; then
-            echo "Removing cached file — re-run to download a fresh copy."
-            rm -f "$IMAGE_PATH"
-        fi
-        exit 1
-    fi
-    echo "Image OK."
-
     IMAGE_SIZE="$(du -h "$IMAGE_PATH" | cut -f1)"
     echo "Image: $IMAGE_PATH ($IMAGE_SIZE)"
     echo ""
