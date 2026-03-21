@@ -107,6 +107,46 @@ sudo bash scripts/99-verify.sh
 
 All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if authenticated).
 
+## SSH Config (Host-side)
+
+Add the following to `~/.ssh/config` on your host machine for automatic local/Tailscale failover:
+
+```ssh-config
+Match host kria exec "nc -z -w1 <LOCAL_IP> 22 2>/dev/null"
+    Hostname <LOCAL_IP>
+
+Host kria
+    Hostname <TAILSCALE_IP>
+    User ubuntu
+```
+
+This probes the local IP first — if reachable, it connects directly. Otherwise it falls back to the Tailscale IP. Replace `<LOCAL_IP>` with the board's static IP (e.g. `192.168.1.101`) and `<TAILSCALE_IP>` with the IP shown after running `sudo tailscale up` on the board.
+
+For multiple boards, repeat the pattern with different host aliases and IPs:
+
+```ssh-config
+Match host kria-01 exec "nc -z -w1 <LOCAL_IP_1> 22 2>/dev/null"
+    Hostname <LOCAL_IP_1>
+
+Host kria-01
+    Hostname <TAILSCALE_IP_1>
+    User ubuntu
+
+Match host kria-02 exec "nc -z -w1 <LOCAL_IP_2> 22 2>/dev/null"
+    Hostname <LOCAL_IP_2>
+
+Host kria-02
+    Hostname <TAILSCALE_IP_2>
+    User ubuntu
+```
+
+Then connect with:
+
+```bash
+ssh kria       # single board
+ssh kria-01    # multi-board
+```
+
 ## Adding Packages Later
 
 Add new numbered scripts to `scripts/`:
