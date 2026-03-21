@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Host-side SD card preparation for Kria KV260
-# Downloads + flashes Ubuntu 22.04, then configures static IP and SSH.
+# Downloads + flashes Ubuntu 22.04, then configures static IP, hostname,
+# password, and SSH.
 #
 # Usage:
 #   bash prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
@@ -10,6 +11,7 @@
 #   --board-num    Board number (integer); IP = gateway_base + 100 + N
 #   --gateway      Router/gateway IP address
 #   --ssh-key      Path to public SSH key (default: ~/.ssh/id_*.pub)
+#   --password     Custom password for ubuntu user (default: ubuntu)
 #   --no-flash     Skip download + flash (config only on an already-flashed card)
 #   --image        Path to a local .img.xz file (skip download, still flash)
 #   --clean-cache  Remove cached image after flashing
@@ -29,9 +31,11 @@ DEVICE=""
 BOARD_NUM=""
 GATEWAY=""
 SSH_KEY=""
+PASSWORD=""
 NO_FLASH=false
 LOCAL_IMAGE=""
 CLEAN_CACHE=false
+HOSTNAME_PREFIX="kria"
 
 usage() {
     cat <<EOF
@@ -42,6 +46,7 @@ Options:
   --board-num     Board number (integer); IP = gateway_base + 100 + N
   --gateway       Router/gateway IP address
   --ssh-key       Path to SSH public key (default: auto-detect ~/.ssh/id_*.pub)
+  --password      Custom password for ubuntu user (default: ubuntu)
   --no-flash      Skip download + flash (config only on an already-flashed card)
   --image PATH    Use a local .img.xz file instead of downloading
   --clean-cache   Remove cached image after flashing
@@ -57,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --board-num)   BOARD_NUM="$2";   shift 2 ;;
         --gateway)     GATEWAY="$2";     shift 2 ;;
         --ssh-key)     SSH_KEY="$2";     shift 2 ;;
+        --password)    PASSWORD="$2";    shift 2 ;;
         --no-flash)    NO_FLASH=true;    shift ;;
         --image)       LOCAL_IMAGE="$2"; shift 2 ;;
         --clean-cache) CLEAN_CACHE=true; shift ;;
@@ -79,6 +85,13 @@ fi
 # --- Validate --image path ---
 if [ -n "$LOCAL_IMAGE" ] && [ ! -f "$LOCAL_IMAGE" ]; then
     echo "Error: image file not found: $LOCAL_IMAGE"
+    exit 1
+fi
+
+# --- Validate --password dependency ---
+if [ -n "$PASSWORD" ] && ! command -v openssl &>/dev/null; then
+    echo "Error: openssl is required for --password (used for hashing)."
+    echo "Install it with: sudo apt install openssl"
     exit 1
 fi
 
@@ -108,12 +121,26 @@ fi
 GATEWAY_BASE="${GATEWAY%.*}"
 BOARD_IP="${GATEWAY_BASE}.$(( 100 + BOARD_NUM ))"
 
+# --- Compute hostname ---
+HOSTNAME=$(printf '%s-%02d' "$HOSTNAME_PREFIX" "$BOARD_NUM")
+
+# --- Hash password (if provided) ---
+if [ -n "$PASSWORD" ]; then
+    PASSWORD_HASH=$(openssl passwd -6 "$PASSWORD")
+fi
+
 echo ""
 echo "=== SD Card Prep ==="
 echo "  Device:     $DEVICE"
 echo "  Board #:    $BOARD_NUM"
+echo "  Hostname:   $HOSTNAME"
 echo "  Gateway:    $GATEWAY"
 echo "  Board IP:   $BOARD_IP"
+if [ -n "$PASSWORD" ]; then
+    echo "  Password:   (custom, set via --password)"
+else
+    echo "  Password:   ubuntu (default, no forced change)"
+fi
 if [ "$NO_FLASH" = true ]; then
     echo "  Flash:      skipped (--no-flash)"
 elif [ -n "$LOCAL_IMAGE" ]; then
@@ -213,7 +240,43 @@ CLOUD_CFG_DIR="$MOUNT_DIR/etc/cloud/cloud.cfg.d"
 sudo mkdir -p "$CLOUD_CFG_DIR"
 echo "network: {config: disabled}" | sudo tee "$CLOUD_CFG_DIR/99-disable-network-config.cfg" > /dev/null
 
-# --- 3. SSH key ---
+# --- 3. Hostname ---
+echo "Setting hostname to $HOSTNAME..."
+echo "$HOSTNAME" | sudo tee "$MOUNT_DIR/etc/hostname" > /dev/null
+cat <<EOF | sudo tee "$MOUNT_DIR/etc/hosts" > /dev/null
+127.0.0.1 localhost
+127.0.1.1 $HOSTNAME
+
+# The following lines are desirable for IPv6 capable hosts
+::1 ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+EOF
+
+# --- 4. Cloud-init: preserve hostname + password config ---
+echo "Configuring cloud-init (hostname + password)..."
+if [ -n "$PASSWORD" ]; then
+    cat <<EOF | sudo tee "$CLOUD_CFG_DIR/99-kria-setup.cfg" > /dev/null
+preserve_hostname: true
+chpasswd:
+  expire: false
+  users:
+    - name: ubuntu
+      password: $PASSWORD_HASH
+      type: HASH
+EOF
+else
+    cat <<EOF | sudo tee "$CLOUD_CFG_DIR/99-kria-setup.cfg" > /dev/null
+preserve_hostname: true
+chpasswd:
+  expire: false
+EOF
+fi
+
+# --- 5. SSH key ---
 echo "Setting up SSH authorized key..."
 SSH_DIR="$MOUNT_DIR/home/ubuntu/.ssh"
 sudo mkdir -p "$SSH_DIR"
@@ -247,7 +310,13 @@ echo "=== Done ==="
 echo ""
 echo "Summary:"
 echo "  Board #$BOARD_NUM → IP: $BOARD_IP"
+echo "  Hostname: $HOSTNAME"
 echo "  Gateway: $GATEWAY"
+if [ -n "$PASSWORD" ]; then
+    echo "  Credentials: ubuntu / (custom, set via --password)"
+else
+    echo "  Credentials: ubuntu / ubuntu (no forced change)"
+fi
 if [ "$NO_FLASH" = false ] && [ -z "$LOCAL_IMAGE" ]; then
     echo "  Cached image: $IMAGE_CACHE_DIR/$IMAGE_FILENAME"
 fi
@@ -255,6 +324,5 @@ echo ""
 echo "After inserting the SD card and powering on the board (~60s boot):"
 echo "  ssh ubuntu@$BOARD_IP"
 echo ""
-echo "Default password (first login): ubuntu"
 echo "Then run the on-board setup:"
 echo "  sudo bash setup/setup.sh"

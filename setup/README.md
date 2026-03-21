@@ -28,9 +28,12 @@ The script prompts for `sudo` only when needed (flashing, mounting). The image (
 | `--board-num` | Board number (determines IP: gateway_base + 100 + N) | `1` → `.101` |
 | `--gateway` | Router IP address | `192.168.1.1` |
 | `--ssh-key` | Path to SSH public key (optional, auto-detects `~/.ssh/id_*.pub`) | `~/.ssh/id_ed25519.pub` |
+| `--password` | Custom password for `ubuntu` user (optional, default: `ubuntu`) | `mypass` |
 | `--no-flash` | Skip download + flash (config only on an already-flashed card) | |
 | `--image` | Use a local `.img.xz` file instead of downloading | `~/Downloads/kria.img.xz` |
 | `--clean-cache` | Remove cached image after flashing | |
+
+Each board gets a hostname derived from its board number: `kria-01`, `kria-02`, etc. The forced password change on first login is disabled — boards boot ready for SSH with no interactive prompts.
 
 **Example — 3 boards on a 192.168.1.x network:**
 
@@ -54,8 +57,10 @@ bash setup/prep-sd.sh --device /dev/sdb --board-num 4 --gateway 192.168.1.1 --no
 4. SSH in:
 
 ```bash
-ssh ubuntu@192.168.1.101   # default password: ubuntu
+ssh ubuntu@192.168.1.101   # password: ubuntu (or custom if --password was used)
 ```
+
+No forced password change on first login — the board is ready to use immediately.
 
 ## 3. Run Setup (On-board)
 
