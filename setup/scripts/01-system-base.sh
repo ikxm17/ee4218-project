@@ -2,16 +2,19 @@
 # Install base system packages
 set -euo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+APT_OPTS=(-y -o Dpkg::Options::="--force-confold")
+
 echo "=== System base packages ==="
 
 echo "Updating package lists..."
 apt-get update
 
 echo "Upgrading existing packages..."
-apt-get upgrade -y
+apt-get "${APT_OPTS[@]}" upgrade
 
 echo "Installing base packages..."
-apt-get install -y \
+apt-get "${APT_OPTS[@]}" install \
     git \
     curl \
     wget \

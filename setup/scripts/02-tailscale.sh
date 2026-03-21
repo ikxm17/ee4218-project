@@ -12,6 +12,8 @@ curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg \
 curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list \
     | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
 
+export DEBIAN_FRONTEND=noninteractive
+
 echo "Installing Tailscale..."
 apt-get update
 apt-get install -y tailscale
