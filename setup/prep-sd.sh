@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Host-side SD card preparation for Kria KV260
 # Downloads + flashes Ubuntu 22.04, then configures static IP, hostname,
-# password, and SSH.
+# and SSH.
 #
 # Usage:
 #   bash prep-sd.sh --device /dev/sdX --board-num <N> --gateway <GATEWAY_IP>
@@ -11,7 +11,6 @@
 #   --board-num    Board number (integer); IP = gateway_base + 100 + N
 #   --gateway      Router/gateway IP address
 #   --ssh-key      Path to public SSH key (default: ~/.ssh/id_*.pub)
-#   --password     Custom password for ubuntu user (default: ubuntu)
 #   --no-flash     Skip download + flash (config only on an already-flashed card)
 #   --image        Path to a local .img.xz file (skip download, still flash)
 #   --clean-cache  Remove cached image after flashing
@@ -31,7 +30,6 @@ DEVICE=""
 BOARD_NUM=""
 GATEWAY=""
 SSH_KEY=""
-PASSWORD=""
 NO_FLASH=false
 LOCAL_IMAGE=""
 CLEAN_CACHE=false
@@ -46,7 +44,6 @@ Options:
   --board-num     Board number (integer); IP = gateway_base + 100 + N
   --gateway       Router/gateway IP address
   --ssh-key       Path to SSH public key (default: auto-detect ~/.ssh/id_*.pub)
-  --password      Custom password for ubuntu user (default: ubuntu)
   --no-flash      Skip download + flash (config only on an already-flashed card)
   --image PATH    Use a local .img.xz file instead of downloading
   --clean-cache   Remove cached image after flashing
@@ -69,7 +66,6 @@ while [[ $# -gt 0 ]]; do
         --board-num)   needs_value "$@"; BOARD_NUM="$2";   shift 2 ;;
         --gateway)     needs_value "$@"; GATEWAY="$2";     shift 2 ;;
         --ssh-key)     needs_value "$@"; SSH_KEY="$2";     shift 2 ;;
-        --password)    needs_value "$@"; PASSWORD="$2";    shift 2 ;;
         --no-flash)    NO_FLASH=true;    shift ;;
         --image)       needs_value "$@"; LOCAL_IMAGE="$2"; shift 2 ;;
         --clean-cache) CLEAN_CACHE=true; shift ;;
@@ -111,13 +107,6 @@ fi
 # --- Validate --image path ---
 if [ -n "$LOCAL_IMAGE" ] && [ ! -f "$LOCAL_IMAGE" ]; then
     echo "Error: image file not found: $LOCAL_IMAGE"
-    exit 1
-fi
-
-# --- Validate --password dependency ---
-if [ -n "$PASSWORD" ] && ! command -v openssl &>/dev/null; then
-    echo "Error: openssl is required for --password (used for hashing)."
-    echo "Install it with: sudo apt install openssl"
     exit 1
 fi
 
@@ -173,11 +162,6 @@ BOARD_IP="${GATEWAY_BASE}.$(( 100 + BOARD_NUM ))"
 # --- Compute hostname ---
 HOSTNAME=$(printf '%s-%02d' "$HOSTNAME_PREFIX" "$BOARD_NUM")
 
-# --- Hash password (if provided) ---
-if [ -n "$PASSWORD" ]; then
-    PASSWORD_HASH=$(openssl passwd -6 "$PASSWORD")
-fi
-
 echo ""
 echo "=== SD Card Prep ==="
 echo "  Device:     $DEVICE"
@@ -185,11 +169,7 @@ echo "  Board #:    $BOARD_NUM"
 echo "  Hostname:   $HOSTNAME"
 echo "  Gateway:    $GATEWAY"
 echo "  Board IP:   $BOARD_IP"
-if [ -n "$PASSWORD" ]; then
-    echo "  Password:   (custom, set via --password)"
-else
-    echo "  Password:   ubuntu (default, no forced change)"
-fi
+echo "  Password:   ubuntu (change on first login)"
 if [ "$NO_FLASH" = true ]; then
     echo "  Flash:      skipped (--no-flash)"
 elif [ -n "$LOCAL_IMAGE" ]; then
@@ -308,25 +288,11 @@ ff02::2 ip6-allrouters
 ff02::3 ip6-allhosts
 EOF
 
-# --- 4. Cloud-init: preserve hostname + password config ---
-echo "Configuring cloud-init (hostname + password)..."
-if [ -n "$PASSWORD" ]; then
-    cat <<EOF | sudo tee "$CLOUD_CFG_DIR/99-kria-setup.cfg" > /dev/null
+# --- 4. Cloud-init: preserve hostname ---
+echo "Configuring cloud-init (hostname)..."
+cat <<EOF | sudo tee "$CLOUD_CFG_DIR/99-kria-setup.cfg" > /dev/null
 preserve_hostname: true
-chpasswd:
-  expire: false
-  users:
-    - name: ubuntu
-      password: $PASSWORD_HASH
-      type: HASH
 EOF
-else
-    cat <<EOF | sudo tee "$CLOUD_CFG_DIR/99-kria-setup.cfg" > /dev/null
-preserve_hostname: true
-chpasswd:
-  expire: false
-EOF
-fi
 
 # --- 5. SSH key ---
 echo "Setting up SSH authorized key..."
@@ -364,11 +330,7 @@ echo "Summary:"
 echo "  Board #$BOARD_NUM → IP: $BOARD_IP"
 echo "  Hostname: $HOSTNAME"
 echo "  Gateway: $GATEWAY"
-if [ -n "$PASSWORD" ]; then
-    echo "  Credentials: ubuntu / (custom, set via --password)"
-else
-    echo "  Credentials: ubuntu / ubuntu (no forced change)"
-fi
+echo "  Credentials: ubuntu / ubuntu (change on first login)"
 if [ "$NO_FLASH" = false ] && [ -z "$LOCAL_IMAGE" ]; then
     echo "  Cached image: $IMAGE_CACHE_DIR/$IMAGE_FILENAME"
 fi
