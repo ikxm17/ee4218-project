@@ -121,13 +121,23 @@ if [ -n "$PASSWORD" ] && ! command -v openssl &>/dev/null; then
     exit 1
 fi
 
-# --- Safety: refuse non-removable devices ---
+# --- Safety: refuse devices with mounted filesystems ---
 DEVICE_BASE="$(basename "$DEVICE")"
+MOUNTED_PARTS="$(lsblk -ln -o MOUNTPOINT "$DEVICE" 2>/dev/null | grep -v '^$')"
+if [ -n "$MOUNTED_PARTS" ]; then
+    echo "Error: $DEVICE has mounted filesystems:"
+    lsblk -o NAME,SIZE,MOUNTPOINT "$DEVICE"
+    echo "Refusing to flash a device with active mounts (could be your system drive)."
+    echo "Unmount all partitions first if this is really your SD card."
+    exit 1
+fi
+
+# --- Safety: refuse non-removable devices ---
 REMOVABLE_PATH="/sys/block/$DEVICE_BASE/removable"
 
 if [ ! -f "$REMOVABLE_PATH" ]; then
     echo "Error: cannot determine if $DEVICE is removable (no sysfs entry at $REMOVABLE_PATH)."
-    echo "Make sure you specified the correct device (e.g., /dev/sdb, not /dev/sdb1)."
+    echo "Make sure you specified the correct block device (e.g., /dev/sdb)."
     exit 1
 fi
 
