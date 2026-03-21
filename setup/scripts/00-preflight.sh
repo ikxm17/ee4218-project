@@ -33,7 +33,7 @@ FREE_GB=$(( FREE_KB / 1048576 ))
 check "At least 4 GB free disk (${FREE_GB} GB available)" test "$FREE_GB" -ge 4
 
 # Network connectivity
-check "Network connectivity (ping 1.1.1.1)" ping -c1 -W5 1.1.1.1
+check "Network connectivity (ping 8.8.8.8)" ping -c1 -W5 8.8.8.8
 
 echo ""
 if [ "$FAIL" -ne 0 ]; then
