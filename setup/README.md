@@ -34,7 +34,7 @@ The script prompts for `sudo` only when needed (flashing, mounting). The image (
 | `--image` | Use a local `.img.xz` file instead of downloading | `~/Downloads/kria.img.xz` |
 | `--clean-cache` | Remove cached image after flashing | |
 
-Each board gets a hostname derived from its board number: `kria-01`, `kria-02`, etc. The forced password change on first login is disabled — boards boot ready for SSH with no interactive prompts.
+Each board gets a hostname derived from its board number: `kria-01`, `kria-02`, etc.
 
 **Example — 3 boards on a 192.168.1.x network:**
 
@@ -103,7 +103,7 @@ ssh kria-01    # multi-board
 ssh ubuntu@<LOCAL_IP>   # password: ubuntu
 ```
 
-No forced password change on first login — the board is ready to use immediately.
+On first login you will be prompted to change the default password.
 
 ### Run Setup
 
