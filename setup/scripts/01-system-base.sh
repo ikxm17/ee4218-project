@@ -22,7 +22,9 @@ apt-get install -y \
     net-tools \
     openssh-server \
     i2c-tools \
-    v4l-utils
+    v4l-utils \
+    vim \
+    gh
 
 echo "Enabling SSH..."
 systemctl enable --now ssh
