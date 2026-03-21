@@ -10,7 +10,9 @@ Environment setup for Kria KV260 boards. Configures static IP networking, base p
 - Ethernet cable + router
 - Host PC with SD card reader
 
-## 1. Flash + Prep SD Card
+## Host-side Setup
+
+### Flash + Prep SD Card
 
 One command downloads Ubuntu 22.04, flashes it to the SD card, and configures static IP + SSH:
 
@@ -49,65 +51,7 @@ bash prep-sd.sh --device /dev/sdb --board-num 3 --gateway 192.168.1.1  # → 192
 bash prep-sd.sh --device /dev/sdb --board-num 4 --gateway 192.168.1.1 --no-flash
 ```
 
-## 2. Boot and SSH In
-
-1. Insert the SD card into the KV260
-2. Connect Ethernet and power
-3. Wait ~60 seconds for boot
-4. SSH in:
-
-```bash
-ssh ubuntu@192.168.1.101   # password: ubuntu (or custom if --password was used)
-```
-
-No forced password change on first login — the board is ready to use immediately.
-
-## 3. Run Setup (On-board)
-
-```bash
-sudo bash setup.sh
-```
-
-This runs all setup scripts in order:
-
-| Script | Purpose |
-|--------|---------|
-| `00-preflight.sh` | Checks arch, OS, disk, network |
-| `01-system-base.sh` | apt update/upgrade + essential packages |
-| `02-tailscale.sh` | Installs Tailscale VPN |
-| `99-verify.sh` | Smoke tests |
-
-**Skip a step:**
-
-```bash
-sudo bash setup.sh --skip-tailscale
-```
-
-**Re-run a single step:**
-
-```bash
-sudo bash scripts/01-system-base.sh
-```
-
-## 4. Tailscale Authentication
-
-After setup completes, authenticate each board with Tailscale:
-
-```bash
-sudo tailscale up
-```
-
-Follow the printed URL to log in. Each board appears in your Tailscale network.
-
-## 5. Verify
-
-```bash
-sudo bash scripts/99-verify.sh
-```
-
-All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if authenticated).
-
-## SSH Config (Host-side)
+### SSH Config
 
 Add the following to `~/.ssh/config` on your host machine for automatic local/Tailscale failover:
 
@@ -146,6 +90,66 @@ Then connect with:
 ssh kria       # single board
 ssh kria-01    # multi-board
 ```
+
+## On-board Setup
+
+### Boot and SSH In
+
+1. Insert the SD card into the KV260
+2. Connect Ethernet and power
+3. Wait ~60 seconds for boot
+4. SSH in:
+
+```bash
+ssh ubuntu@<LOCAL_IP>   # password: ubuntu (or custom if --password was used)
+```
+
+No forced password change on first login — the board is ready to use immediately.
+
+### Run Setup
+
+```bash
+sudo bash setup.sh
+```
+
+This runs all setup scripts in order:
+
+| Script | Purpose |
+|--------|---------|
+| `00-preflight.sh` | Checks arch, OS, disk, network |
+| `01-system-base.sh` | apt update/upgrade + essential packages |
+| `02-tailscale.sh` | Installs Tailscale VPN |
+| `99-verify.sh` | Smoke tests |
+
+**Skip a step:**
+
+```bash
+sudo bash setup.sh --skip-tailscale
+```
+
+**Re-run a single step:**
+
+```bash
+sudo bash scripts/01-system-base.sh
+```
+
+### Tailscale Authentication
+
+After setup completes, authenticate each board with Tailscale:
+
+```bash
+sudo tailscale up
+```
+
+Follow the printed URL to log in. Each board appears in your Tailscale network.
+
+### Verify
+
+```bash
+sudo bash scripts/99-verify.sh
+```
+
+All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if authenticated).
 
 ## Adding Packages Later
 
