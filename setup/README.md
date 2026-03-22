@@ -156,55 +156,51 @@ All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if aut
 
 ## Using the PYNQ Environment
 
-After setup, the board has a Python venv at `/opt/ee4218/venv` with PYNQ installed. The venv auto-activates on interactive login via `/etc/profile.d/ee4218.sh`.
+PYNQ and dependencies are installed in a Python venv at `/opt/ee4218/venv`. Board environment variables (`BOARD`, `XILINX_XRT`) and the PYNQ device tree overlay are set up automatically on interactive login via `/etc/profile.d/ee4218.sh`.
 
-### Running PYNQ scripts
-
-PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Always use `sudo`:
+### Activate the venv
 
 ```bash
-sudo python3 my_script.py
+source /opt/ee4218/venv/bin/activate
 ```
 
-For non-interactive sessions (e.g. from a remote command), source the environment first:
+### Run PYNQ scripts
+
+PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Use the full venv path with `sudo` (`sudo` resets `PATH`, so `sudo python3` would use system Python):
 
 ```bash
-sudo bash -c 'source /etc/profile.d/ee4218.sh && python3 my_script.py'
+sudo /opt/ee4218/venv/bin/python3 my_script.py
 ```
 
-### Loading a bitstream
+### Loading a bitstream (WIP)
 
-Export `.bit` + `.hwh` from Vivado, copy both to the board, then:
+> Repo structure for bitstreams not finalised yet. General pattern below.
+
+Export `.bit` + `.hwh` from Vivado (filenames must match), copy to the board:
 
 ```python
 from pynq import Overlay, allocate
 import numpy as np
 
 ol = Overlay("design.bit", download=True)
-
-# Auto-discovered IPs (names from block design)
-ol.my_ip.mmio.write(0x0, 0x1)         # MMIO register write
-val = ol.my_ip.mmio.read(0x0)         # MMIO register read
-
-# DMA
+ol.my_ip.mmio.write(0x0, 0x1)
 buf = allocate(shape=(64,), dtype=np.uint32)
-ol.axi_dma_0.sendchannel.transfer(buf)
-ol.axi_dma_0.sendchannel.wait()
 ```
 
-The `.hwh` filename must match the `.bit` filename (e.g. `design.bit` + `design.hwh`). PYNQ parses the `.hwh` to discover IPs, addresses, and DMA channels.
-
-### Installing additional Python packages
-
-The venv is owned by `ubuntu`, so no sudo needed for pip:
+### Install additional packages
 
 ```bash
+source /opt/ee4218/venv/bin/activate
 pip install some-package
 ```
 
 ### After a reboot
 
-The PYNQ device tree overlay (`pynq.dtbo`) is re-inserted automatically on login via the profile script. If running scripts without an interactive login, source the profile first (see above).
+The PYNQ device tree overlay (`pynq.dtbo`) and ZOCL kernel module are re-loaded automatically on the first interactive login via `/etc/profile.d/ee4218.sh`. For non-interactive use:
+
+```bash
+sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/venv/bin/python3 my_script.py'
+```
 
 ## Adding Packages Later
 

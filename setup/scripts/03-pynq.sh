@@ -168,12 +168,12 @@ echo "Setting venv ownership to $BOARD_USER..."
 chown -R "$BOARD_USER:$BOARD_USER" /opt/ee4218
 
 # ── Environment variables + dtbo auto-load ───────────────────────────
+# Written to /etc/profile.d/ so they are set on every interactive login.
+# The venv is NOT auto-activated — activate manually when needed.
 echo "Writing $PROFILE_SCRIPT..."
 cat > "$PROFILE_SCRIPT" << PROFILE
 export BOARD=KV260
 export XILINX_XRT=/usr
-export VIRTUAL_ENV=/opt/ee4218/venv
-export PATH="/opt/ee4218/venv/bin:\$PATH"
 
 # Load PYNQ device tree overlay and ZOCL if not already active
 if [ ! -d /sys/kernel/config/device-tree/overlays/pynq ] && [ -f $PYNQ_DTS_DIR/pynq.dtbo ]; then
