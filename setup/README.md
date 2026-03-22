@@ -169,7 +169,7 @@ source /opt/ee4218/ee4218-venv/bin/activate
 PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Use the full venv path with `sudo` (`sudo` resets `PATH`, so `sudo python3` would use system Python):
 
 ```bash
-sudo /opt/ee4218/ee4218-venv/bin/python3 my_script.py
+sudo /opt/ee4218/ee4218-venv/bin/python3 <script>.py
 ```
 
 ### Loading a bitstream (WIP)
@@ -182,8 +182,8 @@ Export `.bit` + `.hwh` from Vivado (filenames must match), copy to the board:
 from pynq import Overlay, allocate
 import numpy as np
 
-ol = Overlay("design.bit", download=True)
-ol.my_ip.mmio.write(0x0, 0x1)
+ol = Overlay("<design>.bit", download=True)
+ol.<ip_name>.mmio.write(0x0, 0x1)
 buf = allocate(shape=(64,), dtype=np.uint32)
 ```
 
@@ -191,7 +191,7 @@ buf = allocate(shape=(64,), dtype=np.uint32)
 
 ```bash
 source /opt/ee4218/ee4218-venv/bin/activate
-pip install some-package
+pip install <package>
 ```
 
 ### After a reboot
@@ -199,7 +199,7 @@ pip install some-package
 The PYNQ device tree overlay (`pynq.dtbo`) and ZOCL kernel module are re-loaded automatically on the first interactive login via `/etc/profile.d/ee4218.sh`. For non-interactive use:
 
 ```bash
-sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/ee4218-venv/bin/python3 my_script.py'
+sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/ee4218-venv/bin/python3 <script>.py'
 ```
 
 ## Adding Packages Later
