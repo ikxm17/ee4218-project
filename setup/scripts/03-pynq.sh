@@ -10,7 +10,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 APT_OPTS=(-y -o Dpkg::Options::="--force-confold")
 
-VENV_DIR="/opt/ee4218/venv"
+VENV_DIR="/opt/ee4218/ee4218-venv"
 PROFILE_SCRIPT="/etc/profile.d/ee4218.sh"
 XOCL_FILE="/etc/xocl.txt"
 PYNQ_DTS_DIR="/usr/local/share/pynq-dts"

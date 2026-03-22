@@ -120,7 +120,7 @@ This runs all setup scripts in order:
 | `00-preflight.sh` | Checks arch, OS, disk, network |
 | `01-system-base.sh` | apt update/upgrade + essential packages |
 | `02-tailscale.sh` | Installs Tailscale VPN |
-| `03-pynq.sh` | PYNQ framework + shared Python venv at `/opt/ee4218/venv` |
+| `03-pynq.sh` | PYNQ framework + shared Python venv at `/opt/ee4218/ee4218-venv` |
 | `99-verify.sh` | Smoke tests |
 
 **Skip a step** (by name or number):
@@ -156,12 +156,12 @@ All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if aut
 
 ## Using the PYNQ Environment
 
-PYNQ and dependencies are installed in a Python venv at `/opt/ee4218/venv`. Board environment variables (`BOARD`, `XILINX_XRT`) and the PYNQ device tree overlay are set up automatically on interactive login via `/etc/profile.d/ee4218.sh`.
+PYNQ and dependencies are installed in a Python venv at `/opt/ee4218/ee4218-venv`. Board environment variables (`BOARD`, `XILINX_XRT`) and the PYNQ device tree overlay are set up automatically on interactive login via `/etc/profile.d/ee4218.sh`.
 
 ### Activate the venv
 
 ```bash
-source /opt/ee4218/venv/bin/activate
+source /opt/ee4218/ee4218-venv/bin/activate
 ```
 
 ### Run PYNQ scripts
@@ -169,7 +169,7 @@ source /opt/ee4218/venv/bin/activate
 PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Use the full venv path with `sudo` (`sudo` resets `PATH`, so `sudo python3` would use system Python):
 
 ```bash
-sudo /opt/ee4218/venv/bin/python3 my_script.py
+sudo /opt/ee4218/ee4218-venv/bin/python3 my_script.py
 ```
 
 ### Loading a bitstream (WIP)
@@ -190,7 +190,7 @@ buf = allocate(shape=(64,), dtype=np.uint32)
 ### Install additional packages
 
 ```bash
-source /opt/ee4218/venv/bin/activate
+source /opt/ee4218/ee4218-venv/bin/activate
 pip install some-package
 ```
 
@@ -199,7 +199,7 @@ pip install some-package
 The PYNQ device tree overlay (`pynq.dtbo`) and ZOCL kernel module are re-loaded automatically on the first interactive login via `/etc/profile.d/ee4218.sh`. For non-interactive use:
 
 ```bash
-sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/venv/bin/python3 my_script.py'
+sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/ee4218-venv/bin/python3 my_script.py'
 ```
 
 ## Adding Packages Later

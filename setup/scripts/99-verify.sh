@@ -75,7 +75,7 @@ if [ -n "$TS_IP" ]; then
 fi
 
 # PYNQ venv
-VENV_DIR="/opt/ee4218/venv"
+VENV_DIR="/opt/ee4218/ee4218-venv"
 if [ -x "$VENV_DIR/bin/python3" ]; then
     pass "Python venv exists at $VENV_DIR"
 else
