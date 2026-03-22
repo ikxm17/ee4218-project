@@ -71,7 +71,8 @@ else
 fi
 
 echo "Upgrading pip..."
-"$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel
+# Pin setuptools<=80: pynqutils 0.1.2 requires setuptools<=80
+"$VENV_DIR/bin/pip" install --upgrade pip "setuptools<=80" wheel
 
 # ── PYNQ ─────────────────────────────────────────────────────────────
 echo "Installing PYNQ..."
