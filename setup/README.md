@@ -177,6 +177,8 @@ sudo /opt/ee4218/ee4218-venv/bin/python3 <script>.py
 
 > Repo structure for bitstreams not finalised yet. General pattern below.
 
+> **TODO:** Once the project `.bit` + `.hwh` are available, add an overlay-load smoke test to `03-pynq.sh` to validate the full PYNQ → FPGA pipeline end-to-end. Current validation covers import and device enumeration only.
+
 Export `.bit` + `.hwh` from Vivado (filenames must match), copy to the board:
 
 ```python

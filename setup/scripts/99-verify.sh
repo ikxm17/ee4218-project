@@ -8,6 +8,11 @@ pass() { echo "[PASS] $1"; }
 fail() { echo "[FAIL] $1"; FAIL=1; }
 info() { echo "[INFO] $1"; }
 
+# Source board environment (BOARD, XILINX_XRT, dtbo auto-load)
+# Needed for PYNQ device enumeration in non-interactive shells.
+# shellcheck disable=SC1091
+source /etc/profile.d/ee4218.sh 2>/dev/null || true
+
 echo "=== Verification ==="
 
 # Architecture
@@ -87,6 +92,18 @@ if "$VENV_DIR/bin/python3" -c "from pynq import Overlay" 2>/dev/null; then
     pass "PYNQ importable"
 else
     fail "PYNQ import failed"
+fi
+
+# PYNQ device enumeration (ZOCL driver + device tree overlay)
+PYNQ_DEV=$("$VENV_DIR/bin/python3" -c "
+from pynq import Device
+dev = Device.active_device
+print(dev.name if dev else '')
+" 2>/dev/null)
+if [ -n "$PYNQ_DEV" ]; then
+    pass "PYNQ device enumeration ($PYNQ_DEV)"
+else
+    fail "PYNQ device enumeration failed (ZOCL/dtbo issue)"
 fi
 
 # TFLite Runtime importable

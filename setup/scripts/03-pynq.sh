@@ -186,4 +186,28 @@ PROFILE
 # ── Board identification ─────────────────────────────────────────────
 echo "KV260" > "$XOCL_FILE"
 
+# ── Post-install sanity checks ───────────────────────────────────────
+# Export board vars for PYNQ device discovery (profile was just written
+# above but not sourced in the current shell).
+export BOARD=KV260
+export XILINX_XRT=/usr
+
+echo "Running PYNQ sanity checks..."
+
+# Import check — if this fails, the pip install is broken
+"$VENV_DIR/bin/python3" -c "from pynq import Overlay; print('  import check: OK')"
+
+# Device enumeration — verifies ZOCL driver and device tree overlay
+"$VENV_DIR/bin/python3" -c "
+from pynq import Device
+dev = Device.active_device
+if dev is not None:
+    print(f'  device enumeration: {dev.name}')
+else:
+    print('  device enumeration: no active device (may need reboot)')
+" || echo "  device enumeration: skipped (non-critical)"
+
+# NOTE: Full overlay-load validation (Overlay('.bit')) deferred until
+# project bitstream (.bit + .hwh) is available.
+
 echo "PYNQ framework setup complete."
