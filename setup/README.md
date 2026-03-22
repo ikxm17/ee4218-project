@@ -154,6 +154,58 @@ sudo bash scripts/99-verify.sh
 
 All checks should show `[PASS]`. Tailscale connection is `[INFO]` (passes if authenticated).
 
+## Using the PYNQ Environment
+
+After setup, the board has a Python venv at `/opt/ee4218/venv` with PYNQ installed. The venv auto-activates on interactive login via `/etc/profile.d/ee4218.sh`.
+
+### Running PYNQ scripts
+
+PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Always use `sudo`:
+
+```bash
+sudo python3 my_script.py
+```
+
+For non-interactive sessions (e.g. from a remote command), source the environment first:
+
+```bash
+sudo bash -c 'source /etc/profile.d/ee4218.sh && python3 my_script.py'
+```
+
+### Loading a bitstream
+
+Export `.bit` + `.hwh` from Vivado, copy both to the board, then:
+
+```python
+from pynq import Overlay, allocate
+import numpy as np
+
+ol = Overlay("design.bit", download=True)
+
+# Auto-discovered IPs (names from block design)
+ol.my_ip.mmio.write(0x0, 0x1)         # MMIO register write
+val = ol.my_ip.mmio.read(0x0)         # MMIO register read
+
+# DMA
+buf = allocate(shape=(64,), dtype=np.uint32)
+ol.axi_dma_0.sendchannel.transfer(buf)
+ol.axi_dma_0.sendchannel.wait()
+```
+
+The `.hwh` filename must match the `.bit` filename (e.g. `design.bit` + `design.hwh`). PYNQ parses the `.hwh` to discover IPs, addresses, and DMA channels.
+
+### Installing additional Python packages
+
+The venv is owned by `ubuntu`, so no sudo needed for pip:
+
+```bash
+pip install some-package
+```
+
+### After a reboot
+
+The PYNQ device tree overlay (`pynq.dtbo`) is re-inserted automatically on login via the profile script. If running scripts without an interactive login, source the profile first (see above).
+
 ## Adding Packages Later
 
 The orchestrator (`setup.sh`) runs `scripts/[0-9]*.sh` in sorted order. Each script:
