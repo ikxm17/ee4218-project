@@ -126,11 +126,11 @@ This runs all setup scripts in order:
 | `04-tflite.sh` | TFLite Runtime for software inference on A53 |
 | `99-verify.sh` | Smoke tests |
 
-**Skip a step** (by name or number):
+**Skip steps** (by name or number, repeat for multiple):
 
 ```bash
 sudo bash setup.sh --skip <name>
-sudo bash setup.sh --skip <NN>
+sudo bash setup.sh --skip <name> --skip <NN>
 ```
 
 **Re-run a single step:**

@@ -81,8 +81,13 @@ for script in "$SCRIPTS_DIR"/[0-9]*.sh; do
         echo "To re-run this step individually:"
         echo "  sudo bash $script"
         echo ""
+        # Build resume command with all previous skips + failed step
+        RESUME_SKIPS="--skip $name"
+        for key in "${!SKIP[@]}"; do
+            RESUME_SKIPS="$RESUME_SKIPS --skip $key"
+        done
         echo "To resume from the next step, re-run with:"
-        echo "  sudo bash $SCRIPT_DIR/setup.sh --skip $name"
+        echo "  sudo bash $SCRIPT_DIR/setup.sh $RESUME_SKIPS"
         exit 1
     fi
     echo ""
