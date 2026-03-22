@@ -65,6 +65,8 @@ Host kria
 
 This probes the local IP first — if reachable, it connects directly. Otherwise it falls back to the Tailscale IP. Replace `<LOCAL_IP>` with the board's static IP (e.g. `192.168.1.101`) and `<TAILSCALE_IP>` with the IP shown after running `sudo tailscale up` on the board.
 
+> The Tailscale fallback requires `tailscale up` on your host machine too (same Tailnet).
+
 For multiple boards, repeat the pattern with different host aliases and IPs:
 
 ```ssh-config
