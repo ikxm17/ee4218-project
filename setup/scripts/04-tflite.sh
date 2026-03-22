@@ -23,14 +23,14 @@ fi
 
 # Quick import sanity check
 "$VENV_DIR/bin/python3" -c \
-    "import tflite_runtime.interpreter as tflite; print('tflite-runtime', tflite_runtime.__version__, 'OK')"
+    "import tflite_runtime; import tflite_runtime.interpreter; print('tflite-runtime', tflite_runtime.__version__, 'OK')"
 
 # ── Inference smoke test ─────────────────────────────────────────────
 # Download a pre-built quantized MobileNet V1, run inference with
 # random input, and verify we get output with the expected shape.
 echo "Running inference smoke test..."
 wget -q "$SMOKE_URL" -O /tmp/mobilenet_quant.tgz
-tar xzf /tmp/mobilenet_quant.tgz -C /tmp mobilenet_v1_1.0_224_quant.tflite
+tar xzf /tmp/mobilenet_quant.tgz -C /tmp --wildcards '*.tflite'
 "$VENV_DIR/bin/python3" - "$SMOKE_MODEL" <<'PYEOF'
 import sys, numpy as np
 import tflite_runtime.interpreter as tflite
