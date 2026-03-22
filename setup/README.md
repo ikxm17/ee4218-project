@@ -121,6 +121,7 @@ This runs all setup scripts in order:
 | `01-system-base.sh` | apt update/upgrade + essential packages |
 | `02-tailscale.sh` | Installs Tailscale VPN |
 | `03-pynq.sh` | PYNQ framework + shared Python venv at `/opt/ee4218/ee4218-venv` |
+| `04-tflite.sh` | TFLite Runtime for software inference on A53 |
 | `99-verify.sh` | Smoke tests |
 
 **Skip a step** (by name or number):
@@ -202,6 +203,31 @@ The PYNQ device tree overlay (`pynq.dtbo`) and ZOCL kernel module are re-loaded 
 sudo bash -c 'source /etc/profile.d/ee4218.sh && /opt/ee4218/ee4218-venv/bin/python3 <script>.py'
 ```
 
+## Using TFLite Runtime
+
+TFLite Runtime (`tflite-runtime==2.14.0`) is installed in the same shared venv. It provides the interpreter for running `.tflite` models on the A53 cores using XNNPACK with int8 NEON-optimized kernels.
+
+### Run inference
+
+```bash
+sudo /opt/ee4218/ee4218-venv/bin/python3 <inference_script>.py
+```
+
+```python
+import tflite_runtime.interpreter as tflite
+import numpy as np
+
+interpreter = tflite.Interpreter(model_path="<model>_int8.tflite", num_threads=4)
+interpreter.allocate_tensors()
+
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+interpreter.set_tensor(input_details[0]['index'], input_image)
+interpreter.invoke()
+detections = interpreter.get_tensor(output_details[0]['index'])
+```
+
 ## Adding Packages Later
 
 The orchestrator (`setup.sh`) runs `scripts/[0-9]*.sh` in sorted order. Each script:
@@ -226,6 +252,7 @@ setup/
 │   ├── 01-system-base.sh          # Base packages
 │   ├── 02-tailscale.sh            # Tailscale VPN
 │   ├── 03-pynq.sh                 # PYNQ framework + Python venv
+│   ├── 04-tflite.sh               # TFLite Runtime
 │   └── 99-verify.sh               # Smoke tests
 └── config/
     └── netplan-static.yaml.tpl    # Netplan template

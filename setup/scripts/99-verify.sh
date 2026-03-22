@@ -89,6 +89,14 @@ else
     fail "PYNQ import failed"
 fi
 
+# TFLite Runtime importable
+if "$VENV_DIR/bin/python3" -c "import tflite_runtime" 2>/dev/null; then
+    TFLITE_VER=$("$VENV_DIR/bin/python3" -c "import tflite_runtime; print(tflite_runtime.__version__)" 2>/dev/null)
+    pass "TFLite Runtime importable ($TFLITE_VER)"
+else
+    fail "TFLite Runtime import failed"
+fi
+
 # FPGA manager
 if [ -d /sys/class/fpga_manager/ ]; then
     pass "FPGA manager sysfs accessible"
