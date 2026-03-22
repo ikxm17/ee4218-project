@@ -120,6 +120,7 @@ This runs all setup scripts in order:
 | `00-preflight.sh` | Checks arch, OS, disk, network |
 | `01-system-base.sh` | apt update/upgrade + essential packages |
 | `02-tailscale.sh` | Installs Tailscale VPN |
+| `03-pynq.sh` | PYNQ framework + shared Python venv at `/opt/ee4218/venv` |
 | `99-verify.sh` | Smoke tests |
 
 **Skip a step** (by name or number):
@@ -176,6 +177,7 @@ setup/
 │   ├── 00-preflight.sh            # Pre-flight checks
 │   ├── 01-system-base.sh          # Base packages
 │   ├── 02-tailscale.sh            # Tailscale VPN
+│   ├── 03-pynq.sh                 # PYNQ framework + Python venv
 │   └── 99-verify.sh               # Smoke tests
 └── config/
     └── netplan-static.yaml.tpl    # Netplan template

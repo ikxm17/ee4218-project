@@ -74,6 +74,42 @@ if [ -n "$TS_IP" ]; then
     info "Tailscale IP: $TS_IP"
 fi
 
+# PYNQ venv
+VENV_DIR="/opt/ee4218/venv"
+if [ -x "$VENV_DIR/bin/python3" ]; then
+    pass "Python venv exists at $VENV_DIR"
+else
+    fail "Python venv not found at $VENV_DIR"
+fi
+
+# PYNQ importable
+if "$VENV_DIR/bin/python3" -c "from pynq import Overlay" 2>/dev/null; then
+    pass "PYNQ importable"
+else
+    fail "PYNQ import failed"
+fi
+
+# FPGA manager
+if [ -d /sys/class/fpga_manager/ ]; then
+    pass "FPGA manager sysfs accessible"
+else
+    fail "FPGA manager sysfs not found"
+fi
+
+# /dev/mem
+if [ -c /dev/mem ]; then
+    pass "/dev/mem character device exists"
+else
+    fail "/dev/mem not found"
+fi
+
+# BOARD env var (needs re-login to take effect)
+if [ "${BOARD:-}" = "KV260" ]; then
+    pass "BOARD=KV260 set"
+else
+    info "BOARD variable not set (re-login or: source /etc/profile.d/ee4218.sh)"
+fi
+
 echo ""
 if [ "$FAIL" -ne 0 ]; then
     echo "Some checks FAILED."
