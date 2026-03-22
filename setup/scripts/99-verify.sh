@@ -103,6 +103,20 @@ else
     fail "/dev/mem not found"
 fi
 
+# ZOCL / renderD128
+if [ -c /dev/dri/renderD128 ]; then
+    pass "ZOCL renderD128 device exists"
+else
+    fail "ZOCL renderD128 not found (pynq.dtbo may not be loaded)"
+fi
+
+# xclbinutil
+if /usr/local/bin/xclbinutil --version &>/dev/null; then
+    pass "xclbinutil working"
+else
+    fail "xclbinutil missing or broken"
+fi
+
 # BOARD env var (needs re-login to take effect)
 if [ "${BOARD:-}" = "KV260" ]; then
     pass "BOARD=KV260 set"
