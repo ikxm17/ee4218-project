@@ -124,6 +124,7 @@ This runs all setup scripts in order:
 | `02-tailscale.sh` | Installs Tailscale VPN |
 | `03-pynq.sh` | PYNQ framework + shared Python venv at `/opt/ee4218/ee4218-venv` |
 | `04-tflite.sh` | TFLite Runtime for software inference on A53 |
+| `05-onnxruntime.sh` | ONNX Runtime for software inference on A53 |
 | `99-verify.sh` | Smoke tests |
 
 **Skip steps** (by name or number, repeat for multiple):
@@ -232,6 +233,26 @@ interpreter.invoke()
 detections = interpreter.get_tensor(output_details[0]['index'])
 ```
 
+## Using ONNX Runtime
+
+ONNX Runtime (`onnxruntime==1.23.2`) is installed in the same shared venv. It provides an inference session for running `.onnx` models on the A53 cores via the CPUExecutionProvider.
+
+### Run inference
+
+```bash
+sudo /opt/ee4218/ee4218-venv/bin/python3 <inference_script>.py
+```
+
+```python
+import onnxruntime as ort
+import numpy as np
+
+session = ort.InferenceSession("<model>.onnx")
+inp = session.get_inputs()[0]
+
+result = session.run(None, {inp.name: input_image})[0]
+```
+
 ## Adding Packages Later
 
 The orchestrator (`setup.sh`) runs `scripts/[0-9]*.sh` in sorted order. Each script:
@@ -257,6 +278,7 @@ setup/
 │   ├── 02-tailscale.sh            # Tailscale VPN
 │   ├── 03-pynq.sh                 # PYNQ framework + Python venv
 │   ├── 04-tflite.sh               # TFLite Runtime
+│   ├── 05-onnxruntime.sh          # ONNX Runtime
 │   └── 99-verify.sh               # Smoke tests
 └── config/
     └── netplan-static.yaml.tpl    # Netplan template

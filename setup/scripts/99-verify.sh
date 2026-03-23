@@ -114,6 +114,14 @@ else
     fail "TFLite Runtime import failed"
 fi
 
+# ONNX Runtime importable
+if "$VENV_DIR/bin/python3" -c "import onnxruntime" 2>/dev/null; then
+    ORT_VER=$("$VENV_DIR/bin/python3" -c "import onnxruntime; print(onnxruntime.__version__)" 2>/dev/null)
+    pass "ONNX Runtime importable ($ORT_VER)"
+else
+    fail "ONNX Runtime import failed"
+fi
+
 # FPGA manager
 if [ -d /sys/class/fpga_manager/ ]; then
     pass "FPGA manager sysfs accessible"
