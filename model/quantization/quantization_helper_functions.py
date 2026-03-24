@@ -261,7 +261,8 @@ def measure_clipping_rate(
     # ── Build batch_size=1 loader to avoid static reshape issue ──────────────
     def _collate_f32(batch):
         result = YOLODataset.collate_fn(batch)
-        result["img"] = result["img"].float() / 255.0
+        # result["img"] = result["img"].float() / 255.0 # oops currently feeding FP32 to first layer
+        result["img"] = (result["img"].to(torch.int16) - 128).to(torch.float32) # convert to INT8 format instead
         return result
 
     single_loader = DataLoader(
