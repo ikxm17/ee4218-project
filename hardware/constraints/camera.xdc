@@ -7,8 +7,11 @@
 #   Split constraints by subsystem (camera.xdc, timing.xdc, system.xdc, etc.)
 #   and add each to the project. No #include needed — Vivado concatenates them.
 #
-# Source: KV260 v2 carrier board schematic (038-05058-03-A1), page 13
-#         "ISP, IAS, and RPI" section — RPi camera connector J9 (15-pin FFC)
+# Sources:
+#   - KV260 v2 carrier board schematic (038-05058-03-A1), page 13
+#     "ISP, IAS, and RPI" section — RPi camera connector J9 (15-pin FFC)
+#   - Kria K26 SOM Data Sheet (DS987 v1.5), Table 11 — SOM240_1 connector pinout
+#   - FPGA pin verified against AMD kria-vitis-platforms (xlnx_rel_v2022.1)
 #
 # MIPI pin LOCs are configured inside the MIPI CSI-2 RX IP via its
 # CLK_LANE_IO_LOC, DATA_LANE0_IO_LOC, DATA_LANE1_IO_LOC properties.
@@ -35,32 +38,39 @@ set_property IOSTANDARD  LVCMOS18 [get_ports {cam_pwren}]
 # ---------------------------------------------------------------------------
 # These are auto-constrained by the CSI-2 RX IP when configured with:
 #   HP_IO_BANK_SELECTION = 66
-#   CLK_LANE_IO_LOC      = J5
-#   DATA_LANE0_IO_LOC    = K8
-#   DATA_LANE1_IO_LOC    = L7
+#   CLK_LANE_IO_LOC      = D7   (IO_L13P_T2L_N0_GC_QBC_66)
+#   DATA_LANE0_IO_LOC    = E5   (IO_L14P_T2L_N2_GC_66)
+#   DATA_LANE1_IO_LOC    = G6   (IO_L15P_T2L_N4_AD11P_66)
 #
-# Pin mapping (schematic page 13, RPi camera connector J9):
+# NOTE: The IAS camera connector (U34A / AP1302 image co-processor) uses
+# different pins on the same bank: G1/E1/F2 (byte lane 0, T0L). Do NOT
+# confuse with the RPi connector which uses byte lane 2 (T2L).
+#
+# Pin mapping (schematic 038-05058-03-A1 page 13 + DS987 Table 11):
+# Schematic traces J9 → SOM240_1 connector signal names (HPA*).
+# DS987 Table 11 maps SOM240_1 pin positions to HPA signal names.
+# FPGA pins verified against AMD kria-vitis-platforms (xlnx_rel_v2022.1).
 #
 #   J9 Pin | Schematic Signal | SOM240_1 | FPGA Pin | Function
 #   -------+------------------+----------+----------+-----------------
-#      8   | HPA10_CC_P       | C12      | J5       | MIPI CLK lane +
-#      9   | HPA10_CC_N       | C13      | H5       | MIPI CLK lane -
-#      5   | HPA11_P          | B10      | K8       | MIPI Data 0 +
-#      4   | HPA11_N          | B11      | J8       | MIPI Data 0 -
-#      7   | HPA12_P          | A9       | L7       | MIPI Data 1 +
-#      6   | HPA12_N          | A10      | L8       | MIPI Data 1 -
+#      8   | HPA10_CC_P       | C12      | D7       | MIPI CLK lane +
+#      9   | HPA10_CC_N       | C13      | C7       | MIPI CLK lane -
+#      5   | HPA11_P          | B10      | E5       | MIPI Data 0 +
+#      4   | HPA11_N          | B11      | D5       | MIPI Data 0 -
+#      7   | HPA12_P          | A9       | G6       | MIPI Data 1 +
+#      6   | HPA12_N          | A10      | F6       | MIPI Data 1 -
 #
-# HPA10_CC is a clock-capable (CC) pair — required for the MIPI clock lane.
-# The D-PHY uses sub-LVDS signaling at 1.2V, handled internally by the IP.
-# No IOSTANDARD constraint is needed — the D-PHY primitives set it.
+# HPA10_CC is a clock-capable (GC_QBC) pair — required for the MIPI clock
+# lane. The D-PHY uses sub-LVDS signaling at 1.2V, handled internally by
+# the IP. No IOSTANDARD constraint is needed — the D-PHY primitives set it.
 #
 # Uncomment ONLY if the IP's auto-generated constraints are insufficient:
-# set_property PACKAGE_PIN J5 [get_ports {mipi_phy_if_clk_p}]
-# set_property PACKAGE_PIN H5 [get_ports {mipi_phy_if_clk_n}]
-# set_property PACKAGE_PIN K8 [get_ports {mipi_phy_if_data_p[0]}]
-# set_property PACKAGE_PIN J8 [get_ports {mipi_phy_if_data_n[0]}]
-# set_property PACKAGE_PIN L7 [get_ports {mipi_phy_if_data_p[1]}]
-# set_property PACKAGE_PIN L8 [get_ports {mipi_phy_if_data_n[1]}]
+# set_property PACKAGE_PIN D7 [get_ports {mipi_phy_if_clk_p}]
+# set_property PACKAGE_PIN C7 [get_ports {mipi_phy_if_clk_n}]
+# set_property PACKAGE_PIN E5 [get_ports {mipi_phy_if_data_p[0]}]
+# set_property PACKAGE_PIN D5 [get_ports {mipi_phy_if_data_n[0]}]
+# set_property PACKAGE_PIN G6 [get_ports {mipi_phy_if_data_p[1]}]
+# set_property PACKAGE_PIN F6 [get_ports {mipi_phy_if_data_n[1]}]
 
 
 # ---------------------------------------------------------------------------
