@@ -11,7 +11,7 @@
 #   - KV260 v2 carrier board schematic (038-05058-03-A1), page 13
 #     "ISP, IAS, and RPI" section — RPi camera connector J9 (15-pin FFC)
 #   - Kria K26 SOM Data Sheet (DS987 v1.5), Table 11 — SOM240_1 connector pinout
-#   - FPGA pin verified against AMD kria-vitis-platforms (xlnx_rel_v2022.1)
+#   - K26 SOM XDC (XTP685, Kria_K26_SOM_Rev1.xdc) — SOM240 pin → FPGA package pin
 #
 # MIPI pin LOCs are configured inside the MIPI CSI-2 RX IP via its
 # CLK_LANE_IO_LOC, DATA_LANE0_IO_LOC, DATA_LANE1_IO_LOC properties.
@@ -46,15 +46,15 @@ set_property IOSTANDARD  LVCMOS18 [get_ports {cam_pwren}]
 # different pins on the same bank: G1/E1/F2 (byte lane 0, T0L). Do NOT
 # confuse with the RPi connector which uses byte lane 2 (T2L).
 #
-# Pin mapping (schematic 038-05058-03-A1 page 13 + DS987 Table 11):
-# Schematic traces J9 → SOM240_1 connector signal names (HPA*).
-# DS987 Table 11 maps SOM240_1 pin positions to HPA signal names.
-# FPGA pins verified against AMD kria-vitis-platforms (xlnx_rel_v2022.1).
+# Pin mapping (schematic page 13 → DS987 Table 11 → K26 XDC):
+#   Schematic: J9 pin → SOM240_1 connector signal name (HPA*)
+#   DS987 Table 11: SOM240_1 pin position → signal name
+#   K26 XDC (XTP685): SOM240_1 pin → FPGA package pin (Bank 66)
 #
 #   J9 Pin | Schematic Signal | SOM240_1 | FPGA Pin | Function
 #   -------+------------------+----------+----------+-----------------
 #      8   | HPA10_CC_P       | C12      | D7       | MIPI CLK lane +
-#      9   | HPA10_CC_N       | C13      | C7       | MIPI CLK lane -
+#      9   | HPA10_CC_N       | C13      | D6       | MIPI CLK lane -
 #      5   | HPA11_P          | B10      | E5       | MIPI Data 0 +
 #      4   | HPA11_N          | B11      | D5       | MIPI Data 0 -
 #      7   | HPA12_P          | A9       | G6       | MIPI Data 1 +
@@ -66,7 +66,7 @@ set_property IOSTANDARD  LVCMOS18 [get_ports {cam_pwren}]
 #
 # Uncomment ONLY if the IP's auto-generated constraints are insufficient:
 # set_property PACKAGE_PIN D7 [get_ports {mipi_phy_if_clk_p}]
-# set_property PACKAGE_PIN C7 [get_ports {mipi_phy_if_clk_n}]
+# set_property PACKAGE_PIN D6 [get_ports {mipi_phy_if_clk_n}]
 # set_property PACKAGE_PIN E5 [get_ports {mipi_phy_if_data_p[0]}]
 # set_property PACKAGE_PIN D5 [get_ports {mipi_phy_if_data_n[0]}]
 # set_property PACKAGE_PIN G6 [get_ports {mipi_phy_if_data_p[1]}]
