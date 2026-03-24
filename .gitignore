@@ -45,6 +45,8 @@ xvlog.*
 *.backup.*
 *.debug
 *.gen
+*.dcp
+**/utils_1/
 
 unisims
 
