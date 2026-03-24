@@ -60,3 +60,10 @@ _ide/
 # Vivado export artifacts
 hardware/output/*
 !hardware/output/.gitkeep
+
+# Vivado block design transient files
+*.bda
+**/bd/*/ui/
+
+# Python
+__pycache__/
