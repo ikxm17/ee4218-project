@@ -1,8 +1,9 @@
 """Frame acquisition abstraction for camera pipeline.
 
-Provides a TestFrameSource (synthetic patterns) and a stubbed
-HardwareFrameSource (PYNQ overlay + DDR buffers). The hardware
-source falls back to test mode if the overlay cannot be loaded.
+Provides a TestFrameSource (synthetic patterns) and a
+HardwareFrameSource (PYNQ overlay + DDR buffers via CameraOverlay).
+The hardware source falls back to test mode if the overlay cannot
+be loaded or PYNQ is unavailable.
 """
 
 from abc import ABC, abstractmethod
@@ -92,49 +93,34 @@ class TestFrameSource(FrameSource):
 class HardwareFrameSource(FrameSource):
     """Reads frames from PYNQ-allocated DDR buffers via the camera overlay.
 
-    Register offsets and buffer configuration are TBD until the block
-    design is built in Vivado. This class will be fleshed out after
-    bitstream generation.
+    Delegates to CameraOverlay (software/overlay/camera.py) which handles
+    the full initialization sequence: overlay load, GPIO power enable,
+    IMX219 I2C init, CMA buffer allocation, PL IP configuration, and
+    streaming start.
     """
 
     def __init__(self, overlay_path: str) -> None:
-        from pynq import Overlay  # noqa: F811
+        from software.overlay import CameraOverlay
 
-        logger.info("Loading overlay from %s", overlay_path)
-        self._overlay = Overlay(overlay_path)
-        logger.info("Overlay loaded. IPs: %s", list(self._overlay.ip_dict.keys()))
-
-        # TODO: allocate CMA buffers for Multi-Scaler outputs
-        # self._viz_buf = allocate(shape=(720, 1280, 3), dtype=np.uint8)
-        # self._inf_buf = allocate(shape=(256, 256, 3), dtype=np.uint8)
-
-        # TODO: configure VDMA and Multi-Scaler registers via MMIO
-        # - Set VDMA frame store addresses, stride, dimensions
-        # - Set Multi-Scaler source/dest addresses, output resolutions
-        # See PG020 (VDMA) and PG325 (Multi-Scaler) for register maps
+        logger.info("Initializing camera pipeline from %s", overlay_path)
+        self._camera = CameraOverlay(overlay_path)
+        logger.info("Camera pipeline active")
 
     @property
     def mode(self) -> str:
         return "hardware"
 
     def get_frame(self, buffer: str = "viz") -> np.ndarray:
-        # TODO: return numpy view of the appropriate CMA buffer
-        # For now, raise to trigger fallback to TestFrameSource
-        raise NotImplementedError(
-            "HardwareFrameSource.get_frame not yet implemented — "
-            "waiting for block design and bitstream"
-        )
+        return self._camera.get_frame(buffer)
 
     def set_gamma_bypass(self, bypass: bool) -> None:
-        # TODO: write to Gamma LUT AXI4-Lite bypass register
-        # The register offset will be determined from the .hwh file
-        # after the block design is built
+        self._camera.set_gamma_bypass(bypass)
         logger.info("Gamma bypass set to %s (hardware)", bypass)
 
     def close(self) -> None:
-        if hasattr(self, "_overlay"):
-            self._overlay.free()
-            logger.info("Overlay freed")
+        if hasattr(self, "_camera"):
+            self._camera.close()
+            logger.info("Camera pipeline closed")
 
 
 def create_frame_source() -> FrameSource:

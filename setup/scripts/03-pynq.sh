@@ -161,7 +161,7 @@ echo "Upgrading pip..."
 # Pin pynq==3.0.1: v3.1.2 requires external pyxrt (not in XRT 2.13)
 # Pin pycparser<3: v3.0 removed plyparser module that PYNQ needs
 echo "Installing PYNQ..."
-"$VENV_DIR/bin/pip" install "pynq==3.0.1" "pycparser<3" "numpy==1.26.4"
+"$VENV_DIR/bin/pip" install "pynq==3.0.1" "pycparser<3" "numpy==1.26.4" "smbus2"
 
 # ── Ownership ────────────────────────────────────────────────────────
 echo "Setting venv ownership to $BOARD_USER..."
