@@ -26,11 +26,11 @@ class CameraOverlay:
     """Full camera pipeline: overlay + sensor + IP config + frame capture."""
 
     # IP names as they appear in the block design ip_dict.
-    # These will be verified against the actual .hwh after synthesis.
-    IP_DEMOSAIC = "demosaic"
-    IP_GAMMA = "gamma_lut"
-    IP_VDMA = "vdma_cam"
-    IP_MULTI_SCALER = "multi_scaler"
+    # Verified against tinyissimoyolo.hwh (flat hierarchy, Vivado auto-names).
+    IP_DEMOSAIC = "v_demosaic_0"
+    IP_GAMMA = "v_gamma_lut_0"
+    IP_VDMA = "axi_vdma_0"
+    IP_MULTI_SCALER = "v_multi_scaler_0"
 
     def __init__(self, bitstream_path: str):
         from pynq import GPIO, Overlay
@@ -117,20 +117,13 @@ class CameraOverlay:
         logger.info("Camera pipeline initialized and streaming")
 
     def _resolve_ip(self, name: str):
-        """Find an IP in the overlay by partial name match."""
-        # IP names in the block design may be hierarchical
-        # (e.g., "cam_pipeline/demosaic").  Search by suffix.
-        for key in self._overlay.ip_dict:
-            if key.endswith(name) or name in key:
-                return getattr(self._overlay, key.replace("/", "."))
-        # If exact match fails, try direct attribute access
-        try:
-            return getattr(self._overlay, name)
-        except AttributeError:
+        """Get an IP handle from the overlay by exact name."""
+        if name not in self._overlay.ip_dict:
             available = list(self._overlay.ip_dict.keys())
             raise RuntimeError(
                 f"IP '{name}' not found in overlay. Available: {available}"
             )
+        return getattr(self._overlay, name)
 
     def get_frame(self, buffer: str = "viz") -> np.ndarray:
         """Read the latest frame from a Multi-Scaler output buffer.
