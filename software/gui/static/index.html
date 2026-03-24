@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EE4218 Camera</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: monospace; background: #111; color: #ccc; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 12px; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .header h1 { font-size: 14px; color: #888; }
+  .status { font-size: 12px; color: #666; }
+  .status .live { color: #4a4; }
+  .status .off { color: #a44; }
+
+  .canvas-wrap { background: #000; border: 1px solid #333; display: flex; justify-content: center; }
+  canvas { max-width: 100%; height: auto; image-rendering: pixelated; }
+
+  .controls { display: flex; gap: 12px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .controls button, .controls label {
+    font-family: monospace; font-size: 12px; padding: 4px 10px;
+    background: #222; border: 1px solid #444; color: #ccc; cursor: pointer;
+  }
+  .controls button:hover { background: #333; }
+  .controls button.active { border-color: #6a6; color: #6a6; }
+  .controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .info { margin-left: auto; font-size: 12px; color: #666; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>EE4218 Camera Streamer</h1>
+    <div class="status">
+      <span id="conn-status" class="off">disconnected</span>
+      &middot; <span id="mode">--</span>
+      &middot; <span id="fps-display">0 fps</span>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="canvas" width="1280" height="720"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="btn-viz" class="active" onclick="switchBuffer('viz')">720p viz</button>
+    <button id="btn-inf" onclick="switchBuffer('inference')">256x256 inf</button>
+    <label>
+      <input type="checkbox" id="gamma-bypass" onchange="toggleGamma(this.checked)">
+      gamma bypass
+    </label>
+    <div class="info">
+      <span id="resolution">1280x720</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const connEl = document.getElementById("conn-status");
+const modeEl = document.getElementById("mode");
+const fpsEl = document.getElementById("fps-display");
+const resEl = document.getElementById("resolution");
+
+let ws = null;
+let currentBuffer = "viz";
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let reconnectDelay = 1000;
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(`${proto}//${location.host}/ws/camera`);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => {
+    connEl.textContent = "connected";
+    connEl.className = "live";
+    reconnectDelay = 1000;
+    fetchStatus();
+  };
+
+  ws.onmessage = (e) => {
+    const blob = new Blob([e.data], { type: "image/jpeg" });
+    createImageBitmap(blob).then((bmp) => {
+      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        resEl.textContent = `${bmp.width}x${bmp.height}`;
+      }
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      updateFps();
+    });
+  };
+
+  ws.onclose = () => {
+    connEl.textContent = "disconnected";
+    connEl.className = "off";
+    scheduleReconnect();
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function scheduleReconnect() {
+  setTimeout(() => {
+    reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+    connect();
+  }, reconnectDelay);
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+function switchBuffer(buf) {
+  currentBuffer = buf;
+  send({ action: "switch_buffer", buffer: buf });
+  document.getElementById("btn-viz").classList.toggle("active", buf === "viz");
+  document.getElementById("btn-inf").classList.toggle("active", buf === "inference");
+}
+
+function toggleGamma(bypass) {
+  send({ action: "toggle_gamma", bypass });
+}
+
+function updateFps() {
+  frameCount++;
+  const now = performance.now();
+  const dt = now - lastFpsTime;
+  if (dt >= 1000) {
+    fpsEl.textContent = `${Math.round(frameCount * 1000 / dt)} fps`;
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+}
+
+async function fetchStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    modeEl.textContent = s.mode;
+  } catch { /* ignore */ }
+}
+
+connect();
+</script>
+</body>
+</html>
