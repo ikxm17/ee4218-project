@@ -34,7 +34,7 @@ class CameraOverlay:
     IP_AXI_IIC = "axi_iic_0"
 
     def __init__(self, bitstream_path: str):
-        from pynq import GPIO, Overlay
+        from pynq import DefaultIP, GPIO, Overlay
 
         from . import ip_config
         from .buffers import FrameBuffers
@@ -44,6 +44,17 @@ class CameraOverlay:
         logger.info("Loading overlay from %s", bitstream_path)
         self._overlay = Overlay(bitstream_path)
         logger.info("Overlay loaded. IPs: %s", list(self._overlay.ip_dict.keys()))
+
+        # PYNQ's AxiVDMA driver requires interrupt attributes (s2mm_introut)
+        # that are only populated when the interrupt controller is in the
+        # device tree.  Our overlay doesn't expose the VDMA interrupt via
+        # the device tree (only the AXI IIC has a dtbo node), so the
+        # AxiVDMA.__init__ fails with "'AxiVDMA' object has no attribute
+        # 's2mm_introut'".  Since we configure the VDMA via raw MMIO
+        # registers (ip_config.py), DefaultIP is sufficient.
+        self._overlay._ip_map._description["ip"][self.IP_VDMA][
+            "driver"
+        ] = DefaultIP
 
         # Resolve IP handles
         self._ip_demosaic = self._resolve_ip(self.IP_DEMOSAIC)
