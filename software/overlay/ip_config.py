@@ -162,6 +162,7 @@ def configure_demosaic(ip, width: int = 1920, height: int = 1080) -> None:
 
 GAMMA_WIDTH = 0x10
 GAMMA_HEIGHT = 0x18
+GAMMA_VIDEO_FORMAT = 0x20  # 0=RGB, 1=YUV422, etc.
 
 
 def configure_gamma_lut(
@@ -175,6 +176,7 @@ def configure_gamma_lut(
     """
     ip.write(GAMMA_WIDTH, width)
     ip.write(GAMMA_HEIGHT, height)
+    ip.write(GAMMA_VIDEO_FORMAT, 0)  # RGB (3 components × 10-bit)
 
     if bypass:
         # Don't start the IP — data passes through unmodified
