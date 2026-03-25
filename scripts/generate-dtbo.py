@@ -122,11 +122,12 @@ def generate_node(instance, mod_element, driver_info, irq_map):
     high = int(highaddr, 16)
     size = high - base + 1
 
-    # reg property: <addr_hi addr_lo size_hi size_lo> for 64-bit addressing
+    # reg property: <addr_hi addr_lo size> for ZynqMP amba bus
+    # ZynqMP amba has #address-cells=2, #size-cells=1 (confirmed in base DT)
     addr_hi = (base >> 32) & 0xFFFFFFFF
     addr_lo = base & 0xFFFFFFFF
-    size_hi = (size >> 32) & 0xFFFFFFFF
-    size_lo = size & 0xFFFFFFFF
+    # PL IPs are always below 4 GB, so size fits in one cell
+    reg_size = size & 0xFFFFFFFF
 
     compatible = ", ".join(f'"{c}"' for c in driver_info["compatible"])
 
@@ -138,7 +139,7 @@ def generate_node(instance, mod_element, driver_info, irq_map):
     lines = []
     lines.append(f"    {instance}: {node_name} {{")
     lines.append(f"        compatible = {compatible};")
-    lines.append(f"        reg = <0x{addr_hi:x} 0x{addr_lo:x} 0x{size_hi:x} 0x{size_lo:x}>;")
+    lines.append(f"        reg = <0x{addr_hi:x} 0x{addr_lo:x} 0x{reg_size:x}>;")
 
     # Interrupt
     irq_sig = find_irq_signame(mod_element)
