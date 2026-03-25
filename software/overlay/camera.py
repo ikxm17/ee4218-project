@@ -116,13 +116,28 @@ class CameraOverlay:
         # --- Step 5: Allocate CMA buffers ---
         self._buffers = FrameBuffers()
 
-        # --- Step 6: Configure PL IPs ---
+        # --- Step 6: Configure stream-processing IPs ---
+        # Demosaic and Gamma LUT must be running before data arrives so
+        # they assert tready on the AXI4-Stream bus.
         ip_config.configure_demosaic(self._ip_demosaic)
         # Gamma LUT must be started for data to flow through the inline
         # AXI4-Stream path (HLS IPs hold tready low when idle).  Use a
         # linear 1:1 LUT for transparent passthrough.
         ip_config.configure_gamma_lut(self._ip_gamma, bypass=False)
 
+        # --- Step 7: Start streaming + D-PHY lock ---
+        # Start the sensor and lock the D-PHY BEFORE starting the VDMA.
+        # This ensures the VDMA sees a clean, aligned stream from the
+        # first SOF — starting the VDMA before the stream is established
+        # causes EOL/SOF framing errors from transient startup artifacts.
+        self._i2c.start_streaming()
+        time.sleep(0.010)
+        ip_config.reset_csi2_rx(self._ip_csi2)
+
+        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
+        status = ip_config.read_csi2_status(self._ip_csi2)
+
+        # --- Step 8: Start VDMA (after stream is established) ---
         ip_config.configure_vdma_s2mm(
             self._ip_vdma,
             frame_addrs=self._buffers.vdma_phys_addrs,
@@ -131,6 +146,7 @@ class CameraOverlay:
             stride=self._buffers.vdma_stride,
         )
 
+        # --- Step 9: Start Multi-Scaler ---
         ip_config.configure_multi_scaler(
             self._ip_scaler,
             src_addr=self._buffers.vdma_phys_addrs[0],
@@ -152,21 +168,6 @@ class CameraOverlay:
                 },
             ],
         )
-
-        # --- Step 7: Start streaming ---
-        self._i2c.start_streaming()
-
-        # Give the sensor time to start its MIPI clock lane
-        time.sleep(0.010)
-
-        # --- Step 8: CSI-2 RX D-PHY re-sync ---
-        # Soft-reset the CSI-2 RX now that the sensor's clock lane is active.
-        # This forces a fresh D-PHY synchronization attempt.
-        ip_config.reset_csi2_rx(self._ip_csi2)
-
-        # --- Step 9: Wait for D-PHY lock ---
-        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
-        status = ip_config.read_csi2_status(self._ip_csi2)
 
         if not locked:
             logger.error(

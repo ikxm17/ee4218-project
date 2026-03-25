@@ -221,6 +221,7 @@ def set_gamma_bypass(ip, bypass: bool) -> None:
 
 S2MM_DMACR = 0x30
 S2MM_DMASR = 0x34
+S2MM_FRMSTORE = 0x48  # Number of frame stores (1-32)
 S2MM_VSIZE = 0xA0
 S2MM_HSIZE = 0xA4
 S2MM_FRMDLY_STRIDE = 0xA8
@@ -251,6 +252,9 @@ def configure_vdma_s2mm(
     while ip.read(S2MM_DMACR) & 0x04:
         pass  # Wait for reset to clear
 
+    # Set number of frame stores
+    ip.write(S2MM_FRMSTORE, len(frame_addrs))
+
     # Set frame store addresses
     for i, addr in enumerate(frame_addrs):
         ip.write(S2MM_START_ADDR_BASE + i * 4, addr)
@@ -260,6 +264,9 @@ def configure_vdma_s2mm(
 
     # Set horizontal size in bytes
     ip.write(S2MM_HSIZE, width_bytes)
+
+    # Clear any stale error bits in DMASR (write-1-to-clear)
+    ip.write(S2MM_DMASR, 0x00007190)
 
     # Run in circular mode (continuous frame capture)
     ip.write(S2MM_DMACR, 0x03)  # RS=1, Circular=1
@@ -274,18 +281,30 @@ def configure_vdma_s2mm(
 
 
 def read_vdma_status(ip) -> dict:
-    """Read VDMA S2MM status register for debugging."""
+    """Read VDMA S2MM status register for debugging.
+
+    Bit positions from PG020 Table 2-19 (S2MM_DMASR).
+    """
     sr = ip.read(S2MM_DMASR)
-    return {
+    status = {
+        "raw": sr,
         "halted": bool(sr & 0x01),
         "idle": bool(sr & 0x02),
         "err_internal": bool(sr & (1 << 4)),
         "err_slave": bool(sr & (1 << 5)),
         "err_decode": bool(sr & (1 << 6)),
-        "err_sof_early": bool(sr & (1 << 7)),
-        "err_sof_late": bool(sr & (1 << 8)),
+        "err_sof_early": bool(sr & (1 << 11)),
+        "err_eol_early": bool(sr & (1 << 12)),
+        "err_sof_late": bool(sr & (1 << 13)),
+        "err_eol_late": bool(sr & (1 << 14)),
         "frame_count": (sr >> 16) & 0xFF,
     }
+    logger.info(
+        "VDMA S2MM status: 0x%08X frames=%d errs=%s",
+        sr, status["frame_count"],
+        [k for k, v in status.items() if k.startswith("err_") and v],
+    )
+    return status
 
 
 # ---------------------------------------------------------------------------
