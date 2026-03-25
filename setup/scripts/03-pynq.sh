@@ -167,20 +167,42 @@ echo "Installing PYNQ..."
 echo "Setting venv ownership to $BOARD_USER..."
 chown -R "$BOARD_USER:$BOARD_USER" /opt/ee4218
 
-# ── Environment variables + dtbo auto-load ───────────────────────────
-# Written to /etc/profile.d/ so they are set on every interactive login.
-# The venv is NOT auto-activated — activate manually when needed.
+# ── Systemd service for pynq.dtbo at boot ────────────────────────────
+# Load ZOCL + AFI device tree overlay early so PYNQ can program the
+# FPGA via XRT.  This replaces the profile.d approach which only ran
+# on interactive login and had a broken sudo redirect.
+echo "Installing pynq-dtbo systemd service..."
+cat > /etc/systemd/system/pynq-dtbo.service << 'UNIT'
+[Unit]
+Description=Load PYNQ device tree overlay (ZOCL + AFI)
+After=sys-kernel-config.mount
+ConditionPathIsDirectory=!/sys/kernel/config/device-tree/overlays/pynq
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/sbin/modprobe zocl
+ExecStart=/bin/bash -c '\
+    mkdir -p /sys/kernel/config/device-tree/overlays/pynq && \
+    cat /usr/local/share/pynq-dts/pynq.dtbo > /sys/kernel/config/device-tree/overlays/pynq/dtbo'
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable pynq-dtbo.service
+
+# Start it now if not already loaded
+if [ ! -d /sys/kernel/config/device-tree/overlays/pynq ]; then
+    systemctl start pynq-dtbo.service
+fi
+
+# ── Environment variables ────────────────────────────────────────────
+# Board identification and XRT path for PYNQ device discovery.
 echo "Writing $PROFILE_SCRIPT..."
-cat > "$PROFILE_SCRIPT" << PROFILE
+cat > "$PROFILE_SCRIPT" << 'PROFILE'
 export BOARD=KV260
 export XILINX_XRT=/usr
-
-# Load PYNQ device tree overlay and ZOCL if not already active
-if [ ! -d /sys/kernel/config/device-tree/overlays/pynq ] && [ -f $PYNQ_DTS_DIR/pynq.dtbo ]; then
-    sudo modprobe zocl 2>/dev/null || true
-    sudo mkdir -p /sys/kernel/config/device-tree/overlays/pynq
-    sudo cat $PYNQ_DTS_DIR/pynq.dtbo > /sys/kernel/config/device-tree/overlays/pynq/dtbo 2>/dev/null || true
-fi
 PROFILE
 
 # ── Board identification ─────────────────────────────────────────────
