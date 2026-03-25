@@ -118,7 +118,10 @@ class CameraOverlay:
 
         # --- Step 6: Configure PL IPs ---
         ip_config.configure_demosaic(self._ip_demosaic)
-        ip_config.configure_gamma_lut(self._ip_gamma, bypass=True)
+        # Gamma LUT must be started for data to flow through the inline
+        # AXI4-Stream path (HLS IPs hold tready low when idle).  Use a
+        # linear 1:1 LUT for transparent passthrough.
+        ip_config.configure_gamma_lut(self._ip_gamma, bypass=False)
 
         ip_config.configure_vdma_s2mm(
             self._ip_vdma,
