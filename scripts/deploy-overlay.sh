@@ -165,9 +165,25 @@ fi
 BOARD_OUTPUT_DIR="$BOARD_PROJECT_DIR/hardware/output"
 ssh "$BOARD" "mkdir -p '$BOARD_OUTPUT_DIR'"
 
+# --- Compile .dtbo if .dts exists ---
+DTS_FILE="$OUTPUT_DIR/$NAME.dts"
+if [ -f "$DTS_FILE" ]; then
+    echo "Compiling device tree overlay: $DTS_FILE"
+    if dtc -@ -I dts -O dtb -o "$OUTPUT_DIR/$NAME.dtbo" "$DTS_FILE" 2>&1 | grep -i error; then
+        echo "Error: dtc compilation failed."
+        exit 1
+    fi
+    echo "  $OUTPUT_DIR/$NAME.dtbo ($(du -h "$OUTPUT_DIR/$NAME.dtbo" | cut -f1))"
+fi
+
+# Build file list for rsync
+DEPLOY_FILES=("$OUTPUT_DIR/$NAME.bit" "$OUTPUT_DIR/$NAME.hwh")
+if [ -f "$OUTPUT_DIR/$NAME.dtbo" ]; then
+    DEPLOY_FILES+=("$OUTPUT_DIR/$NAME.dtbo")
+fi
+
 rsync -avz --progress \
-    "$OUTPUT_DIR/$NAME.bit" \
-    "$OUTPUT_DIR/$NAME.hwh" \
+    "${DEPLOY_FILES[@]}" \
     "$BOARD:$BOARD_OUTPUT_DIR/"
 
 # --- Smoke test: verify .hwh parses ---

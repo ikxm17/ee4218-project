@@ -50,7 +50,8 @@ class CameraOverlay:
         self._ip_gamma = self._resolve_ip(self.IP_GAMMA)
         self._ip_vdma = self._resolve_ip(self.IP_VDMA)
         self._ip_scaler = self._resolve_ip(self.IP_MULTI_SCALER)
-        self._resolve_ip(self.IP_AXI_IIC)  # validate IIC exists in overlay
+        # AXI IIC is kernel-managed (xiic-i2c driver) — PYNQ filters it
+        # from ip_dict. Its presence is validated by I2C bus auto-detection.
 
         # --- Step 2: Camera power enable ---
         # GPIO EMIO[0] -> cam_pwren (F11), mapped to PS GPIO base + 78
