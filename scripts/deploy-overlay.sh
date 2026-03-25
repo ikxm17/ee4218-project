@@ -119,8 +119,12 @@ if [ -z "$BIT_FILE" ]; then
     exit 1
 fi
 
-# Find .hwh file inside the archive
-HWH_FILE="$(find "$TMPDIR" -name '*.hwh' -type f | head -1)"
+# Find top-level .hwh file inside the archive.
+# The .xsa contains multiple .hwh files: the top-level design plus sub-IP
+# .hwh files (e.g., for SmartConnect, CSI-2 RX subsystem).  The top-level
+# .hwh is the shortest filename (no sub-IP suffix) and the one PYNQ uses.
+HWH_FILE="$(find "$TMPDIR" -name '*.hwh' -type f \
+    | awk '{ print length($0), $0 }' | sort -n | head -1 | cut -d' ' -f2-)"
 if [ -z "$HWH_FILE" ]; then
     echo "Error: no .hwh file found inside $XSA"
     exit 1
