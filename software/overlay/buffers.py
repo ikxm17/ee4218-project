@@ -84,15 +84,10 @@ class FrameBuffers:
         """Read a frame from the VDMA buffer, unpack 10-bit to 8-bit, resize.
 
         The Multi-Scaler PL IP is currently non-functional (AXI master
-        hangs), so scaling is done on the CPU as a workaround.  Reads
-        the raw 10-bit RGB from VDMA frame store 0, right-shifts to
-        8-bit, and resizes with OpenCV.
-
-        Args:
-            buffer: "viz" for 720p visualization, "inference" for 256x256.
+        hangs), so scaling is done on the CPU as a workaround.
 
         Returns:
-            RGB uint8 numpy array (height, width, 3).
+            RGB uint8 numpy array.
         """
         import cv2
 
@@ -100,18 +95,24 @@ class FrameBuffers:
         self.vdma_bufs[0].invalidate()
         raw = np.array(self.vdma_bufs[0], copy=False)  # (1080, 1920) uint32
 
-        # Unpack RGBX10: [31:0] = xx:B(10):G(10):R(10)
-        r = ((raw & 0x3FF) >> 2).astype(np.uint8)
-        g = (((raw >> 10) & 0x3FF) >> 2).astype(np.uint8)
-        b = (((raw >> 20) & 0x3FF) >> 2).astype(np.uint8)
-        rgb = np.stack([r, g, b], axis=-1)  # (1080, 1920, 3) uint8
-
-        if buffer == "viz":
-            return cv2.resize(rgb, (1280, 720), interpolation=cv2.INTER_LINEAR)
-        elif buffer == "inference":
-            return cv2.resize(rgb, (256, 256), interpolation=cv2.INTER_LINEAR)
+        # Subsample first for speed: take every 2nd pixel/line for viz,
+        # every 8th for inference — avoids unpacking the full 1080p.
+        if buffer == "inference":
+            raw = raw[::4, ::8]   # ~270×240
+            target = (256, 256)
         else:
-            raise ValueError(f"Unknown buffer: {buffer!r} (expected 'viz' or 'inference')")
+            raw = raw[::2, ::2]   # 540×960
+            target = (1280, 720)
+
+        # Unpack RGBX10: [31:0] = xx:B(10):G(10):R(10)
+        # Write directly into pre-shaped output to avoid np.stack copy.
+        h, w = raw.shape
+        rgb = np.empty((h, w, 3), dtype=np.uint8)
+        rgb[:, :, 0] = (raw & 0x3FF) >> 2
+        rgb[:, :, 1] = (raw >> 10 & 0x3FF) >> 2
+        rgb[:, :, 2] = (raw >> 20 & 0x3FF) >> 2
+
+        return cv2.resize(rgb, target, interpolation=cv2.INTER_LINEAR)
 
     def free(self) -> None:
         """Release all CMA buffers."""

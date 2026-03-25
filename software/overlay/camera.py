@@ -136,39 +136,44 @@ class CameraOverlay:
         locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
         status = ip_config.read_csi2_status(self._ip_csi2)
 
-        # --- Step 8: Start VDMA (after stream is established) ---
-        ip_config.configure_vdma_s2mm(
-            self._ip_vdma,
-            frame_addrs=self._buffers.vdma_phys_addrs,
-            width_bytes=1920 * 4,  # 10-bit RGB in 32-bit words
-            height=1080,
-            stride=self._buffers.vdma_stride,
-        )
-
-        # --- Step 9: Multi-Scaler SKIPPED ---
-        # The Multi-Scaler PL IP hangs on any DDR access (AXI master
-        # via axi_smc_1/S01_AXI never completes transactions).  Root
-        # cause is likely a SmartConnect or synthesis-level issue that
-        # requires a Vivado rebuild.  Scaling is done on the CPU in
-        # buffers.py get_frame() as a workaround.
-
-        # --- Step 10: Second CSI-2 reset ---
-        # The CSI-2 RX accumulated stale/corrupt framing state during
-        # steps 6-9 (stream IPs self-stopped → backpressure → line
-        # buffer overflow → garbled SOF/EOL).  Reset the core before
-        # re-enabling stream IPs so the VDMA sees a clean first frame.
+        # --- Step 8: Second CSI-2 reset ---
+        # The CSI-2 RX accumulated stale framing state during steps
+        # 6-7 (stream IPs self-stopped → backpressure → line buffer
+        # overflow).  Reset it before starting VDMA so the DMA engine
+        # sees only clean, properly framed data from the first SOF.
         ip_config.reset_csi2_rx(self._ip_csi2)
 
-        # --- Step 11: Start stream IPs (bottom-up) ---
-        # Start from downstream to upstream: Gamma (→ VDMA, already
-        # running), then Demosaic (→ Gamma).  Each IP's output has a
-        # ready consumer, preventing backpressure self-stop.
+        # --- Step 9: Start stream IPs (bottom-up) ---
+        # Re-assert ap_ctrl on Gamma then Demosaic so each IP's
+        # output has a ready consumer.
         self._ip_gamma.write(ip_config.AP_CTRL, 0x81)
         self._ip_demosaic.write(ip_config.AP_CTRL, 0x81)
 
-        # Wait for clean D-PHY lock with the new pipeline state
+        # Wait for clean D-PHY lock with the pipeline fully running
         locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
         status = ip_config.read_csi2_status(self._ip_csi2)
+
+        # --- Step 10: Start VDMA with retry ---
+        # The VDMA consistently hits DMAIntErr on the first frame
+        # (likely a DataMover FIFO edge case during initial SOF
+        # alignment).  Configure, let it capture one frame, then
+        # reset and reconfigure so the DMA engine starts clean.
+        vdma_kwargs = dict(
+            frame_addrs=self._buffers.vdma_phys_addrs,
+            width_bytes=1920 * 4,
+            height=1080,
+            stride=self._buffers.vdma_stride,
+        )
+        ip_config.configure_vdma_s2mm(self._ip_vdma, **vdma_kwargs)
+        time.sleep(0.100)  # let first frame attempt complete
+
+        dmasr = self._ip_vdma.read(ip_config.S2MM_DMASR)
+        if dmasr & 0x10:  # DMAIntErr
+            logger.warning(
+                "VDMA DMAIntErr on first capture (DMASR=0x%08X), "
+                "resetting and retrying", dmasr,
+            )
+            ip_config.configure_vdma_s2mm(self._ip_vdma, **vdma_kwargs)
 
         if not locked:
             logger.error(
