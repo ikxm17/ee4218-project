@@ -81,10 +81,12 @@ class FrameBuffers:
         return self.inf_buf.physical_address
 
     def get_frame(self, buffer: str = "viz") -> np.ndarray:
-        """Return a numpy view of the requested output buffer.
+        """Read a frame from the VDMA buffer, unpack 10-bit to 8-bit, resize.
 
-        Invalidates the CPU cache before reading to ensure coherency
-        with PL-written data on the non-coherent HP ports.
+        The Multi-Scaler PL IP is currently non-functional (AXI master
+        hangs), so scaling is done on the CPU as a workaround.  Reads
+        the raw 10-bit RGB from VDMA frame store 0, right-shifts to
+        8-bit, and resizes with OpenCV.
 
         Args:
             buffer: "viz" for 720p visualization, "inference" for 256x256.
@@ -92,12 +94,22 @@ class FrameBuffers:
         Returns:
             RGB uint8 numpy array (height, width, 3).
         """
+        import cv2
+
+        # Read raw 10-bit RGBX frame from VDMA buffer 0
+        self.vdma_bufs[0].invalidate()
+        raw = np.array(self.vdma_bufs[0], copy=False)  # (1080, 1920) uint32
+
+        # Unpack RGBX10: [31:0] = xx:B(10):G(10):R(10)
+        r = ((raw & 0x3FF) >> 2).astype(np.uint8)
+        g = (((raw >> 10) & 0x3FF) >> 2).astype(np.uint8)
+        b = (((raw >> 20) & 0x3FF) >> 2).astype(np.uint8)
+        rgb = np.stack([r, g, b], axis=-1)  # (1080, 1920, 3) uint8
+
         if buffer == "viz":
-            self.viz_buf.invalidate()
-            return np.array(self.viz_buf, copy=False)
+            return cv2.resize(rgb, (1280, 720), interpolation=cv2.INTER_LINEAR)
         elif buffer == "inference":
-            self.inf_buf.invalidate()
-            return np.array(self.inf_buf, copy=False)
+            return cv2.resize(rgb, (256, 256), interpolation=cv2.INTER_LINEAR)
         else:
             raise ValueError(f"Unknown buffer: {buffer!r} (expected 'viz' or 'inference')")
 

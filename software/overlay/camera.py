@@ -116,13 +116,12 @@ class CameraOverlay:
         # --- Step 5: Allocate CMA buffers ---
         self._buffers = FrameBuffers()
 
-        # --- Step 6: Configure stream-processing IPs ---
-        # Demosaic and Gamma LUT must be running before data arrives so
-        # they assert tready on the AXI4-Stream bus.
+        # --- Step 6: Configure stream-processing IPs (load params only) ---
+        # Load Demosaic and Gamma LUT parameters but do NOT rely on
+        # their AP_CTRL staying set — HLS IPs self-stop when started
+        # without upstream data or with downstream backpressure.
+        # We re-assert AP_CTRL after the full downstream path is ready.
         ip_config.configure_demosaic(self._ip_demosaic)
-        # Gamma LUT must be started for data to flow through the inline
-        # AXI4-Stream path (HLS IPs hold tready low when idle).  Use a
-        # linear 1:1 LUT for transparent passthrough.
         ip_config.configure_gamma_lut(self._ip_gamma, bypass=False)
 
         # --- Step 7: Start streaming + D-PHY lock ---
@@ -137,12 +136,6 @@ class CameraOverlay:
         locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
         status = ip_config.read_csi2_status(self._ip_csi2)
 
-        # Re-assert Gamma LUT ap_start + auto_restart.  The HLS IP may
-        # self-stop (ap_done clears ap_start) if it completes a cycle
-        # before upstream data arrives.  Re-starting it here ensures
-        # tready is asserted when the VDMA begins capturing.
-        self._ip_gamma.write(ip_config.AP_CTRL, 0x81)
-
         # --- Step 8: Start VDMA (after stream is established) ---
         ip_config.configure_vdma_s2mm(
             self._ip_vdma,
@@ -152,28 +145,30 @@ class CameraOverlay:
             stride=self._buffers.vdma_stride,
         )
 
-        # --- Step 9: Start Multi-Scaler ---
-        ip_config.configure_multi_scaler(
-            self._ip_scaler,
-            src_addr=self._buffers.vdma_phys_addrs[0],
-            src_width=1920,
-            src_height=1080,
-            src_stride=self._buffers.vdma_stride,
-            outputs=[
-                {
-                    "addr": self._buffers.inf_phys_addr,
-                    "width": 256,
-                    "height": 256,
-                    "stride": 256 * 3,
-                },
-                {
-                    "addr": self._buffers.viz_phys_addr,
-                    "width": 1280,
-                    "height": 720,
-                    "stride": 1280 * 3,
-                },
-            ],
-        )
+        # --- Step 9: Multi-Scaler SKIPPED ---
+        # The Multi-Scaler PL IP hangs on any DDR access (AXI master
+        # via axi_smc_1/S01_AXI never completes transactions).  Root
+        # cause is likely a SmartConnect or synthesis-level issue that
+        # requires a Vivado rebuild.  Scaling is done on the CPU in
+        # buffers.py get_frame() as a workaround.
+
+        # --- Step 10: Second CSI-2 reset ---
+        # The CSI-2 RX accumulated stale/corrupt framing state during
+        # steps 6-9 (stream IPs self-stopped → backpressure → line
+        # buffer overflow → garbled SOF/EOL).  Reset the core before
+        # re-enabling stream IPs so the VDMA sees a clean first frame.
+        ip_config.reset_csi2_rx(self._ip_csi2)
+
+        # --- Step 11: Start stream IPs (bottom-up) ---
+        # Start from downstream to upstream: Gamma (→ VDMA, already
+        # running), then Demosaic (→ Gamma).  Each IP's output has a
+        # ready consumer, preventing backpressure self-stop.
+        self._ip_gamma.write(ip_config.AP_CTRL, 0x81)
+        self._ip_demosaic.write(ip_config.AP_CTRL, 0x81)
+
+        # Wait for clean D-PHY lock with the new pipeline state
+        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
+        status = ip_config.read_csi2_status(self._ip_csi2)
 
         if not locked:
             logger.error(

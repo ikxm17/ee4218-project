@@ -130,7 +130,7 @@ def wait_for_csi2_lock(ip, timeout_s: float = 2.0) -> bool:
 
 DEMOSAIC_WIDTH = 0x10
 DEMOSAIC_HEIGHT = 0x18
-DEMOSAIC_BAYER_PHASE = 0x28
+DEMOSAIC_BAYER_PHASE = 0x20  # probed: 16-bit register at 0x20 (not 0x28)
 
 
 def configure_demosaic(ip, width: int = 1920, height: int = 1080) -> None:
