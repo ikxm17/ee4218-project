@@ -4,6 +4,7 @@ Each function takes a PYNQ IP object (from overlay.ip_dict) and writes
 the registers needed to configure and start the IP.  Register offsets
 are from the respective Xilinx Product Guides:
 
+    - CSI-2 RX:     PG232
     - Demosaic:     PG286
     - Gamma LUT:    PG285
     - VDMA:         PG020
@@ -14,6 +15,7 @@ by PYNQ's MMIO, with the base address resolved from the .hwh file.
 """
 
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,96 @@ logger = logging.getLogger(__name__)
 AP_CTRL = 0x00
 AP_CTRL_START = 0x01
 AP_CTRL_AUTO_RESTART = 0x80
+
+
+# ---------------------------------------------------------------------------
+# MIPI CSI-2 RX Subsystem (PG232)
+# ---------------------------------------------------------------------------
+# Register map (from PG232 Table 2-4):
+#   0x00  Core Configuration     Bit 0: Enable, Bit 1: Soft Reset
+#   0x04  Protocol Configuration  Bit [4:3]: Active lanes
+#   0x10  Core Status             Bit [31:16]: Packet count
+#   0x24  Interrupt Status (W1C)  Stop state, SoT errors, frame events
+#   0x3C  Clock Lane Info         Bit 1: Stop state, Bit 0: HS mode
+#   0x40  Data Lane 0 Info        Bit 1: Stop state, Bit 0: HS mode
+#   0x44  Data Lane 1 Info        Same as Lane 0
+
+CSI2_CORE_CONFIG = 0x00
+CSI2_PROTOCOL_CONFIG = 0x04
+CSI2_CORE_STATUS = 0x10
+CSI2_ISR = 0x24
+CSI2_CLK_LANE_INFO = 0x3C
+CSI2_LANE0_INFO = 0x40
+CSI2_LANE1_INFO = 0x44
+
+
+def reset_csi2_rx(ip) -> None:
+    """Perform a soft reset of the CSI-2 RX core (PG232 Sec 2.3).
+
+    The D-PHY receiver must see the sensor's clock lane toggling before
+    it can achieve byte-level synchronization.  If the core was enabled
+    at overlay load time (before the sensor started streaming), the
+    D-PHY may have missed the initial LP→HS transition.  A soft reset
+    clears the lane state machines and forces a fresh sync attempt.
+    """
+    ip.write(CSI2_CORE_CONFIG, 0x00)          # Disable core
+    ip.write(CSI2_CORE_CONFIG, 0x02)          # Assert soft reset
+    time.sleep(0.001)                          # Hold reset 1 ms
+    ip.write(CSI2_CORE_CONFIG, 0x00)          # Deassert reset
+    ip.write(CSI2_ISR, 0xFFFFFFFF)            # Clear all ISR bits
+    ip.write(CSI2_CORE_CONFIG, 0x01)          # Re-enable core
+    logger.info("CSI-2 RX soft reset complete, core re-enabled")
+
+
+def read_csi2_status(ip) -> dict:
+    """Read and decode CSI-2 RX diagnostic registers."""
+    core_cfg = ip.read(CSI2_CORE_CONFIG)
+    proto_cfg = ip.read(CSI2_PROTOCOL_CONFIG)
+    core_status = ip.read(CSI2_CORE_STATUS)
+    isr = ip.read(CSI2_ISR)
+    clk_info = ip.read(CSI2_CLK_LANE_INFO)
+    lane0_info = ip.read(CSI2_LANE0_INFO)
+    lane1_info = ip.read(CSI2_LANE1_INFO)
+
+    pkt_count = (core_status >> 16) & 0xFFFF
+
+    status = {
+        "core_enabled": bool(core_cfg & 0x01),
+        "active_lanes": ((proto_cfg >> 3) & 0x03) + 1,
+        "packet_count": pkt_count,
+        "isr_raw": isr,
+        "isr_stop_state": bool(isr & (1 << 17)),
+        "isr_sot_error": bool(isr & (1 << 13)),
+        "isr_sot_sync_error": bool(isr & (1 << 12)),
+        "clk_lane_hs": bool(clk_info & 0x01),
+        "clk_lane_stop": bool(clk_info & 0x02),
+        "lane0_hs": bool(lane0_info & 0x01),
+        "lane0_stop": bool(lane0_info & 0x02),
+        "lane1_hs": bool(lane1_info & 0x01),
+        "lane1_stop": bool(lane1_info & 0x02),
+    }
+
+    logger.info(
+        "CSI-2 RX status: packets=%d, ISR=0x%08X, "
+        "clk_hs=%s, d0_hs=%s, d1_hs=%s",
+        pkt_count, isr,
+        status["clk_lane_hs"], status["lane0_hs"], status["lane1_hs"],
+    )
+    return status
+
+
+def wait_for_csi2_lock(ip, timeout_s: float = 2.0) -> bool:
+    """Poll CSI-2 RX until packets are received or timeout expires."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        core_status = ip.read(CSI2_CORE_STATUS)
+        pkt_count = (core_status >> 16) & 0xFFFF
+        if pkt_count > 0:
+            logger.info("CSI-2 RX locked: %d packets received", pkt_count)
+            return True
+        time.sleep(0.010)
+    logger.warning("CSI-2 RX lock timeout: no packets after %.1fs", timeout_s)
+    return False
 
 
 # ---------------------------------------------------------------------------

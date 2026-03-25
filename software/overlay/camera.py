@@ -2,16 +2,19 @@
 
 Initialization sequence derived from:
     - IMX219 datasheet Sec 8-1, Table 36-37 (power-on timing)
+    - PG232 Sec 2.3 (CSI-2 RX soft reset for D-PHY synchronization)
     - Camera bringup guide (notes/guides/camera-bringup.md)
 
 The sequence is:
     1. Load overlay (programs FPGA, enables GPIO EMIO)
-    2. Drive cam_pwren high (GPIO EMIO[0] -> F11)
-    3. Wait for power stabilization
+    2. Disable CSI-2 RX core (clean state before sensor streams)
+    3. Drive cam_pwren high (GPIO EMIO[0] -> F11)
     4. Initialize IMX219 via I2C (mux select, ID check, register table)
     5. Allocate CMA buffers
     6. Configure PL IPs (Demosaic, Gamma, VDMA, Multi-Scaler)
     7. Start IMX219 streaming
+    8. Soft-reset CSI-2 RX (D-PHY re-sync with active sensor clock)
+    9. Wait for D-PHY lock, log diagnostic status
 """
 
 import logging
@@ -27,14 +30,20 @@ class CameraOverlay:
 
     # IP names as they appear in the block design ip_dict.
     # Verified against tinyissimoyolo.hwh (flat hierarchy, Vivado auto-names).
+    IP_CSI2_RX = "mipi_csi2_rx_subsyst_0"
     IP_DEMOSAIC = "v_demosaic_0"
     IP_GAMMA = "v_gamma_lut_0"
     IP_VDMA = "axi_vdma_0"
     IP_MULTI_SCALER = "v_multi_scaler_0"
     IP_AXI_IIC = "axi_iic_0"
 
+    # Fallback base address for CSI-2 RX if PYNQ filters it from ip_dict.
+    # PYNQ sometimes excludes subsystem IPs with DRIVERMODE=MIXED.
+    _CSI2_RX_BASE_ADDR = 0xA0010000
+    _CSI2_RX_ADDR_RANGE = 0x1000
+
     def __init__(self, bitstream_path: str):
-        from pynq import DefaultIP, GPIO, Overlay
+        from pynq import DefaultIP, GPIO, MMIO, Overlay
 
         from . import ip_config
         from .buffers import FrameBuffers
@@ -64,7 +73,26 @@ class CameraOverlay:
         # AXI IIC is kernel-managed (xiic-i2c driver) — PYNQ filters it
         # from ip_dict. Its presence is validated by I2C bus auto-detection.
 
-        # --- Step 2: Camera power enable ---
+        # CSI-2 RX: PYNQ may filter subsystem IPs (DRIVERMODE=MIXED) from
+        # ip_dict, so fall back to raw MMIO if the IP handle is missing.
+        if self.IP_CSI2_RX in self._overlay.ip_dict:
+            self._ip_csi2 = self._resolve_ip(self.IP_CSI2_RX)
+        else:
+            logger.info(
+                "CSI-2 RX not in ip_dict, using MMIO at 0x%08X",
+                self._CSI2_RX_BASE_ADDR,
+            )
+            self._ip_csi2 = MMIO(
+                self._CSI2_RX_BASE_ADDR, self._CSI2_RX_ADDR_RANGE
+            )
+
+        # --- Step 2: Disable CSI-2 RX before sensor starts ---
+        # The core is enabled at overlay load.  Disable it now so the
+        # D-PHY doesn't try to sync against an idle bus.
+        self._ip_csi2.write(ip_config.CSI2_CORE_CONFIG, 0x00)
+        logger.info("CSI-2 RX core disabled (pre-streaming)")
+
+        # --- Step 3: Camera power enable ---
         # GPIO EMIO[0] -> cam_pwren (F11), mapped to PS GPIO base + 78
         # PYNQ GPIO pin number = EMIO offset (0) via GPIO.get_gpio_pin()
         self._cam_pwren = GPIO(GPIO.get_gpio_pin(0), "out")
@@ -75,7 +103,7 @@ class CameraOverlay:
         # Datasheet Table 36: t3 >= 0.5 us, t5 >= 6 ms
         time.sleep(0.010)
 
-        # --- Step 3: I2C sensor initialization ---
+        # --- Step 4: I2C sensor initialization ---
         # AXI IIC bus is auto-detected via sysfs (xiic-i2c adapter)
         self._i2c = IMX219I2C()
         if not self._i2c.verify_sensor_id():
@@ -85,10 +113,10 @@ class CameraOverlay:
             )
         self._i2c.init_sensor()
 
-        # --- Step 4: Allocate CMA buffers ---
+        # --- Step 5: Allocate CMA buffers ---
         self._buffers = FrameBuffers()
 
-        # --- Step 5: Configure PL IPs ---
+        # --- Step 6: Configure PL IPs ---
         ip_config.configure_demosaic(self._ip_demosaic)
         ip_config.configure_gamma_lut(self._ip_gamma, bypass=True)
 
@@ -122,12 +150,28 @@ class CameraOverlay:
             ],
         )
 
-        # --- Step 6: Start streaming ---
+        # --- Step 7: Start streaming ---
         self._i2c.start_streaming()
 
-        # Wait for D-PHY init + first frame
-        # Datasheet Table 36: t7=1ms, t8=110us, t9=1.2ms + exposure
-        time.sleep(0.200)
+        # Give the sensor time to start its MIPI clock lane
+        time.sleep(0.010)
+
+        # --- Step 8: CSI-2 RX D-PHY re-sync ---
+        # Soft-reset the CSI-2 RX now that the sensor's clock lane is active.
+        # This forces a fresh D-PHY synchronization attempt.
+        ip_config.reset_csi2_rx(self._ip_csi2)
+
+        # --- Step 9: Wait for D-PHY lock ---
+        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
+        status = ip_config.read_csi2_status(self._ip_csi2)
+
+        if not locked:
+            logger.error(
+                "CSI-2 RX D-PHY failed to lock. ISR=0x%08X. "
+                "Check: (1) ribbon cable orientation, (2) camera module, "
+                "(3) C_HS_LINE_RATE matches sensor PLL output.",
+                status["isr_raw"],
+            )
 
         logger.info("Camera pipeline initialized and streaming")
 
