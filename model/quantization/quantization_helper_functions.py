@@ -3,7 +3,9 @@ import torch.nn as nn
 import numpy as np
 import os
 import onnx
+import onnxruntime as ort
 from onnx2torch import convert
+import tensorflow as tf
 
 from pytorch_quantization import quant_modules, tensor_quant
 from pytorch_quantization.tensor_quant import QuantDescriptor
@@ -182,13 +184,10 @@ def run_calibration(
                     else:
                         mod.load_calib_amax()
 
-                    # Move amax to the correct device after loading
-                    # (pytorch-quantization loads amax on CPU by default)
+                    # 2. Move amax to the correct device
                     if mod.amax is not None:
-                        # mod.amax = mod.amax.to(DEVICE)
-                        # attemt to preserve internal buffer to ensure contiguous memory
                         mod._amax.data = mod._amax.data.to(DEVICE)
-
+                    
                     mod.disable_calib()
                     mod.enable_quant()
                 else:
@@ -199,110 +198,110 @@ def run_calibration(
 
 
 # ── Post Calibration Clipping Check  ───────────────────────────────────────────────────
-def measure_clipping_rate(
-    model:       nn.Module,
-    val_loader:  torch.utils.data.DataLoader,
-    num_batches: int = 50,
-):
-    """
-    Estimates activation clipping rate per QuantConv2d layer by running
-    a dedicated single-image DataLoader and reading quantizer amax values
-    directly — no hooks, no module swapping, no graph modification.
+# def measure_clipping_rate(
+#     model:       nn.Module,
+#     val_loader:  torch.utils.data.DataLoader,
+#     num_batches: int = 50,
+# ):
+#     """
+#     Estimates activation clipping rate per QuantConv2d layer by running
+#     a dedicated single-image DataLoader and reading quantizer amax values
+#     directly — no hooks, no module swapping, no graph modification.
 
-    For each layer, collects the input activation tensor by temporarily
-    enabling only the input_quantizer's calibrator in observation mode,
-    then compares the observed max against the calibrated amax.
+#     For each layer, collects the input activation tensor by temporarily
+#     enabling only the input_quantizer's calibrator in observation mode,
+#     then compares the observed max against the calibrated amax.
 
-    Safe for fx.GraphModule (onnx2torch output) because the model graph
-    is never structurally modified.
-    """
-    from torch.utils.data import DataLoader
-    from ultralytics.data.dataset import YOLODataset
+#     Safe for fx.GraphModule (onnx2torch output) because the model graph
+#     is never structurally modified.
+#     """
+#     from torch.utils.data import DataLoader
+#     from ultralytics.data.dataset import YOLODataset
 
-    # ── Snapshot calibrated amax values as plain floats ───────────────────────
-    amax_map = {}
-    for name, mod in model.named_modules():
-        if isinstance(mod, quant_nn.QuantConv2d):
-            raw = mod.input_quantizer.amax
-            if raw is not None:
-                amax_map[name] = float(raw.detach().abs().max().cpu())
+#     # ── Snapshot calibrated amax values as plain floats ───────────────────────
+#     amax_map = {}
+#     for name, mod in model.named_modules():
+#         if isinstance(mod, quant_nn.QuantConv2d):
+#             raw = mod.input_quantizer.amax
+#             if raw is not None:
+#                 amax_map[name] = float(raw.detach().abs().max().cpu())
 
-    if not amax_map:
-        print("[measure_clipping_rate] No calibrated layers found — "
-              "run calibration first.")
-        return
+#     if not amax_map:
+#         print("[measure_clipping_rate] No calibrated layers found — "
+#               "run calibration first.")
+#         return
 
-    # ── Per-layer running stats ───────────────────────────────────────────────
-    observed_max = {n: 0.0 for n in amax_map}   # max abs activation seen
-    clip_counts  = {n: 0   for n in amax_map}
-    total_counts = {n: 0   for n in amax_map}
+#     # ── Per-layer running stats ───────────────────────────────────────────────
+#     observed_max = {n: 0.0 for n in amax_map}   # max abs activation seen
+#     clip_counts  = {n: 0   for n in amax_map}
+#     total_counts = {n: 0   for n in amax_map}
 
-    # ── Register plain input hooks that only do tensor.abs().max() ───────────
-    # These hooks do NOT call into the quantizer or touch any CUDA buffer —
-    # they only read the floating-point input tensor that arrives at the conv.
-    handles = []
+#     # ── Register plain input hooks that only do tensor.abs().max() ───────────
+#     # These hooks do NOT call into the quantizer or touch any CUDA buffer —
+#     # they only read the floating-point input tensor that arrives at the conv.
+#     handles = []
 
-    def _make_obs_hook(layer_name, amax_val):
-        def _hook(module, args, output):
-            # args[0] is the input tensor to the QuantConv2d
-            x = args[0].detach()
-            clip_counts[layer_name]  += int((x.abs() > amax_val).sum().item())
-            total_counts[layer_name] += int(x.numel())
-            cur_max = float(x.abs().max().item())
-            if cur_max > observed_max[layer_name]:
-                observed_max[layer_name] = cur_max
-        return _hook
+#     def _make_obs_hook(layer_name, amax_val):
+#         def _hook(module, args, output):
+#             # args[0] is the input tensor to the QuantConv2d
+#             x = args[0].detach()
+#             clip_counts[layer_name]  += int((x.abs() > amax_val).sum().item())
+#             total_counts[layer_name] += int(x.numel())
+#             cur_max = float(x.abs().max().item())
+#             if cur_max > observed_max[layer_name]:
+#                 observed_max[layer_name] = cur_max
+#         return _hook
 
-    for name, mod in model.named_modules():
-        if name in amax_map:
-            h = mod.register_forward_hook(_make_obs_hook(name, amax_map[name]))
-            handles.append(h)
+#     for name, mod in model.named_modules():
+#         if name in amax_map:
+#             h = mod.register_forward_hook(_make_obs_hook(name, amax_map[name]))
+#             handles.append(h)
 
-    # ── Build batch_size=1 loader to avoid static reshape issue ──────────────
-    def _collate_f32(batch):
-        result = YOLODataset.collate_fn(batch)
-        # result["img"] = result["img"].float() / 255.0 # oops currently feeding FP32 to first layer
-        result["img"] = (result["img"].to(torch.int16) - 128).to(torch.float32) # convert to INT8 format instead
-        return result
+#     # ── Build batch_size=1 loader to avoid static reshape issue ──────────────
+#     def _collate_f32(batch):
+#         result = YOLODataset.collate_fn(batch)
+#         # result["img"] = result["img"].float() / 255.0 # oops currently feeding FP32 to first layer
+#         result["img"] = (result["img"].to(torch.int16) - 128).to(torch.float32) # convert to INT8 format instead
+#         return result
 
-    single_loader = DataLoader(
-        val_loader.dataset,
-        batch_size  = 1,
-        shuffle     = False,
-        num_workers = 0,
-        collate_fn  = _collate_f32,
-        pin_memory  = False,
-    )
+#     single_loader = DataLoader(
+#         val_loader.dataset,
+#         batch_size  = 1,
+#         shuffle     = False,
+#         num_workers = 0,
+#         collate_fn  = _collate_f32,
+#         pin_memory  = False,
+#     )
 
-    model.eval()
-    with torch.no_grad():
-        for i, batch in enumerate(single_loader):
-            if i >= num_batches:
-                break
-            try:
-                model(batch["img"].to(DEVICE))
-            except Exception as e:
-                print(f"[measure_clipping_rate] Forward pass {i} failed: {e}")
-                break
+#     model.eval()
+#     with torch.no_grad():
+#         for i, batch in enumerate(single_loader):
+#             if i >= num_batches:
+#                 break
+#             try:
+#                 model(batch["img"].to(DEVICE))
+#             except Exception as e:
+#                 print(f"[measure_clipping_rate] Forward pass {i} failed: {e}")
+#                 break
 
-    # ── Remove hooks ──────────────────────────────────────────────────────────
-    for h in handles:
-        h.remove()
+#     # ── Remove hooks ──────────────────────────────────────────────────────────
+#     for h in handles:
+#         h.remove()
 
-    # ── Print results ─────────────────────────────────────────────────────────
-    print(f"\n{'Layer':<45} {'amax':>8} {'obs_max':>10} "
-          f"{'Clip rate':>12}   {'Status'}")
-    print("-" * 85)
-    for name in amax_map:
-        tot      = total_counts[name]
-        clip     = clip_counts[name]
-        rate     = (clip / tot * 100) if tot > 0 else 0.0
-        obs_max  = observed_max[name]
-        cal_amax = amax_map[name]
-        status   = "OK" if rate < 0.1 else ("WARN" if rate < 1.0 else "HIGH")
-        print(f"{name:<45} {cal_amax:>8.4f} {obs_max:>10.4f} "
-              f"{rate:>10.4f}%   {status}")
-    print()
+#     # ── Print results ─────────────────────────────────────────────────────────
+#     print(f"\n{'Layer':<45} {'amax':>8} {'obs_max':>10} "
+#           f"{'Clip rate':>12}   {'Status'}")
+#     print("-" * 85)
+#     for name in amax_map:
+#         tot      = total_counts[name]
+#         clip     = clip_counts[name]
+#         rate     = (clip / tot * 100) if tot > 0 else 0.0
+#         obs_max  = observed_max[name]
+#         cal_amax = amax_map[name]
+#         status   = "OK" if rate < 0.1 else ("WARN" if rate < 1.0 else "HIGH")
+#         print(f"{name:<45} {cal_amax:>8.4f} {obs_max:>10.4f} "
+#               f"{rate:>10.4f}%   {status}")
+#     print()
 
 # ── PTQ  ───────────────────────────────────────────────────
 def run_ptq(
@@ -339,6 +338,104 @@ def run_ptq(
     print(f"PTQ model saved to {save_path}")
     return model
 
+def export_to_onnx(model, save_path, sample_input):
+    """
+    Exports the quantized PyTorch model to ONNX with QDQ nodes.
+    """
+    # Ensure the model is in the correct mode for quantization export
+    quant_nn.TensorQuantizer.use_fb_fake_quant = True
+
+    model.eval()
+    model.cpu()
+    sample_input = sample_input.cpu()
+    
+    print(f"Exporting quantized model to {save_path}...")
+    torch.onnx.export(
+        model,
+        sample_input,
+        save_path,
+        verbose=False,
+        opset_version=13, 
+        do_constant_folding=True,
+        input_names=['images'],
+        output_names=['output']
+    )
+    print("Export complete.")
+    
+def check_onnx_scales(onnx_path):
+    model = onnx.load(onnx_path)
+    weights_found = 0
+    for node in model.graph.node:
+        if node.op_type == 'QuantizeLinear':
+            # The second input to QuantizeLinear is usually the 'scale'
+            scale_initializer_name = node.input[1]
+            weights_found += 1
+            print(f"Node {node.name} uses scale initializer: {scale_initializer_name}")
+
+    if weights_found == 0:
+        print("⚠️ WARNING: No Quantize nodes found. The model exported as standard FP32!")
+    else:
+        print(f"✅ Found {weights_found} quantization points.")
+
+def check_int8_onnx_parity(pytorch_model, onnx_path, sample_input_float):
+    """
+    Verifies if the model works correctly when the input is treated as INT8.
+    sample_input_float: A batch of images in range [0, 1]
+    """
+    pytorch_model.eval().cpu()
+    sample_input_float = sample_input_float.cpu()
+
+    # 1. Calculate the 'Scale' for the very first layer
+    # This is derived from the calibration amax (~1.0)
+    first_conv = None
+    for m in pytorch_model.modules():
+        if isinstance(m, quant_nn.QuantConv2d):
+            first_conv = m
+            break
+            
+    in_amax = first_conv.input_quantizer.amax.item()
+    s_x_in = in_amax / 127.0  # Usually ~0.00787 for [0, 1] range
+
+    # 2. Simulate INT8 Input [-128, 127]
+    # This is what your hardware physically receives
+    input_int8 = torch.clamp(torch.round(sample_input_float / s_x_in), -128, 127).to(torch.int8)
+    
+    # 3. Convert back to float for the "Fake Quant" models
+    # PyTorch and ONNX (QDQ) still perform math in float32, 
+    # so we feed them the 'stepped' float values that match the INT8.
+    simulated_float_input = input_int8.float() * s_x_in
+
+    # 4. Run PyTorch Inference
+    with torch.no_grad():
+        torch_out_list = pytorch_model(simulated_float_input)
+
+    # 5. Run ONNX Runtime Inference
+    ort_session = ort.InferenceSession(onnx_path)
+    input_name = ort_session.get_inputs()[0].name
+    onnx_out_list = ort_session.run(None, {input_name: simulated_float_input.numpy()})
+
+    # 6. Compare results head by head
+    print(f"\n{'='*20} INT8 PARITY CHECK {'='*20}")
+    print(f"Assumed Input Scale (s_x_in): {s_x_in:.6f}")
+    
+    for i, (p_out, o_out) in enumerate(zip(torch_out_list, onnx_out_list)):
+        # debug: check the shape of output
+        print(f"Head {i} Shape - PyTorch: {p_out.shape}, ONNX: {o_out.shape}")
+        p_out_np = p_out.cpu().numpy()
+        mse = np.mean((p_out_np - o_out) ** 2)
+        max_diff = np.max(np.abs(p_out_np - o_out))
+        print(f"Head {i} | MSE: {mse:.2e} | Max Diff: {max_diff:.2e}")
+
+        # Check if the discrepancy is just a simple scaling or permutation issue
+        print(f"PyTorch Head 0 Sample: {p_out_np[0, 0, :5]}")
+        print(f"ONNX Head 0 Sample:    {o_out[0, 0, :5]}")
+
+    if np.max(max_diff) < 1e-4:
+        print("✅ SUCCESS: Model produces consistent results with INT8-simulated input.")
+    else:
+        print("⚠️ WARNING: High discrepancy. Ensure Opset 13+ was used for export.")
+
+    
 # ── QAT  ───────────────────────────────────────────────────
 def run_qat(
     onnx_path:    str,

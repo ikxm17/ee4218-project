@@ -19,3 +19,10 @@ pandas
 # pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com pytorch-quantization
 
 
+# TFLite Conversion
+tensorflow==2.15.0
+tensorflow-probability==0.23.0
+onnx-tf
+
+# TFLite Inference
+tflite-runtime==2.14.0
