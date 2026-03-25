@@ -74,8 +74,25 @@ set_property IOSTANDARD  LVCMOS18 [get_ports {cam_pwren}]
 
 
 # ---------------------------------------------------------------------------
-# I2C — NOT constrained here
+# I2C — AXI IIC controller to camera connector J9
 # ---------------------------------------------------------------------------
-# The IMX219 sensor I2C (SCL/SDA) is NOT routed through PL fabric.
-# It goes: PS I2C1 (MIO 24/25) → TCA8546A I2C switch (addr 0x74, ch 2) → J9
-# All handled by the PS I2C controller — no XDC constraints needed.
+# Camera I2C is routed through PL, NOT through PS I2C1 (MIO 24/25):
+#   AXI IIC (PG090) → F10 (SDA) / G11 (SCL) → level shifter → TCA8546A
+#   mux (0x74, ch 2) → J9 RPi connector → IMX219 (0x10)
+#
+# Bank 45 (HDIO), VCCO = 1.8V — same bank as cam_pwren (F11).
+# PULLUP enables weak internal pull-ups (backup for board external pull-ups).
+#
+# Port names must match the block design external interface. When you make
+# the AXI IIC "IIC" interface external in Vivado, rename the ports to
+# iic_cam_scl_io and iic_cam_sda_io (right-click port → Make External).
+#
+# Schematic page 13: J9 pin 14 (SCL) → SOM240_1 A16 → FPGA G11
+#                    J9 pin 15 (SDA) → SOM240_1 A17 → FPGA F10
+set_property PACKAGE_PIN G11      [get_ports {iic_cam_scl_io}]
+set_property IOSTANDARD  LVCMOS18 [get_ports {iic_cam_scl_io}]
+set_property PULLUP      TRUE     [get_ports {iic_cam_scl_io}]
+
+set_property PACKAGE_PIN F10      [get_ports {iic_cam_sda_io}]
+set_property IOSTANDARD  LVCMOS18 [get_ports {iic_cam_sda_io}]
+set_property PULLUP      TRUE     [get_ports {iic_cam_sda_io}]

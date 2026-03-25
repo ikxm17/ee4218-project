@@ -1,13 +1,18 @@
-"""I2C communication with the IMX219 sensor through the KV260's I2C mux.
+"""I2C communication with the IMX219 sensor via AXI IIC through the I2C mux.
 
 I2C path (from hardware/constraints/camera.xdc):
-    PS I2C1 (MIO 24/25) -> TCA8546A mux (0x74, ch2) -> IMX219 (0x10)
+    AXI IIC (PL) -> F10/G11 -> TCA8546A mux (0x74, ch2) -> IMX219 (0x10)
+
+The AXI IIC controller is instantiated in the PL block design and exposed
+as a Linux I2C adapter via the xiic-i2c kernel driver. The bus number is
+assigned dynamically when the PYNQ overlay loads the device tree fragment.
 
 Uses smbus2 for raw I2C messages supporting the IMX219's CCI protocol
 (16-bit register addresses with 8-bit data).
 """
 
 import logging
+import pathlib
 import time
 
 from smbus2 import SMBus, i2c_msg
@@ -16,23 +21,52 @@ logger = logging.getLogger(__name__)
 
 
 class IMX219I2C:
-    """IMX219 sensor I2C access through the KV260's TCA8546A I2C mux."""
+    """IMX219 sensor I2C access via AXI IIC through the KV260's I2C mux."""
 
     I2C_MUX_ADDR = 0x74
     I2C_MUX_CHANNEL = 0x04  # Channel 2 bitmask
     IMX219_ADDR = 0x10
 
-    def __init__(self, bus: int = 1):
+    def __init__(self, bus: int | None = None):
         """Open the I2C bus and select the mux channel to the camera.
 
         Args:
-            bus: Linux I2C bus number (/dev/i2c-N). Defaults to 1
-                 (PS I2C1 on KV260).
+            bus: Linux I2C bus number (/dev/i2c-N). If None, auto-detects
+                 the Xilinx AXI IIC adapter (requires overlay to be loaded).
         """
+        if bus is None:
+            bus = self._find_axi_iic_bus()
         self._bus_num = bus
         self._bus = SMBus(bus)
         self._select_mux_channel()
         logger.info("I2C bus %d opened, mux channel selected", bus)
+
+    @staticmethod
+    def _find_axi_iic_bus() -> int:
+        """Find the I2C bus number for the Xilinx AXI IIC adapter.
+
+        Scans /sys/class/i2c-adapter/ for adapters whose name contains
+        'xiic', which is the Linux driver for Xilinx AXI IIC (PG090).
+        The overlay must be loaded first so the device tree fragment
+        instantiates the adapter.
+
+        Returns:
+            The bus number (N in /dev/i2c-N).
+
+        Raises:
+            RuntimeError: If no AXI IIC adapter is found.
+        """
+        adapter_dir = pathlib.Path("/sys/class/i2c-adapter")
+        for adapter in sorted(adapter_dir.iterdir()):
+            name_file = adapter / "name"
+            if name_file.exists() and "xiic" in name_file.read_text():
+                bus_num = int(adapter.name.split("-")[1])
+                logger.debug("Found AXI IIC adapter: i2c-%d", bus_num)
+                return bus_num
+        raise RuntimeError(
+            "No Xilinx AXI IIC adapter found in sysfs. "
+            "Ensure the overlay is loaded before initializing I2C."
+        )
 
     def _select_mux_channel(self) -> None:
         """Write channel bitmask to TCA8546A to route I2C to the IMX219."""

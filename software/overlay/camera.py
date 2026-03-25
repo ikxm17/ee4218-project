@@ -31,6 +31,7 @@ class CameraOverlay:
     IP_GAMMA = "v_gamma_lut_0"
     IP_VDMA = "axi_vdma_0"
     IP_MULTI_SCALER = "v_multi_scaler_0"
+    IP_AXI_IIC = "axi_iic_0"
 
     def __init__(self, bitstream_path: str):
         from pynq import GPIO, Overlay
@@ -49,6 +50,7 @@ class CameraOverlay:
         self._ip_gamma = self._resolve_ip(self.IP_GAMMA)
         self._ip_vdma = self._resolve_ip(self.IP_VDMA)
         self._ip_scaler = self._resolve_ip(self.IP_MULTI_SCALER)
+        self._resolve_ip(self.IP_AXI_IIC)  # validate IIC exists in overlay
 
         # --- Step 2: Camera power enable ---
         # GPIO EMIO[0] -> cam_pwren (F11), mapped to PS GPIO base + 78
@@ -62,11 +64,12 @@ class CameraOverlay:
         time.sleep(0.010)
 
         # --- Step 3: I2C sensor initialization ---
+        # AXI IIC bus is auto-detected via sysfs (xiic-i2c adapter)
         self._i2c = IMX219I2C()
         if not self._i2c.verify_sensor_id():
             raise RuntimeError(
-                "IMX219 sensor not detected. Check camera ribbon cable "
-                "and power (cam_pwren on F11)."
+                "IMX219 sensor not detected. Check: (1) camera ribbon cable, "
+                "(2) cam_pwren on F11, (3) AXI IIC in block design."
             )
         self._i2c.init_sensor()
 
