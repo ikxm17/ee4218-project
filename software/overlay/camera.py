@@ -42,7 +42,7 @@ class CameraOverlay:
 
         # --- Step 1: Load overlay ---
         logger.info("Loading overlay from %s", bitstream_path)
-        self._overlay = Overlay(bitstream_path)
+        self._overlay = Overlay(bitstream_path, ignore_version=True)
         logger.info("Overlay loaded. IPs: %s", list(self._overlay.ip_dict.keys()))
 
         # PYNQ's AxiVDMA driver requires interrupt attributes (s2mm_introut)
