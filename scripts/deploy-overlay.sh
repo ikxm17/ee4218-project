@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy a Vivado overlay (.xsa) to the Kria board.
-# Extracts .bit + .hwh from the .xsa archive, then rsyncs them to the
-# board's hardware/output/ directory.
+# Extracts .bit + .hwh from the .xsa archive, generates a device tree overlay
+# (.dts/.dtbo) from the .hwh, then rsyncs everything to the board.
 #
 # Usage:
 #   bash scripts/deploy-overlay.sh [--xsa <path>] [--board <host>] [--name <name>] [--local-only]
@@ -28,7 +28,8 @@ usage() {
     cat <<EOF
 Usage: bash scripts/deploy-overlay.sh [options]
 
-Extracts .bit + .hwh from a Vivado .xsa archive and deploys to the board.
+Extracts .bit + .hwh from a Vivado .xsa archive, generates a device tree
+overlay (.dts/.dtbo) from the .hwh, and deploys to the board.
 
 Options:
   --xsa PATH       Path to .xsa file (default: auto-detect from hardware/output/*.xsa)
@@ -165,15 +166,11 @@ fi
 BOARD_OUTPUT_DIR="$BOARD_PROJECT_DIR/hardware/output"
 ssh "$BOARD" "mkdir -p '$BOARD_OUTPUT_DIR'"
 
-# --- Compile .dtbo if .dts exists ---
-DTS_FILE="$OUTPUT_DIR/$NAME.dts"
-if [ -f "$DTS_FILE" ]; then
-    echo "Compiling device tree overlay: $DTS_FILE"
-    if dtc -@ -I dts -O dtb -o "$OUTPUT_DIR/$NAME.dtbo" "$DTS_FILE" 2>&1 | grep -i error; then
-        echo "Error: dtc compilation failed."
-        exit 1
-    fi
-    echo "  $OUTPUT_DIR/$NAME.dtbo ($(du -h "$OUTPUT_DIR/$NAME.dtbo" | cut -f1))"
+# --- Generate and compile .dtbo from .hwh ---
+HWH_DEPLOY="$OUTPUT_DIR/$NAME.hwh"
+if [ -f "$HWH_DEPLOY" ]; then
+    echo "Generating device tree overlay from $HWH_DEPLOY"
+    python3 "$SCRIPT_DIR/generate-dtbo.py" "$HWH_DEPLOY" -o "$OUTPUT_DIR/$NAME.dts" --compile
 fi
 
 # Build file list for rsync
