@@ -15,6 +15,7 @@ by PYNQ's MMIO, with the base address resolved from the .hwh file.
 """
 
 import logging
+import math
 import time
 
 logger = logging.getLogger(__name__)
@@ -147,14 +148,19 @@ def configure_demosaic(ip, width: int = 1920, height: int = 1080) -> None:
 # ---------------------------------------------------------------------------
 # Gamma LUT (PG285)
 # ---------------------------------------------------------------------------
-# Register map (from PG285 Table 2-5):
+# Register map (from PG285 / xv_gamma_lut_hw.h):
 #   0x00   AP_CTRL
 #   0x10   width
 #   0x18   height
-#   0x20   video_format (ignored for passthrough)
-#   0x0800 gamma_lut_0[0..1023]  (R channel LUT)
-#   0x1000 gamma_lut_1[0..1023]  (G channel LUT)
-#   0x1800 gamma_lut_2[0..1023]  (B channel LUT)
+#   0x20   video_format
+#   0x0800 gamma_lut_0[0..1023]  (R channel, 2 x U16 packed per 32-bit word)
+#   0x1000 gamma_lut_1[0..1023]  (G channel, 512 words = 0x800 bytes per LUT)
+#   0x1800 gamma_lut_2[0..1023]  (B channel)
+#
+# ADDR_WIDTH=13 → address space is 0x0000-0x1FFF (8 KB).  Each LUT
+# region is 0x800 bytes.  Writing at 4-byte stride (1 entry/word)
+# overflows LUT2 past 0x1FFF, aliasing back to 0x0000 and
+# corrupting the control registers.  Always use 2-entry packing.
 #
 # Bypass: set ap_start=0 with auto_restart=0.  Data passes through
 # because the IP is wired inline on the AXI4-Stream path and uses
@@ -174,22 +180,29 @@ def configure_gamma_lut(
         bypass: If True, leave the IP in passthrough mode (not started).
                 If False, load a linear LUT and start the IP.
     """
-    ip.write(GAMMA_WIDTH, width)
-    ip.write(GAMMA_HEIGHT, height)
-    ip.write(GAMMA_VIDEO_FORMAT, 0)  # RGB (3 components × 10-bit)
-
     if bypass:
-        # Don't start the IP — data passes through unmodified
+        ip.write(GAMMA_WIDTH, width)
+        ip.write(GAMMA_HEIGHT, height)
+        ip.write(GAMMA_VIDEO_FORMAT, 0)
         ip.write(AP_CTRL, 0x00)
         logger.info("Gamma LUT configured: %dx%d, bypass=True", width, height)
-    else:
-        # Load linear 1:1 LUT (identity transform) for all 3 channels
-        # LUT format: 1024 entries of 10-bit values (matching max data width)
-        for ch_offset in (0x0800, 0x1000, 0x1800):
-            for i in range(1024):
-                ip.write(ch_offset + i * 4, i)
-        ip.write(AP_CTRL, AP_CTRL_START | AP_CTRL_AUTO_RESTART)
-        logger.info("Gamma LUT configured: %dx%d, linear LUT loaded", width, height)
+        return
+
+    # Load linear 1:1 LUT (identity transform) BEFORE writing control
+    # registers.  Each LUT has 1024 U16 entries packed 2-per-word in
+    # 512 x 32-bit words (0x800 bytes per LUT region).
+    for ch_base in (0x0800, 0x1000, 0x1800):
+        for word_idx in range(512):
+            lo = word_idx * 2
+            hi = word_idx * 2 + 1
+            ip.write(ch_base + word_idx * 4, (hi << 16) | lo)
+
+    # Write control registers after LUT (safe from aliasing overwrite)
+    ip.write(GAMMA_WIDTH, width)
+    ip.write(GAMMA_HEIGHT, height)
+    ip.write(GAMMA_VIDEO_FORMAT, 0)  # RGB
+    ip.write(AP_CTRL, AP_CTRL_START | AP_CTRL_AUTO_RESTART)
+    logger.info("Gamma LUT configured: %dx%d, linear LUT loaded", width, height)
 
 
 def set_gamma_bypass(ip, bypass: bool) -> None:
@@ -267,8 +280,8 @@ def configure_vdma_s2mm(
     # Set horizontal size in bytes
     ip.write(S2MM_HSIZE, width_bytes)
 
-    # Clear any stale error bits in DMASR (write-1-to-clear)
-    ip.write(S2MM_DMASR, 0x00007190)
+    # Clear all W1C error bits in DMASR (bits 4-8, 11-14)
+    ip.write(S2MM_DMASR, 0x000079F0)
 
     # Run in circular mode (continuous frame capture)
     ip.write(S2MM_DMACR, 0x03)  # RS=1, Circular=1
@@ -285,20 +298,22 @@ def configure_vdma_s2mm(
 def read_vdma_status(ip) -> dict:
     """Read VDMA S2MM status register for debugging.
 
-    Bit positions from PG020 Table 2-19 (S2MM_DMASR).
+    Bit positions from xaxivdma_hw.h / PG020 Table 2-19 (S2MM_DMASR).
     """
     sr = ip.read(S2MM_DMASR)
     status = {
         "raw": sr,
         "halted": bool(sr & 0x01),
         "idle": bool(sr & 0x02),
-        "err_internal": bool(sr & (1 << 4)),
-        "err_slave": bool(sr & (1 << 5)),
-        "err_decode": bool(sr & (1 << 6)),
-        "err_sof_early": bool(sr & (1 << 11)),
-        "err_eol_early": bool(sr & (1 << 12)),
-        "err_sof_late": bool(sr & (1 << 13)),
-        "err_eol_late": bool(sr & (1 << 14)),
+        "err_dma_int": bool(sr & (1 << 4)),
+        "err_dma_slv": bool(sr & (1 << 5)),
+        "err_dma_dec": bool(sr & (1 << 6)),
+        "err_fsz_less": bool(sr & (1 << 7)),
+        "err_lsz_less": bool(sr & (1 << 8)),
+        "err_eol_early": bool(sr & (1 << 11)),
+        "err_sof_early": bool(sr & (1 << 12)),
+        "err_eol_late": bool(sr & (1 << 13)),
+        "err_sof_late": bool(sr & (1 << 14)),
         "frame_count": (sr >> 16) & 0xFF,
     }
     logger.info(
@@ -310,50 +325,117 @@ def read_vdma_status(ip) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Video Multi-Scaler (PG325)
+# Video Multi-Scaler (PG325 / xv_multi_scaler_hw.h)
 # ---------------------------------------------------------------------------
-# Register map (from PG325 Table 2-7).
+# Register map from Xilinx embeddedsw driver (NOT PG325 documentation,
+# which uses generic offsets that don't match the HLS-synthesized IP).
+#
 # The Multi-Scaler is memory-mapped: it reads source frames from DDR
-# and writes scaled outputs to DDR.  Up to 8 outputs, each with its
-# own register block.
+# and writes scaled outputs to DDR.  Per-channel registers at
+# 0x100 + channel * 0x200.  Buffer addresses are 64-bit (lo/hi split).
 #
-# The register layout is complex and partially depends on the number
-# of outputs configured at build time.  The offsets below are for
-# a 2-output configuration.
-#
-# AP_CTRL:
+# Global:
 #   0x000  AP_CTRL
-#   0x010  num_outs (number of active outputs, RW)
+#   0x010  num_outs
 #
-# Per-output registers (base offset varies by output index):
-#   The exact register map depends on the .hwh.  The following offsets
-#   are typical for a 2-output build and will be verified against the
-#   actual .hwh after block design synthesis.
+# Per-channel (base = 0x100 + ch * 0x200):
+#   +0x000 WidthIn      +0x008 WidthOut
+#   +0x010 HeightIn     +0x018 HeightOut
+#   +0x020 LineRate      +0x028 PixelRate
+#   +0x030 InPixelFmt   +0x038 OutPixelFmt
+#   +0x050 InStride     +0x058 OutStride
+#   +0x060 SrcImgBuf0   +0x064 SrcImgBuf0_hi
+#   +0x090 DstImgBuf0   +0x094 DstImgBuf0_hi
+#
+# Filter coefficients (polyphase mode, SCALE_MODE=2):
+#   V: 0x2000 + ch * 0x2000   H: 0x2800 + ch * 0x2000
+#   Each table: PHASES(64) x TAPS(12) I16 entries, packed 2-per-word.
 
 MSCALER_NUM_OUTS = 0x010
-MSCALER_WIDTHIN = 0x020
-MSCALER_HEIGHTIN = 0x028
-MSCALER_INPIXELFMT = 0x030  # Input pixel format
-MSCALER_INSTRIDE = 0x038     # Input stride in bytes
-MSCALER_SRCIMGBUF = 0x040    # Source buffer address (low 32 bits)
 
-# Output 0 registers (offsets may shift depending on .hwh)
-MSCALER_OUT0_WIDTH = 0x048
-MSCALER_OUT0_HEIGHT = 0x050
-MSCALER_OUT0_PIXFMT = 0x058
-MSCALER_OUT0_STRIDE = 0x060
-MSCALER_OUT0_DSTBUF = 0x068
+# Per-channel layout
+MSCALER_CH_STRIDE = 0x200
+MSCALER_CH0_BASE = 0x100
+MSCALER_CH_WIDTH_IN = 0x000
+MSCALER_CH_WIDTH_OUT = 0x008
+MSCALER_CH_HEIGHT_IN = 0x010
+MSCALER_CH_HEIGHT_OUT = 0x018
+MSCALER_CH_LINE_RATE = 0x020
+MSCALER_CH_PIXEL_RATE = 0x028
+MSCALER_CH_IN_PIX_FMT = 0x030
+MSCALER_CH_OUT_PIX_FMT = 0x038
+MSCALER_CH_IN_STRIDE = 0x050
+MSCALER_CH_OUT_STRIDE = 0x058
+MSCALER_CH_SRC_BUF0_LO = 0x060
+MSCALER_CH_SRC_BUF0_HI = 0x064
+MSCALER_CH_DST_BUF0_LO = 0x090
+MSCALER_CH_DST_BUF0_HI = 0x094
 
-# Output 1 registers
-MSCALER_OUT1_WIDTH = 0x070
-MSCALER_OUT1_HEIGHT = 0x078
-MSCALER_OUT1_PIXFMT = 0x080
-MSCALER_OUT1_STRIDE = 0x088
-MSCALER_OUT1_DSTBUF = 0x090
+# Filter coefficient memory bases
+MSCALER_COEFF_V_BASE = 0x2000
+MSCALER_COEFF_H_BASE = 0x2800
+MSCALER_COEFF_CH_STRIDE = 0x2000
 
-# Pixel format codes (PG325 Table 2-9)
+# Pixel format codes (from v_multi_scaler.h)
 MSCALER_FMT_RGBX10 = 15  # 4 bytes/pixel, 10-bit per channel
-MSCALER_FMT_RGB8 = 14     # 3 bytes/pixel, 8-bit per channel
+MSCALER_FMT_RGB8 = 20     # 3 bytes/pixel, 8-bit per channel
+
+# Scaler parameters (from v_multi_scaler_config.h / .hwh)
+MSCALER_TAPS = 12
+MSCALER_PHASES = 64         # 2^PHASE_SHIFT = 2^6
+MSCALER_STEP_PRECISION = 1 << 16  # 65536
+MSCALER_COEFF_PRECISION = 12      # Q12 fixed-point
+
+
+def _generate_lanczos_coefficients() -> list:
+    """Generate Lanczos-3 polyphase filter coefficients.
+
+    Returns a flat list of PHASES * TAPS = 768 signed 12-bit
+    fixed-point coefficients.  Each group of TAPS coefficients
+    (one phase) is normalized to sum to 4096 (1.0 in Q12).
+    """
+    a = MSCALER_TAPS / 4  # Lanczos-a parameter (3 for 12-tap)
+    center = (MSCALER_TAPS - 1) / 2.0
+    flat = []
+    for phase in range(MSCALER_PHASES):
+        frac = phase / MSCALER_PHASES
+        taps = []
+        for t in range(MSCALER_TAPS):
+            x = (t - center) - frac
+            if abs(x) < 1e-9:
+                val = 1.0
+            elif abs(x) >= a:
+                val = 0.0
+            else:
+                val = (a * math.sin(math.pi * x) * math.sin(math.pi * x / a)
+                       / (math.pi * math.pi * x * x))
+            taps.append(val)
+        # Normalize then quantize to Q12
+        s = sum(taps) or 1.0
+        qtaps = [int(round(t / s * (1 << MSCALER_COEFF_PRECISION)))
+                 for t in taps]
+        # Adjust center tap so phase sums to exactly 4096
+        qtaps[MSCALER_TAPS // 2] += (1 << MSCALER_COEFF_PRECISION) - sum(qtaps)
+        qtaps = [max(-2048, min(2047, q)) for q in qtaps]
+        flat.extend(qtaps)
+    return flat
+
+
+def _load_scaler_coefficients(ip, num_channels: int, coeffs: list) -> None:
+    """Write polyphase filter coefficients to all channels.
+
+    Coefficients are I16 values packed 2-per-32-bit-word (same packing
+    as Gamma LUT entries).  The same kernel is used for both V and H
+    directions and for all channels.
+    """
+    for ch in range(num_channels):
+        v_base = MSCALER_COEFF_V_BASE + ch * MSCALER_COEFF_CH_STRIDE
+        h_base = MSCALER_COEFF_H_BASE + ch * MSCALER_COEFF_CH_STRIDE
+        for base in (v_base, h_base):
+            for i in range(0, len(coeffs), 2):
+                lo = coeffs[i] & 0xFFFF
+                hi = coeffs[i + 1] & 0xFFFF
+                ip.write(base + (i // 2) * 4, (hi << 16) | lo)
 
 
 def configure_multi_scaler(
@@ -366,9 +448,10 @@ def configure_multi_scaler(
 ) -> None:
     """Configure and start the Multi-Scaler.
 
-    Note: Register offsets are preliminary and must be verified against
-    the .hwh after the block design is synthesized.  The Multi-Scaler's
-    register map varies based on build-time configuration.
+    Register offsets from Xilinx embeddedsw xv_multi_scaler_hw.h.
+    Per-channel registers at 0x100 + N * 0x200.  64-bit buffer
+    addresses split into lo/hi 32-bit writes.  Polyphase mode
+    requires Lanczos filter coefficients.
 
     Args:
         src_addr: Physical address of the source frame in DDR.
@@ -379,30 +462,43 @@ def configure_multi_scaler(
             addr: Physical address of destination buffer
             width: Output width in pixels
             height: Output height in pixels
-            stride: Output stride in bytes (width * 3 for RGB8)
+            stride: Output stride in bytes
     """
     ip.write(MSCALER_NUM_OUTS, len(outputs))
-    ip.write(MSCALER_WIDTHIN, src_width)
-    ip.write(MSCALER_HEIGHTIN, src_height)
-    ip.write(MSCALER_INPIXELFMT, MSCALER_FMT_RGBX10)
-    ip.write(MSCALER_INSTRIDE, src_stride)
-    ip.write(MSCALER_SRCIMGBUF, src_addr)
-
-    # Output register bases (for 2-output config)
-    out_regs = [
-        (MSCALER_OUT0_WIDTH, MSCALER_OUT0_HEIGHT,
-         MSCALER_OUT0_PIXFMT, MSCALER_OUT0_STRIDE, MSCALER_OUT0_DSTBUF),
-        (MSCALER_OUT1_WIDTH, MSCALER_OUT1_HEIGHT,
-         MSCALER_OUT1_PIXFMT, MSCALER_OUT1_STRIDE, MSCALER_OUT1_DSTBUF),
-    ]
 
     for i, out in enumerate(outputs):
-        w_reg, h_reg, fmt_reg, s_reg, dst_reg = out_regs[i]
-        ip.write(w_reg, out["width"])
-        ip.write(h_reg, out["height"])
-        ip.write(fmt_reg, MSCALER_FMT_RGB8)
-        ip.write(s_reg, out["stride"])
-        ip.write(dst_reg, out["addr"])
+        ch = MSCALER_CH0_BASE + i * MSCALER_CH_STRIDE
+
+        # Input dimensions (same source for all channels)
+        ip.write(ch + MSCALER_CH_WIDTH_IN, src_width)
+        ip.write(ch + MSCALER_CH_HEIGHT_IN, src_height)
+        ip.write(ch + MSCALER_CH_IN_PIX_FMT, MSCALER_FMT_RGBX10)
+        ip.write(ch + MSCALER_CH_IN_STRIDE, src_stride)
+
+        # Source buffer (64-bit address)
+        ip.write(ch + MSCALER_CH_SRC_BUF0_LO, src_addr & 0xFFFFFFFF)
+        ip.write(ch + MSCALER_CH_SRC_BUF0_HI, (src_addr >> 32) & 0xFFFFFFFF)
+
+        # Output dimensions and format
+        ip.write(ch + MSCALER_CH_WIDTH_OUT, out["width"])
+        ip.write(ch + MSCALER_CH_HEIGHT_OUT, out["height"])
+        ip.write(ch + MSCALER_CH_OUT_PIX_FMT, MSCALER_FMT_RGB8)
+        ip.write(ch + MSCALER_CH_OUT_STRIDE, out["stride"])
+
+        # Destination buffer (64-bit address)
+        dst = out["addr"]
+        ip.write(ch + MSCALER_CH_DST_BUF0_LO, dst & 0xFFFFFFFF)
+        ip.write(ch + MSCALER_CH_DST_BUF0_HI, (dst >> 32) & 0xFFFFFFFF)
+
+        # Scaling rates (fixed-point step size for resampling)
+        pixel_rate = (src_width * MSCALER_STEP_PRECISION) // out["width"]
+        line_rate = (src_height * MSCALER_STEP_PRECISION) // out["height"]
+        ip.write(ch + MSCALER_CH_PIXEL_RATE, pixel_rate)
+        ip.write(ch + MSCALER_CH_LINE_RATE, line_rate)
+
+    # Load polyphase filter coefficients
+    coeffs = _generate_lanczos_coefficients()
+    _load_scaler_coefficients(ip, len(outputs), coeffs)
 
     # Start the scaler
     ip.write(AP_CTRL, AP_CTRL_START | AP_CTRL_AUTO_RESTART)
