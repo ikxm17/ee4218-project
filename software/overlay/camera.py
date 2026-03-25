@@ -137,6 +137,12 @@ class CameraOverlay:
         locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
         status = ip_config.read_csi2_status(self._ip_csi2)
 
+        # Re-assert Gamma LUT ap_start + auto_restart.  The HLS IP may
+        # self-stop (ap_done clears ap_start) if it completes a cycle
+        # before upstream data arrives.  Re-starting it here ensures
+        # tready is asserted when the VDMA begins capturing.
+        self._ip_gamma.write(ip_config.AP_CTRL, 0x81)
+
         # --- Step 8: Start VDMA (after stream is established) ---
         ip_config.configure_vdma_s2mm(
             self._ip_vdma,
