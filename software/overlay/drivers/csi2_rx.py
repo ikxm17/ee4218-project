@@ -16,8 +16,9 @@ class Csi2RxDriver:
     map, not the AP_CTRL handshake.
     """
 
-    # Block design instance name (for .hwh audit)
-    IP_NAME = "mipi_csi2_rx_subsyst_0"
+    # IP identification (for audit — class covers ALL instances of this type)
+    IP_VLNV = "xilinx.com:ip:mipi_csi2_rx_subsystem:6.0"
+    IP_NAME = "mipi_csi2_rx_subsyst_0"  # primary instance
 
     # -- Register map (PG232 Table 2-4) --
     CORE_CONFIG = 0x00       # Bit 0: Enable, Bit 1: Soft Reset

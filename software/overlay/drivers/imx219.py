@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 class Imx219Driver:
     """IMX219 sensor driver via AXI IIC through the KV260's I2C mux."""
 
-    # Block design instance name — the AXI IIC controller that provides
-    # the I2C bus to the sensor (for .hwh audit)
-    IP_NAME = "axi_iic_0"
+    # IP identification — the AXI IIC controller that provides the I2C bus
+    # (for audit — class covers ALL instances of this type)
+    IP_VLNV = "xilinx.com:ip:axi_iic:2.1"
+    IP_NAME = "axi_iic_0"  # primary instance
 
     # -- I2C bus addresses --
     I2C_MUX_ADDR = 0x74

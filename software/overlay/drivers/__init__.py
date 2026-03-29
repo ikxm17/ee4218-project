@@ -1,8 +1,15 @@
 """Per-IP-block drivers for the camera pipeline PL IPs and sensor.
 
-Each driver class declares an IP_NAME matching its block design instance.
+Each driver class declares:
+  - IP_VLNV: the Xilinx IP type (vendor:lib:name:ver) — used for audit
+             matching. One driver class covers ALL instances of that type.
+  - IP_NAME: the primary block design instance name — convenience only.
+
+Drivers are instance-agnostic: the class takes any PYNQ IP handle.
+Multiple instances of the same IP type reuse the same driver class.
+
 Use audit_drivers() to cross-reference against a .xsa/.hwh and detect
-stale drivers or IPs that need new drivers.
+IPs that need new drivers.
 """
 
 from .csi2_rx import Csi2RxDriver
@@ -21,25 +28,32 @@ __all__ = [
     "audit_drivers",
 ]
 
-# Registry: maps block design IP instance names to driver classes.
-# Built automatically from each driver's IP_NAME attribute.
-DRIVER_REGISTRY = {
-    cls.IP_NAME: cls
-    for cls in [Csi2RxDriver, DemosaicDriver, GammaLutDriver, Imx219Driver, VdmaDriver]
-}
+# All driver classes. Order doesn't matter.
+_DRIVER_CLASSES = [
+    Csi2RxDriver,
+    DemosaicDriver,
+    GammaLutDriver,
+    Imx219Driver,
+    VdmaDriver,
+]
 
-# IPs that are infrastructure (no driver needed). Extend as the block
-# design grows — these are filtered out of the "missing driver" report.
-_INFRA_IPS = {
-    "proc_sys_reset",
-    "axi_interconnect",
-    "smartconnect",
-    "xlconcat",
-    "zynq_ultra_ps_e",
-    "clk_wiz",
-    "axis_data_fifo",
-    "axis_subset_converter",
-    "rst_",
+# Registry: maps IP VLNV (type) to driver class.
+# One driver class covers all instances of that IP type.
+DRIVER_REGISTRY = {cls.IP_VLNV: cls for cls in _DRIVER_CLASSES}
+
+# IPs that are infrastructure (no driver needed). Matched by VLNV prefix.
+_INFRA_VLNVS = {
+    "xilinx.com:ip:proc_sys_reset",
+    "xilinx.com:ip:axi_interconnect",
+    "xilinx.com:ip:smartconnect",
+    "xilinx.com:ip:xlconcat",
+    "xilinx.com:ip:xlslice",
+    "xilinx.com:ip:xlconstant",
+    "xilinx.com:ip:zynq_ultra_ps_e",
+    "xilinx.com:ip:clk_wiz",
+    "xilinx.com:ip:axis_data_fifo",
+    "xilinx.com:ip:axis_subset_converter",
+    "xilinx.com:ip:axis_register_slice",
 }
 
 
@@ -96,46 +110,67 @@ def _parse_hwh(hwh_source: str) -> dict:
     return hw_ips
 
 
+def _vlnv_type(vlnv: str) -> str:
+    """Strip version from VLNV to get the IP type key.
+
+    'xilinx.com:ip:axi_vdma:6.3' -> 'xilinx.com:ip:axi_vdma'
+    """
+    parts = vlnv.rsplit(":", 1)
+    return parts[0] if len(parts) == 2 else vlnv
+
+
 def audit_drivers(xsa_or_hwh_path: str) -> dict:
     """Compare the driver registry against a .xsa or .hwh file.
 
-    Parses the hardware description to extract IP instance names, then
-    cross-references with DRIVER_REGISTRY.
+    Matches by IP type (VLNV without version), so multiple instances of the
+    same IP (e.g. axi_vdma_0, axi_vdma_1) are covered by one driver class.
 
     Args:
         xsa_or_hwh_path: Path to a .xsa (preferred) or .hwh file.
 
     Returns:
         {
-            "source":   str,                                # path used
+            "source":   str,
             "covered":  {ip_name: {"driver": cls, "vlnv": str}, ...},
-            "stale":    {ip_name: {"driver": cls}, ...},
+            "stale":    {vlnv_type: {"driver": cls}, ...},
             "missing":  {ip_name: {"vlnv": str}, ...},
             "infra":    [ip_name, ...],
         }
     """
     hw_ips = _parse_hwh(xsa_or_hwh_path)
-    hw_ip_names = set(hw_ips.keys())
 
-    covered = {}
+    # Build a set of VLNV types present in hardware
+    hw_vlnv_types = {_vlnv_type(info["vlnv"]) for info in hw_ips.values()}
+
+    # Check which driver VLNVs are present in hardware
+    covered_vlnvs = set()
     stale = {}
-    for ip_name, driver_cls in DRIVER_REGISTRY.items():
-        if ip_name in hw_ip_names:
-            covered[ip_name] = {
-                "driver": driver_cls,
-                "vlnv": hw_ips[ip_name]["vlnv"],
-            }
+    for vlnv, driver_cls in DRIVER_REGISTRY.items():
+        vtype = _vlnv_type(vlnv)
+        if vtype in hw_vlnv_types:
+            covered_vlnvs.add(vtype)
         else:
-            stale[ip_name] = {"driver": driver_cls}
+            stale[vlnv] = {"driver": driver_cls}
 
-    driver_ip_names = set(DRIVER_REGISTRY.keys())
-    infra = []
+    # Classify each hardware IP
+    covered = {}
     missing = {}
-    for ip_name in sorted(hw_ip_names - driver_ip_names):
-        if any(ip_name.startswith(prefix) for prefix in _INFRA_IPS):
+    infra = []
+    for ip_name, info in sorted(hw_ips.items()):
+        vlnv = info["vlnv"]
+        vtype = _vlnv_type(vlnv)
+
+        if vtype in covered_vlnvs:
+            covered[ip_name] = {
+                "driver": DRIVER_REGISTRY.get(vlnv) or DRIVER_REGISTRY.get(
+                    next(k for k in DRIVER_REGISTRY if _vlnv_type(k) == vtype)
+                ),
+                "vlnv": vlnv,
+            }
+        elif any(vlnv.startswith(prefix) for prefix in _INFRA_VLNVS):
             infra.append(ip_name)
         else:
-            missing[ip_name] = {"vlnv": hw_ips[ip_name]["vlnv"]}
+            missing[ip_name] = {"vlnv": vlnv}
 
     return {
         "source": xsa_or_hwh_path,
