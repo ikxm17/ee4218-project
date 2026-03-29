@@ -108,6 +108,11 @@ class GammaLutDriver:
             g: Green channel LUT (1024 entries).
             b: Blue channel LUT (1024 entries).
         """
+        for name, lut in (("r", r), ("g", g), ("b", b)):
+            if len(lut) != self.LUT_ENTRIES:
+                raise ValueError(
+                    f"LUT '{name}' has {len(lut)} entries, expected {self.LUT_ENTRIES}"
+                )
         for ch_base, lut in ((self.LUT_R, r), (self.LUT_G, g), (self.LUT_B, b)):
             for word_idx in range(self.LUT_WORDS):
                 lo = lut[word_idx * 2] & 0xFFFF
