@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 class VdmaDriver:
     """AXI VDMA S2MM channel (PG020)."""
 
+    # Block design instance name (for .hwh audit)
+    IP_NAME = "axi_vdma_0"
+
     # -- Register map --
     S2MM_DMACR = 0x30
     S2MM_DMASR = 0x34

@@ -16,6 +16,9 @@ class Csi2RxDriver:
     map, not the AP_CTRL handshake.
     """
 
+    # Block design instance name (for .hwh audit)
+    IP_NAME = "mipi_csi2_rx_subsyst_0"
+
     # -- Register map (PG232 Table 2-4) --
     CORE_CONFIG = 0x00       # Bit 0: Enable, Bit 1: Soft Reset
     PROTOCOL_CONFIG = 0x04   # Bit [4:3]: Active lanes

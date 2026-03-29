@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 class DemosaicDriver:
     """Sensor Demosaic IP (PG286)."""
 
+    # Block design instance name (for .hwh audit)
+    IP_NAME = "v_demosaic_0"
+
     # -- Register map (PG286 Table 2-6) --
     WIDTH = 0x10
     HEIGHT = 0x18

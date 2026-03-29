@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 class GammaLutDriver:
     """Gamma LUT IP (PG285)."""
 
+    # Block design instance name (for .hwh audit)
+    IP_NAME = "v_gamma_lut_0"
+
     # -- Register map --
     WIDTH = 0x10
     HEIGHT = 0x18

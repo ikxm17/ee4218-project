@@ -34,7 +34,6 @@ class CameraOverlay:
     IP_DEMOSAIC = "v_demosaic_0"
     IP_GAMMA = "v_gamma_lut_0"
     IP_VDMA = "axi_vdma_0"
-    IP_MULTI_SCALER = "v_multi_scaler_0"
     IP_AXI_IIC = "axi_iic_0"
 
     # Fallback base address for CSI-2 RX if PYNQ filters it from ip_dict.
@@ -74,8 +73,6 @@ class CameraOverlay:
         self._demosaic = DemosaicDriver(self._resolve_ip(self.IP_DEMOSAIC))
         self._gamma = GammaLutDriver(self._resolve_ip(self.IP_GAMMA))
         self._vdma = VdmaDriver(self._resolve_ip(self.IP_VDMA))
-        # Multi-Scaler resolved but NOT started — hardware bug causes AXI bus hang
-        self._ip_scaler = self._resolve_ip(self.IP_MULTI_SCALER)
         # AXI IIC is kernel-managed (xiic-i2c driver) — PYNQ filters it
         # from ip_dict. Its presence is validated by I2C bus auto-detection.
 
