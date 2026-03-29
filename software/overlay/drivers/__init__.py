@@ -39,6 +39,7 @@ _INFRA_IPS = {
     "clk_wiz",
     "axis_data_fifo",
     "axis_subset_converter",
+    "rst_",
 }
 
 
@@ -60,7 +61,18 @@ def _parse_hwh(hwh_source: str) -> dict:
             hwh_names = [n for n in zf.namelist() if n.endswith(".hwh")]
             if not hwh_names:
                 raise FileNotFoundError(f"No .hwh found inside {hwh_source}")
-            hwh_data = zf.read(hwh_names[0])
+            # The .xsa contains sub-IP .hwh files alongside the top-level
+            # design .hwh.  Use xsa.json topModuleName to find the right one.
+            top_hwh = hwh_names[0]
+            if "xsa.json" in zf.namelist():
+                import json
+                meta = json.loads(zf.read("xsa.json"))
+                top_name = meta.get("topModuleName", "").removesuffix("_wrapper")
+                for n in hwh_names:
+                    if n == f"{top_name}.hwh":
+                        top_hwh = n
+                        break
+            hwh_data = zf.read(top_hwh)
             root = ET.parse(io.BytesIO(hwh_data)).getroot()
     else:
         root = ET.parse(hwh_source).getroot()

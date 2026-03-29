@@ -17,8 +17,6 @@ import logging
 import pathlib
 import time
 
-from smbus2 import SMBus, i2c_msg
-
 from . import _imx219_regs as regs
 
 logger = logging.getLogger(__name__)
@@ -43,10 +41,13 @@ class Imx219Driver:
             bus: Linux I2C bus number (/dev/i2c-N). If None, auto-detects
                  the Xilinx AXI IIC adapter (requires overlay to be loaded).
         """
+        from smbus2 import SMBus, i2c_msg
+
         if bus is None:
             bus = self._find_axi_iic_bus()
         self._bus_num = bus
         self._bus = SMBus(bus)
+        self._i2c_msg = i2c_msg
         self._select_mux_channel()
         logger.info("I2C bus %d opened, mux channel selected", bus)
 
@@ -79,7 +80,7 @@ class Imx219Driver:
 
     def _select_mux_channel(self) -> None:
         """Write channel bitmask to TCA8546A to route I2C to the IMX219."""
-        msg = i2c_msg.write(self.I2C_MUX_ADDR, [self.I2C_MUX_CHANNEL])
+        msg = self._i2c_msg.write(self.I2C_MUX_ADDR, [self.I2C_MUX_CHANNEL])
         self._bus.i2c_rdwr(msg)
         logger.debug("I2C mux 0x%02X channel set to 0x%02X",
                       self.I2C_MUX_ADDR, self.I2C_MUX_CHANNEL)
@@ -92,7 +93,7 @@ class Imx219Driver:
         CCI single write (datasheet Fig. 16, page 22):
             [S][slave_W][A] [reg_hi][A] [reg_lo][A] [data][A/NA][P]
         """
-        msg = i2c_msg.write(
+        msg = self._i2c_msg.write(
             self.IMX219_ADDR,
             [(reg >> 8) & 0xFF, reg & 0xFF, value & 0xFF],
         )
@@ -105,11 +106,11 @@ class Imx219Driver:
             [S][slave_W][A] [reg_hi][A] [reg_lo][A]
             [Sr][slave_R][A] [data][NA][P]
         """
-        write_msg = i2c_msg.write(
+        write_msg = self._i2c_msg.write(
             self.IMX219_ADDR,
             [(reg >> 8) & 0xFF, reg & 0xFF],
         )
-        read_msg = i2c_msg.read(self.IMX219_ADDR, 1)
+        read_msg = self._i2c_msg.read(self.IMX219_ADDR, 1)
         self._bus.i2c_rdwr(write_msg, read_msg)
         return list(read_msg)[0]
 
