@@ -17,6 +17,7 @@ from .demosaic import DemosaicDriver
 from .gamma_lut import GammaLutDriver
 from .imx219 import Imx219Driver
 from .vdma import VdmaDriver
+from .vpss import VpssScalerDriver
 
 __all__ = [
     "Csi2RxDriver",
@@ -24,6 +25,7 @@ __all__ = [
     "GammaLutDriver",
     "Imx219Driver",
     "VdmaDriver",
+    "VpssScalerDriver",
     "DRIVER_REGISTRY",
     "audit_drivers",
 ]
@@ -35,6 +37,7 @@ _DRIVER_CLASSES = [
     GammaLutDriver,
     Imx219Driver,
     VdmaDriver,
+    VpssScalerDriver,
 ]
 
 # Registry: maps IP VLNV (type) to driver class.
@@ -54,6 +57,7 @@ _INFRA_VLNVS = {
     "xilinx.com:ip:axis_data_fifo",
     "xilinx.com:ip:axis_subset_converter",
     "xilinx.com:ip:axis_register_slice",
+    "xilinx.com:ip:axis_broadcaster",
 }
 
 

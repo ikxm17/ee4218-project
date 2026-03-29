@@ -27,24 +27,24 @@ class FrameBuffers:
     """Manages CMA-allocated frame buffers for the camera pipeline.
 
     Buffers:
-        vdma_bufs:  3 x 1080p frames for VDMA triple-buffering
-                    (32-bit/pixel, 10-bit RGB padded)
-        viz_buf:    720p RGB8 output from Multi-Scaler (visualization)
-        inf_buf:    256x256 RGB8 output from Multi-Scaler (inference)
+        vdma_bufs:      3 x 1080p frames for VDMA 0 triple-buffering
+                        (32-bit/pixel, 10-bit RGB padded)
+        vdma1_bufs:     3 x inference-sized frames for VDMA 1 (VPSS output)
+                        (32-bit/pixel, 10-bit RGB padded)
     """
 
     def __init__(
         self,
         raw_width: int = 1920,
         raw_height: int = 1080,
-        viz_shape: tuple = (720, 1280, 3),
-        inf_shape: tuple = (256, 256, 3),
+        inf_width: int = 224,
+        inf_height: int = 224,
     ):
         from pynq import allocate
 
         logger.info("Allocating CMA buffers...")
 
-        # VDMA frame stores: 32-bit words (10-bit RGB padded)
+        # VDMA 0 frame stores: 1080p, 32-bit words (10-bit RGB padded)
         self.vdma_bufs = [
             allocate(shape=(raw_height, raw_width), dtype=np.uint32)
             for _ in range(VDMA_FRAME_COUNT)
@@ -52,14 +52,18 @@ class FrameBuffers:
         self._raw_width = raw_width
         self._raw_height = raw_height
 
-        # Multi-Scaler output buffers: RGB8 (3 bytes/pixel)
-        self.viz_buf = allocate(shape=viz_shape, dtype=np.uint8)
-        self.inf_buf = allocate(shape=inf_shape, dtype=np.uint8)
+        # VDMA 1 frame stores: inference-sized, 32-bit words (VPSS output)
+        self.vdma1_bufs = [
+            allocate(shape=(inf_height, inf_width), dtype=np.uint32)
+            for _ in range(VDMA_FRAME_COUNT)
+        ]
+        self._inf_width = inf_width
+        self._inf_height = inf_height
 
         logger.info(
-            "CMA buffers allocated: %d x %dx%d VDMA, %s viz, %s inf",
+            "CMA buffers allocated: %d x %dx%d VDMA0, %d x %dx%d VDMA1",
             VDMA_FRAME_COUNT, raw_height, raw_width,
-            viz_shape, inf_shape,
+            VDMA_FRAME_COUNT, inf_height, inf_width,
         )
 
     @property
@@ -69,55 +73,60 @@ class FrameBuffers:
 
     @property
     def vdma_stride(self) -> int:
-        """VDMA stride in bytes (width * bytes_per_pixel)."""
+        """VDMA 0 stride in bytes (width * bytes_per_pixel)."""
         return self._raw_width * VDMA_BYTES_PER_PIXEL
 
     @property
-    def viz_phys_addr(self) -> int:
-        return self.viz_buf.physical_address
+    def vdma1_phys_addrs(self) -> list:
+        """Physical addresses for VDMA 1 (inference) frame stores."""
+        return [buf.physical_address for buf in self.vdma1_bufs]
 
     @property
-    def inf_phys_addr(self) -> int:
-        return self.inf_buf.physical_address
+    def vdma1_stride(self) -> int:
+        """VDMA 1 stride in bytes (inf_width * bytes_per_pixel)."""
+        return self._inf_width * VDMA_BYTES_PER_PIXEL
 
-    def get_frame(self, buffer: str = "viz") -> np.ndarray:
-        """Read a frame from the VDMA buffer, unpack 10-bit to 8-bit, resize.
+    @staticmethod
+    def _unpack_rgbx10(raw: np.ndarray) -> np.ndarray:
+        """Unpack RGBX10 32-bit pixels to RGB uint8.
 
-        The Multi-Scaler PL IP is currently non-functional (AXI master
-        hangs), so scaling is done on the CPU as a workaround.
-
-        Returns:
-            RGB uint8 numpy array.
+        RGBX10 format: [31:30]=pad, [29:20]=B, [19:10]=G, [9:0]=R
+        Each channel is 10-bit, right-shifted by 2 to get 8-bit.
         """
-        import cv2
-
-        # Read raw 10-bit RGBX frame from VDMA buffer 0
-        self.vdma_bufs[0].invalidate()
-        raw = np.array(self.vdma_bufs[0], copy=False)  # (1080, 1920) uint32
-
-        # Subsample first for speed: take every 2nd pixel/line for viz,
-        # every 8th for inference — avoids unpacking the full 1080p.
-        if buffer == "inference":
-            raw = raw[::4, ::8]   # ~270×240
-            target = (256, 256)
-        else:
-            raw = raw[::2, ::2]   # 540×960
-            target = (1280, 720)
-
-        # Unpack RGBX10: [31:0] = xx:B(10):G(10):R(10)
-        # Write directly into pre-shaped output to avoid np.stack copy.
         h, w = raw.shape
         rgb = np.empty((h, w, 3), dtype=np.uint8)
         rgb[:, :, 0] = (raw & 0x3FF) >> 2
         rgb[:, :, 1] = (raw >> 10 & 0x3FF) >> 2
         rgb[:, :, 2] = (raw >> 20 & 0x3FF) >> 2
+        return rgb
 
-        return cv2.resize(rgb, target, interpolation=cv2.INTER_LINEAR)
+    def get_frame(self, buffer: str = "viz") -> np.ndarray:
+        """Read a frame, unpack 10-bit to 8-bit.
+
+        For "inference": reads VPSS-scaled frame from VDMA 1 (hardware scaled).
+        For "viz": reads from VDMA 0 and CPU-scales to 720p.
+
+        Returns:
+            RGB uint8 numpy array.
+        """
+        if buffer == "inference":
+            self.vdma1_bufs[0].invalidate()
+            raw = np.array(self.vdma1_bufs[0], copy=False)
+            return self._unpack_rgbx10(raw)
+
+        import cv2
+
+        # Visualization: CPU-scale from VDMA 0 (1080p)
+        self.vdma_bufs[0].invalidate()
+        raw = np.array(self.vdma_bufs[0], copy=False)
+        raw = raw[::2, ::2]  # subsample to 540×960 for speed
+        rgb = self._unpack_rgbx10(raw)
+        return cv2.resize(rgb, (1280, 720), interpolation=cv2.INTER_LINEAR)
 
     def free(self) -> None:
         """Release all CMA buffers."""
         for buf in self.vdma_bufs:
             buf.freebuffer()
-        self.viz_buf.freebuffer()
-        self.inf_buf.freebuffer()
+        for buf in self.vdma1_bufs:
+            buf.freebuffer()
         logger.info("CMA buffers freed")

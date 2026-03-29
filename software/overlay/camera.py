@@ -11,10 +11,11 @@ The sequence is:
     3. Drive cam_pwren high (GPIO EMIO[0] -> F11)
     4. Initialize IMX219 via I2C (mux select, ID check, register table)
     5. Allocate CMA buffers
-    6. Configure PL IPs (Demosaic, Gamma, VDMA, Multi-Scaler)
+    6. Configure PL IPs (Demosaic, Gamma, VPSS, VDMAs)
     7. Start IMX219 streaming
     8. Soft-reset CSI-2 RX (D-PHY re-sync with active sensor clock)
-    9. Wait for D-PHY lock, log diagnostic status
+    9. Start stream IPs bottom-up (VDMA1 → VPSS → VDMA0 → Gamma → Demosaic)
+   10. Wait for D-PHY lock, log diagnostic status
 """
 
 import logging
@@ -34,6 +35,8 @@ class CameraOverlay:
     IP_DEMOSAIC = "v_demosaic_0"
     IP_GAMMA = "v_gamma_lut_0"
     IP_VDMA = "axi_vdma_0"
+    IP_VDMA1 = "axi_vdma_1"
+    IP_VPSS = "v_proc_ss_0"
     IP_AXI_IIC = "axi_iic_0"
 
     # Fallback base address for CSI-2 RX if PYNQ filters it from ip_dict.
@@ -42,7 +45,15 @@ class CameraOverlay:
     _CSI2_RX_BASE_ADDR = 0xA0030000
     _CSI2_RX_ADDR_RANGE = 0x2000
 
-    def __init__(self, bitstream_path: str):
+    # Fallback for VPSS (also DRIVERMODE=MIXED in .hwh)
+    _VPSS_BASE_ADDR = 0xA0080000
+    _VPSS_ADDR_RANGE = 0x40000  # 256KB
+
+    def __init__(
+        self,
+        bitstream_path: str,
+        inference_size: tuple = (224, 224),
+    ):
         from pynq import DefaultIP, GPIO, MMIO, Overlay
 
         from .buffers import FrameBuffers
@@ -52,7 +63,10 @@ class CameraOverlay:
             GammaLutDriver,
             Imx219Driver,
             VdmaDriver,
+            VpssScalerDriver,
         )
+
+        self._inf_w, self._inf_h = inference_size
 
         # --- Step 1: Load overlay ---
         logger.info("Loading overlay from %s", bitstream_path)
@@ -66,19 +80,33 @@ class CameraOverlay:
         # AxiVDMA.__init__ fails with "'AxiVDMA' object has no attribute
         # 's2mm_introut'".  Since we configure the VDMA via raw MMIO
         # registers, DefaultIP is sufficient.
-        self._overlay._ip_map._description["ip"][self.IP_VDMA][
-            "driver"
-        ] = DefaultIP
+        for vdma_name in (self.IP_VDMA, self.IP_VDMA1):
+            if vdma_name in self._overlay._ip_map._description["ip"]:
+                self._overlay._ip_map._description["ip"][vdma_name][
+                    "driver"
+                ] = DefaultIP
 
         # Resolve IP handles and wrap in driver classes
         self._demosaic = DemosaicDriver(self._resolve_ip(self.IP_DEMOSAIC))
         self._gamma = GammaLutDriver(self._resolve_ip(self.IP_GAMMA))
         self._vdma = VdmaDriver(self._resolve_ip(self.IP_VDMA))
+        self._vdma1 = VdmaDriver(self._resolve_ip(self.IP_VDMA1))
         # AXI IIC is kernel-managed (xiic-i2c driver) — PYNQ filters it
         # from ip_dict. Its presence is validated by I2C bus auto-detection.
 
-        # CSI-2 RX: PYNQ may filter subsystem IPs (DRIVERMODE=MIXED) from
+        # VPSS: PYNQ may filter subsystem IPs (DRIVERMODE=MIXED) from
         # ip_dict, so fall back to raw MMIO if the IP handle is missing.
+        if self.IP_VPSS in self._overlay.ip_dict:
+            vpss_handle = self._resolve_ip(self.IP_VPSS)
+        else:
+            logger.info(
+                "VPSS not in ip_dict, using MMIO at 0x%08X",
+                self._VPSS_BASE_ADDR,
+            )
+            vpss_handle = MMIO(self._VPSS_BASE_ADDR, self._VPSS_ADDR_RANGE)
+        self._vpss = VpssScalerDriver(vpss_handle)
+
+        # CSI-2 RX: same DRIVERMODE=MIXED fallback
         if self.IP_CSI2_RX in self._overlay.ip_dict:
             csi2_handle = self._resolve_ip(self.IP_CSI2_RX)
         else:
@@ -120,15 +148,20 @@ class CameraOverlay:
         self._sensor.configure()
 
         # --- Step 5: Allocate CMA buffers ---
-        self._buffers = FrameBuffers()
+        self._buffers = FrameBuffers(
+            inf_width=self._inf_w, inf_height=self._inf_h,
+        )
 
         # --- Step 6: Configure stream-processing IPs (load params only) ---
-        # Load Demosaic and Gamma LUT parameters but do NOT rely on
-        # their AP_CTRL staying set — HLS IPs self-stop when started
-        # without upstream data or with downstream backpressure.
+        # Load parameters but do NOT rely on AP_CTRL staying set — HLS IPs
+        # self-stop when started without upstream data or downstream backpressure.
         # We re-assert AP_CTRL after the full downstream path is ready.
         self._demosaic.configure()
         self._gamma.configure(bypass=False)
+        self._vpss.configure(
+            width_in=1920, height_in=1080,
+            width_out=self._inf_w, height_out=self._inf_h,
+        )
 
         # --- Step 7: Start streaming + D-PHY lock ---
         # Start the sensor and lock the D-PHY BEFORE starting the VDMA.
@@ -150,20 +183,24 @@ class CameraOverlay:
         self._csi2.reset()
 
         # --- Step 9: Start stream IPs (bottom-up) ---
-        # Re-assert ap_ctrl on Gamma then Demosaic so each IP's
-        # output has a ready consumer.
-        self._gamma.start()
-        self._demosaic.start()
+        # The Broadcaster requires ALL outputs to assert tready before
+        # data flows.  Start from the furthest downstream (VDMA sinks)
+        # and work upstream so each IP has a ready consumer.
 
-        # Wait for clean D-PHY lock with the pipeline fully running
-        locked = self._csi2.wait_for_lock(timeout_s=2.0)
-        status = self._csi2.read_status()
+        # VDMA 1 (inference): configure first — this is downstream of VPSS,
+        # which is downstream of the Broadcaster's M01 output.
+        vdma1_kwargs = dict(
+            frame_addrs=self._buffers.vdma1_phys_addrs,
+            width_bytes=self._inf_w * 4,
+            height=self._inf_h,
+            stride=self._buffers.vdma1_stride,
+        )
+        self._vdma1.configure(**vdma1_kwargs)
 
-        # --- Step 10: Start VDMA with retry ---
-        # The VDMA consistently hits DMAIntErr on the first frame
-        # (likely a DataMover FIFO edge case during initial SOF
-        # alignment).  Configure, let it capture one frame, then
-        # reset and reconfigure so the DMA engine starts clean.
+        # VPSS: re-assert AP_CTRL so it asserts tready on s_axis
+        self._vpss.start()
+
+        # VDMA 0 (1080p capture): configure to assert tready on Broadcaster M00
         vdma_kwargs = dict(
             frame_addrs=self._buffers.vdma_phys_addrs,
             width_bytes=1920 * 4,
@@ -171,15 +208,29 @@ class CameraOverlay:
             stride=self._buffers.vdma_stride,
         )
         self._vdma.configure(**vdma_kwargs)
+
+        # Re-assert ap_ctrl on Gamma then Demosaic
+        self._gamma.start()
+        self._demosaic.start()
+
+        # Wait for clean D-PHY lock with the pipeline fully running
+        locked = self._csi2.wait_for_lock(timeout_s=2.0)
+        status = self._csi2.read_status()
+
+        # --- Step 10: VDMA first-frame DMAIntErr retry ---
         time.sleep(0.100)  # let first frame attempt complete
 
-        dmasr = self._vdma.read_dmasr()
-        if dmasr & 0x10:  # DMAIntErr
-            logger.warning(
-                "VDMA DMAIntErr on first capture (DMASR=0x%08X), "
-                "resetting and retrying", dmasr,
-            )
-            self._vdma.configure(**vdma_kwargs)
+        for vdma_name, vdma_drv, kwargs in [
+            ("VDMA0", self._vdma, vdma_kwargs),
+            ("VDMA1", self._vdma1, vdma1_kwargs),
+        ]:
+            dmasr = vdma_drv.read_dmasr()
+            if dmasr & 0x10:  # DMAIntErr
+                logger.warning(
+                    "%s DMAIntErr on first capture (DMASR=0x%08X), "
+                    "resetting and retrying", vdma_name, dmasr,
+                )
+                vdma_drv.configure(**kwargs)
 
         if not locked:
             logger.error(
@@ -201,10 +252,11 @@ class CameraOverlay:
         return getattr(self._overlay, name)
 
     def get_frame(self, buffer: str = "viz") -> np.ndarray:
-        """Read the latest frame from a Multi-Scaler output buffer.
+        """Read the latest frame from the pipeline.
 
         Args:
-            buffer: "viz" for 720p visualization, "inference" for 256x256.
+            buffer: "viz" for 720p visualization (CPU-scaled from VDMA 0),
+                    "inference" for VPSS-scaled frame from VDMA 1.
 
         Returns:
             RGB uint8 numpy array.
