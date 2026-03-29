@@ -45,9 +45,14 @@ class CameraOverlay:
     def __init__(self, bitstream_path: str):
         from pynq import DefaultIP, GPIO, MMIO, Overlay
 
-        from . import ip_config
         from .buffers import FrameBuffers
-        from .i2c import IMX219I2C
+        from .drivers import (
+            Csi2RxDriver,
+            DemosaicDriver,
+            GammaLutDriver,
+            Imx219Driver,
+            VdmaDriver,
+        )
 
         # --- Step 1: Load overlay ---
         logger.info("Loading overlay from %s", bitstream_path)
@@ -60,15 +65,16 @@ class CameraOverlay:
         # the device tree (only the AXI IIC has a dtbo node), so the
         # AxiVDMA.__init__ fails with "'AxiVDMA' object has no attribute
         # 's2mm_introut'".  Since we configure the VDMA via raw MMIO
-        # registers (ip_config.py), DefaultIP is sufficient.
+        # registers, DefaultIP is sufficient.
         self._overlay._ip_map._description["ip"][self.IP_VDMA][
             "driver"
         ] = DefaultIP
 
-        # Resolve IP handles
-        self._ip_demosaic = self._resolve_ip(self.IP_DEMOSAIC)
-        self._ip_gamma = self._resolve_ip(self.IP_GAMMA)
-        self._ip_vdma = self._resolve_ip(self.IP_VDMA)
+        # Resolve IP handles and wrap in driver classes
+        self._demosaic = DemosaicDriver(self._resolve_ip(self.IP_DEMOSAIC))
+        self._gamma = GammaLutDriver(self._resolve_ip(self.IP_GAMMA))
+        self._vdma = VdmaDriver(self._resolve_ip(self.IP_VDMA))
+        # Multi-Scaler resolved but NOT started — hardware bug causes AXI bus hang
         self._ip_scaler = self._resolve_ip(self.IP_MULTI_SCALER)
         # AXI IIC is kernel-managed (xiic-i2c driver) — PYNQ filters it
         # from ip_dict. Its presence is validated by I2C bus auto-detection.
@@ -76,20 +82,21 @@ class CameraOverlay:
         # CSI-2 RX: PYNQ may filter subsystem IPs (DRIVERMODE=MIXED) from
         # ip_dict, so fall back to raw MMIO if the IP handle is missing.
         if self.IP_CSI2_RX in self._overlay.ip_dict:
-            self._ip_csi2 = self._resolve_ip(self.IP_CSI2_RX)
+            csi2_handle = self._resolve_ip(self.IP_CSI2_RX)
         else:
             logger.info(
                 "CSI-2 RX not in ip_dict, using MMIO at 0x%08X",
                 self._CSI2_RX_BASE_ADDR,
             )
-            self._ip_csi2 = MMIO(
+            csi2_handle = MMIO(
                 self._CSI2_RX_BASE_ADDR, self._CSI2_RX_ADDR_RANGE
             )
+        self._csi2 = Csi2RxDriver(csi2_handle)
 
         # --- Step 2: Disable CSI-2 RX before sensor starts ---
         # The core is enabled at overlay load.  Disable it now so the
         # D-PHY doesn't try to sync against an idle bus.
-        self._ip_csi2.write(ip_config.CSI2_CORE_CONFIG, 0x00)
+        self._csi2.disable()
         logger.info("CSI-2 RX core disabled (pre-streaming)")
 
         # --- Step 3: Camera power enable ---
@@ -105,13 +112,14 @@ class CameraOverlay:
 
         # --- Step 4: I2C sensor initialization ---
         # AXI IIC bus is auto-detected via sysfs (xiic-i2c adapter)
-        self._i2c = IMX219I2C()
-        if not self._i2c.verify_sensor_id():
+        self._sensor = Imx219Driver()
+        sensor_status = self._sensor.read_status()
+        if not sensor_status["detected"]:
             raise RuntimeError(
                 "IMX219 sensor not detected. Check: (1) camera ribbon cable, "
                 "(2) cam_pwren on F11, (3) AXI IIC in block design."
             )
-        self._i2c.init_sensor()
+        self._sensor.configure()
 
         # --- Step 5: Allocate CMA buffers ---
         self._buffers = FrameBuffers()
@@ -121,37 +129,37 @@ class CameraOverlay:
         # their AP_CTRL staying set — HLS IPs self-stop when started
         # without upstream data or with downstream backpressure.
         # We re-assert AP_CTRL after the full downstream path is ready.
-        ip_config.configure_demosaic(self._ip_demosaic)
-        ip_config.configure_gamma_lut(self._ip_gamma, bypass=False)
+        self._demosaic.configure()
+        self._gamma.configure(bypass=False)
 
         # --- Step 7: Start streaming + D-PHY lock ---
         # Start the sensor and lock the D-PHY BEFORE starting the VDMA.
         # This ensures the VDMA sees a clean, aligned stream from the
         # first SOF — starting the VDMA before the stream is established
         # causes EOL/SOF framing errors from transient startup artifacts.
-        self._i2c.start_streaming()
+        self._sensor.start()
         time.sleep(0.010)
-        ip_config.reset_csi2_rx(self._ip_csi2)
+        self._csi2.reset()
 
-        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
-        status = ip_config.read_csi2_status(self._ip_csi2)
+        locked = self._csi2.wait_for_lock(timeout_s=2.0)
+        status = self._csi2.read_status()
 
         # --- Step 8: Second CSI-2 reset ---
         # The CSI-2 RX accumulated stale framing state during steps
-        # 6-7 (stream IPs self-stopped → backpressure → line buffer
+        # 6-7 (stream IPs self-stopped -> backpressure -> line buffer
         # overflow).  Reset it before starting VDMA so the DMA engine
         # sees only clean, properly framed data from the first SOF.
-        ip_config.reset_csi2_rx(self._ip_csi2)
+        self._csi2.reset()
 
         # --- Step 9: Start stream IPs (bottom-up) ---
         # Re-assert ap_ctrl on Gamma then Demosaic so each IP's
         # output has a ready consumer.
-        self._ip_gamma.write(ip_config.AP_CTRL, 0x81)
-        self._ip_demosaic.write(ip_config.AP_CTRL, 0x81)
+        self._gamma.start()
+        self._demosaic.start()
 
         # Wait for clean D-PHY lock with the pipeline fully running
-        locked = ip_config.wait_for_csi2_lock(self._ip_csi2, timeout_s=2.0)
-        status = ip_config.read_csi2_status(self._ip_csi2)
+        locked = self._csi2.wait_for_lock(timeout_s=2.0)
+        status = self._csi2.read_status()
 
         # --- Step 10: Start VDMA with retry ---
         # The VDMA consistently hits DMAIntErr on the first frame
@@ -164,16 +172,16 @@ class CameraOverlay:
             height=1080,
             stride=self._buffers.vdma_stride,
         )
-        ip_config.configure_vdma_s2mm(self._ip_vdma, **vdma_kwargs)
+        self._vdma.configure(**vdma_kwargs)
         time.sleep(0.100)  # let first frame attempt complete
 
-        dmasr = self._ip_vdma.read(ip_config.S2MM_DMASR)
+        dmasr = self._vdma.read_dmasr()
         if dmasr & 0x10:  # DMAIntErr
             logger.warning(
                 "VDMA DMAIntErr on first capture (DMASR=0x%08X), "
                 "resetting and retrying", dmasr,
             )
-            ip_config.configure_vdma_s2mm(self._ip_vdma, **vdma_kwargs)
+            self._vdma.configure(**vdma_kwargs)
 
         if not locked:
             logger.error(
@@ -207,18 +215,17 @@ class CameraOverlay:
 
     def set_gamma_bypass(self, bypass: bool) -> None:
         """Toggle the Gamma LUT bypass at runtime."""
-        from . import ip_config
-        ip_config.set_gamma_bypass(self._ip_gamma, bypass)
+        self._gamma.set_bypass(bypass)
 
     def close(self) -> None:
         """Shutdown the camera pipeline in reverse order."""
         # Stop sensor streaming
-        if hasattr(self, "_i2c"):
+        if hasattr(self, "_sensor"):
             try:
-                self._i2c.stop_streaming()
+                self._sensor.stop()
             except Exception:
                 logger.warning("Failed to stop IMX219 streaming", exc_info=True)
-            self._i2c.close()
+            self._sensor.close()
 
         # Free CMA buffers
         if hasattr(self, "_buffers"):

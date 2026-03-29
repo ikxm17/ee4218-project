@@ -27,14 +27,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# CSI-2 RX register offsets (PG232)
-CSI2_CORE_CONFIG = 0x00
-CSI2_PROTOCOL_CONFIG = 0x04
-CSI2_CORE_STATUS = 0x10
-CSI2_ISR = 0x24
-CSI2_CLK_LANE_INFO = 0x3C
-CSI2_LANE0_INFO = 0x40
-CSI2_LANE1_INFO = 0x44
+# CSI-2 RX register offsets — sourced from the driver to avoid duplication.
+from software.overlay.drivers.csi2_rx import Csi2RxDriver as _Csi2
+
+CSI2_CORE_CONFIG = _Csi2.CORE_CONFIG
+CSI2_PROTOCOL_CONFIG = _Csi2.PROTOCOL_CONFIG
+CSI2_CORE_STATUS = _Csi2.CORE_STATUS
+CSI2_ISR = _Csi2.ISR
+CSI2_CLK_LANE_INFO = _Csi2.CLK_LANE_INFO
+CSI2_LANE0_INFO = _Csi2.LANE0_INFO
+CSI2_LANE1_INFO = _Csi2.LANE1_INFO
 
 CSI2_BASE_ADDR = 0xA0010000
 CSI2_ADDR_RANGE = 0x1000
@@ -119,14 +121,14 @@ def main():
 
         # Init and start sensor
         sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
-        from software.overlay.i2c import IMX219I2C
+        from software.overlay.drivers import Imx219Driver
 
-        i2c = IMX219I2C()
-        if not i2c.verify_sensor_id():
+        sensor = Imx219Driver()
+        if not sensor.read_status()["detected"]:
             print("ERROR: IMX219 not detected!")
             sys.exit(1)
-        i2c.init_sensor()
-        i2c.start_streaming()
+        sensor.configure()
+        sensor.start()
         print("IMX219 streaming started.")
         time.sleep(0.010)
 
@@ -156,8 +158,8 @@ def main():
             print("  3. Verify C_HS_LINE_RATE matches sensor PLL output")
 
         # Cleanup
-        i2c.stop_streaming()
-        i2c.close()
+        sensor.stop()
+        sensor.close()
         pwren.write(0)
     else:
         # Just do a soft reset and re-check

@@ -1,4 +1,6 @@
-"""I2C communication with the IMX219 sensor via AXI IIC through the I2C mux.
+"""IMX219 CMOS image sensor driver — I2C access and streaming control.
+
+Reference: IMX219PQH5-C datasheet (docs/peripherals/IMX219PQ.pdf)
 
 I2C path (from hardware/constraints/camera.xdc):
     AXI IIC (PL) -> F10/G11 -> TCA8546A mux (0x74, ch2) -> IMX219 (0x10)
@@ -17,12 +19,15 @@ import time
 
 from smbus2 import SMBus, i2c_msg
 
+from . import _imx219_regs as regs
+
 logger = logging.getLogger(__name__)
 
 
-class IMX219I2C:
-    """IMX219 sensor I2C access via AXI IIC through the KV260's I2C mux."""
+class Imx219Driver:
+    """IMX219 sensor driver via AXI IIC through the KV260's I2C mux."""
 
+    # -- I2C bus addresses --
     I2C_MUX_ADDR = 0x74
     I2C_MUX_CHANNEL = 0x04  # Channel 2 bitmask
     IMX219_ADDR = 0x10
@@ -75,6 +80,8 @@ class IMX219I2C:
         logger.debug("I2C mux 0x%02X channel set to 0x%02X",
                       self.I2C_MUX_ADDR, self.I2C_MUX_CHANNEL)
 
+    # -- Low-level register access --
+
     def write_reg(self, reg: int, value: int) -> None:
         """Write an 8-bit value to a 16-bit register address.
 
@@ -111,28 +118,9 @@ class IMX219I2C:
         for reg, value in table:
             self.write_reg(reg, value)
 
-    def verify_sensor_id(self) -> bool:
-        """Read MODEL_ID and verify it matches the IMX219 (0x0219).
+    # -- Driver interface --
 
-        Returns:
-            True if sensor ID matches, False otherwise.
-        """
-        from . import imx219_regs as regs
-
-        id_h = self.read_reg(regs.REG_MODEL_ID_H)
-        id_l = self.read_reg(regs.REG_MODEL_ID_L)
-        sensor_id = (id_h << 8) | id_l
-        ok = sensor_id == regs.MODEL_ID_VALUE
-        if ok:
-            logger.info("IMX219 sensor detected (ID: 0x%04X)", sensor_id)
-        else:
-            logger.error(
-                "Unexpected sensor ID: 0x%04X (expected 0x%04X)",
-                sensor_id, regs.MODEL_ID_VALUE,
-            )
-        return ok
-
-    def init_sensor(self) -> None:
+    def configure(self) -> None:
         """Full sensor initialization for 1080p30 RAW10 2-lane mode.
 
         Sequence (datasheet Sec 8-1, Table 37):
@@ -140,27 +128,39 @@ class IMX219I2C:
             2. Wait for reset completion
             3. Write full register table (while in standby)
         """
-        from . import imx219_regs as regs
-
-        # Software reset
         self.write_reg(regs.REG_SOFTWARE_RESET, 0x01)
         time.sleep(0.010)  # 10 ms for reset completion
-
-        # Write configuration (sensor stays in standby)
         self.write_table(regs.INIT_TABLE_1080P30_RAW10_2LANE)
         logger.info("IMX219 register table written (1080p30 RAW10 2-lane)")
 
-    def start_streaming(self) -> None:
+    def start(self) -> None:
         """Set mode_select = 1 to begin streaming."""
-        from . import imx219_regs as regs
         self.write_reg(regs.REG_MODE_SELECT, 0x01)
         logger.info("IMX219 streaming started")
 
-    def stop_streaming(self) -> None:
+    def stop(self) -> None:
         """Set mode_select = 0 to enter software standby."""
-        from . import imx219_regs as regs
         self.write_reg(regs.REG_MODE_SELECT, 0x00)
         logger.info("IMX219 streaming stopped")
+
+    def read_status(self) -> dict:
+        """Read MODEL_ID and return sensor identification info.
+
+        Returns:
+            Dict with 'model_id' (int) and 'detected' (bool).
+        """
+        id_h = self.read_reg(regs.REG_MODEL_ID_H)
+        id_l = self.read_reg(regs.REG_MODEL_ID_L)
+        sensor_id = (id_h << 8) | id_l
+        detected = sensor_id == regs.MODEL_ID_VALUE
+        if detected:
+            logger.info("IMX219 sensor detected (ID: 0x%04X)", sensor_id)
+        else:
+            logger.error(
+                "Unexpected sensor ID: 0x%04X (expected 0x%04X)",
+                sensor_id, regs.MODEL_ID_VALUE,
+            )
+        return {"model_id": sensor_id, "detected": detected}
 
     def close(self) -> None:
         """Close the I2C bus."""
