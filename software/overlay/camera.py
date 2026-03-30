@@ -41,9 +41,9 @@ class CameraOverlay:
 
     # Fallback base address for CSI-2 RX if PYNQ filters it from ip_dict.
     # PYNQ sometimes excludes subsystem IPs with DRIVERMODE=MIXED.
-    # Verified via ip_dict + register read-back: 0xA0010000, 4K range.
-    _CSI2_RX_BASE_ADDR = 0xA0010000
-    _CSI2_RX_ADDR_RANGE = 0x1000
+    # 8 KB range covers CSI-2 Controller (0x0000) + D-PHY (0x1000).
+    _CSI2_RX_BASE_ADDR = 0xA0030000
+    _CSI2_RX_ADDR_RANGE = 0x2000
 
     # Fallback for VPSS (also DRIVERMODE=MIXED in .hwh)
     _VPSS_BASE_ADDR = 0xA0080000
