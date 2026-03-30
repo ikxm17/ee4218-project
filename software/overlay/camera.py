@@ -52,7 +52,7 @@ class CameraOverlay:
     def __init__(
         self,
         bitstream_path: str,
-        inference_size: tuple = (224, 224),
+        inference_size: tuple = (256, 256),
     ):
         from pynq import DefaultIP, GPIO, MMIO, Overlay
 
