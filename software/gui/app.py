@@ -6,6 +6,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-source: FrameSource | None = None
+source: Optional[FrameSource] = None
 
 
 @asynccontextmanager
