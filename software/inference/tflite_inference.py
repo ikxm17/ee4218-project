@@ -1,16 +1,17 @@
+import argparse
+from pathlib import Path
+
 import numpy as np
 import cv2
 import tflite_runtime.interpreter as tflite
-import os
 
 # --- Configuration ---
 CLASS_NAMES = {0: "chair", 1: "bowl", 2: "cup"}
 CLASS_COLORS = {0: (255, 0, 0), 1: (0, 255, 0), 2: (0, 0, 255)}
 
-# CHOOSE YOUR MODEL HERE
-MODEL_PATH = "tl/tinyissimo_ptq_full_integer_quant.tflite"     # FULL INT8 - w forced quantization of DFL
-# MODEL_PATH = "tl/tinyissimo_ptq_integer_quant.tflite"           
-IMAGE_PATH = "/home/leeey/Downloads/ee4218-project/model/quantization/coco3/images/val2017/000000551660.jpg"
+_HERE = Path(__file__).resolve().parent
+_DEFAULT_MODEL = str(_HERE.parent / "models" / "tflite" / "tinyissimo_ptq_full_integer_quant.tflite")
+_DEFAULT_IMAGE = str(_HERE / "data" / "input_image.jpg")
 
 def decode_dfl(dfl_data):
     """Softmax + Weighted Sum for DFL 16-bin distribution."""
@@ -53,6 +54,14 @@ def post_process(raw_data, is_full_int8, scale=1.0, zp=0, input_size=256):
     return boxes, scores, class_ids
 
 # --- Main Logic ---
+parser = argparse.ArgumentParser(description="TFLite inference with visualization")
+parser.add_argument("--model-path", type=str, default=_DEFAULT_MODEL, help="Path to TFLite model")
+parser.add_argument("--input-image", type=str, default=_DEFAULT_IMAGE, help="Path to input image")
+_args = parser.parse_args()
+
+MODEL_PATH = _args.model_path
+IMAGE_PATH = _args.input_image
+
 print(f"Loading Model: {MODEL_PATH}")
 interpreter = tflite.Interpreter(model_path=MODEL_PATH)
 interpreter.allocate_tensors()

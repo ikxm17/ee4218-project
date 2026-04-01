@@ -1,6 +1,10 @@
 from quantization_helper_functions import *
 from dataloader import *
 import argparse
+import os
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_HW_WEIGHTS = os.path.join(_HERE, "..", "..", "hardware", "weights")
 
     
 def main():
@@ -69,13 +73,18 @@ def main():
     print("\n" + "="*60)
     print("EXTRACTING PTQ WEIGHTS")
     print("="*60)
-    ptq_params = extract_weights(model_ptq, save_dir="weights_ptq/")
-    pack_binary(ptq_params, "tinyissimo_ptq_int8.bin")
+    npy_dir = os.path.join(_HW_WEIGHTS, "npy")
+    coe_dir = os.path.join(_HW_WEIGHTS, "coe")
+    os.makedirs(npy_dir, exist_ok=True)
+    os.makedirs(coe_dir, exist_ok=True)
+
+    ptq_params = extract_weights(model_ptq, save_dir=npy_dir + "/")
+    pack_binary(ptq_params, os.path.join(_HW_WEIGHTS, "..", "..", "software", "models", "tinyissimo_ptq_int8.bin"))
 
     # Generate .coe files for Vivado BRAM initialisation
     for name, p in ptq_params.items():
         safe = name.replace('.', '_').replace('/', '_')
-        weights_to_coe(p['W_int8'], f"weights_ptq/{safe}.coe")
+        weights_to_coe(p['W_int8'], os.path.join(coe_dir, f"{safe}.coe"))
     
 
     # ── QAT (only if PTQ mAP drop > 1%) ──────────────────────────────────────

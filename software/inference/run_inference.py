@@ -88,9 +88,12 @@ def post_process(raw_data, is_full_int8, scale=1.0, zp=0, input_size=256):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default="model/tinyissimo_ptq_full_integer_quant.tflite",
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _default_model = os.path.join(_here, "..", "models", "tflite", "tinyissimo_ptq_full_integer_quant.tflite")
+    _default_image = os.path.join(_here, "data", "input_image.jpg")
+    parser.add_argument("--model-path", type=str, default=_default_model,
                         help="Path to TFLite model")
-    parser.add_argument("--input-image", type=str, default="data/input_image.jpg",
+    parser.add_argument("--input-image", type=str, default=_default_image,
                         help="Path to input image")
     parser.add_argument("--result-dir", type=str, default="results",
                         help="Path to output results")
