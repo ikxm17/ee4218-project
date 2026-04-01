@@ -1,0 +1,28 @@
+# --- C Simulation ---
+**/.autopilot/
+**/csim/
+
+# --- Synthesis intermediate files (keep impl/ip, ignore the rest) ---
+**/syn/
+**/impl/verilog/
+**/impl/vhdl/
+**/impl/misc/
+**/impl/report/
+**/report/
+
+# --- Co-simulation ---
+**/sim/
+
+# --- Summary / run metadata ---
+**/*.hlsrun_package_summary
+**/*.hlsrun_build_summary
+**/*.hlsrun_synth_summary
+
+# --- Workspace noise ---
+**/.analytics/
+**/.dse/
+*.log
+*.jou
+*.lock
+.DS_Store
+Thumbs.db
