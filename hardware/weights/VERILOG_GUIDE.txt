@@ -1,0 +1,29 @@
+
+=== Verilog Integration Guide ===
+
+Each layer_{N:02d} directory contains:
+
+  weights.hex   – INT8 weight values (flattened, shape-first order)
+                  Shape: [out_ch, kH, kW, in_ch] for CONV_2D
+                  Load with $readmemh or $readmemb, or parse as signed decimal.
+
+  bias.hex      – INT32 bias values, one per output channel.
+
+  zp_in.txt     – Single INT8 value.  Subtract from every input activation
+                  BEFORE the MAC accumulation.
+
+  zp_out.txt    – Single INT8 value.  Add to the result AFTER rescaling.
+
+  m0.txt        – Per-channel INT32 multiplier (Q31, value in [2^30, 2^31)).
+                  One entry per output channel.
+
+  n_shift.txt   – Per-channel right-shift amount (unsigned integer).
+                  One entry per output channel.
+
+Fixed-point rescaling (per output channel k):
+  1. acc = sum_over_ij( w[k,i,j] * (x[i,j] - zp_in) ) + bias[k]
+  2. scaled = (acc * m0[k] + (1 << (n_shift[k]-1))) >> n_shift[k]
+  3. y[k]   = clamp(scaled + zp_out, -128, 127)
+
+Note: m0 is an unsigned 31-bit value stored as int32 (MSB always 0).
+      The multiply acc * m0 requires a 64-bit (or 2x32-bit) intermediate.

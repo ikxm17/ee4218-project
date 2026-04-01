@@ -1,0 +1,2 @@
+// input zero-point for tfl.quantize
+-128

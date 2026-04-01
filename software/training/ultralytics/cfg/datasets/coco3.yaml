@@ -1,0 +1,27 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# COCO 2017 3-class subset: person (0), spoon (44), book (73)
+# Remapped to local indices:  person=0,  spoon=1,   book=2
+#
+# parent
+# ├── ultralytics
+# └── datasets
+#     └── coco3  ← populated by download_coco3.py
+#         ├── images/
+#         │   ├── train2017/
+#         │   └── val2017/
+#         ├── labels/
+#         │   ├── train2017/
+#         │   └── val2017/
+#         ├── train2017.txt   ← image paths, one per line
+#         └── val2017.txt
+ 
+path: coco3       # dataset root dir (same relative position as original coco.yaml)
+train: images/train2017          # image list file (relative to 'path')
+val: images/val2017            # image list file (relative to 'path')
+ 
+# 3 remapped classes
+nc: 3
+names:
+  0: chair
+  1: bowl
+  2: cup

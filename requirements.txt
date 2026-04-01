@@ -1,0 +1,28 @@
+# Load from ONNX and run inference locally
+onnxruntime 
+numpy>=1.26.0,<2.0.0 
+opencv-python
+
+# Quantization 
+tqdm>=4.66.0
+Pillow>=10.0.0
+onnx==1.16.2
+onnx2torch==1.5.15
+torchmetrics[detection]==1.4.3
+scipy>=1.12.0
+psutil
+matplotlib
+requests
+pandas
+## install separately
+# pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+# pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com pytorch-quantization
+
+
+# TFLite Conversion
+tensorflow==2.15.0
+tensorflow-probability==0.23.0
+onnx-tf
+
+# TFLite Inference
+tflite-runtime==2.14.0

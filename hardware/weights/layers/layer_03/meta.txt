@@ -1,0 +1,18 @@
+layer_index: 3
+op_index_in_graph: 12
+op_type: CONV_2D
+weight_shape: [32, 3, 3, 16]
+weight_dtype: int8
+bias_dtype: int32
+input_tensor: model_68/tf.nn.max_pool2d_1/MaxPool2d
+input_scale: 0.04685774073
+input_zp: -122
+output_tensor: model_68/tf.math.add_3/Add;model_68/tf.nn.convolution_3/convolution;Const_33
+output_scale: 0.07316760719
+output_zp: 22
+n_output_channels: 32
+weight_scales_sample: ['0.00188732', '0.00169242', '0.00189158', '0.00151724']...
+eff_scales_sample: ['0.00120867', '0.00108386', '0.0012114', '0.000971668']...
+m0_sample: [1328947747, 1191711723, 1331944445, 2136721333]...
+n_shift_sample: [40, 40, 40, 41]...
+verilog_note: acc_out = (acc_in - zp_in already subtracted before MAC); result = ((acc * m0 + 2^(n_shift-1)) >> n_shift) + zp_out; clamp to [-128, 127]

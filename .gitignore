@@ -67,3 +67,7 @@ hardware/output/*
 
 # Python
 __pycache__/
+venv/
+
+# Training data
+coco3/

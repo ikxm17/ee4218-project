@@ -1,0 +1,2 @@
+// per-channel multiplier (Q31 unsigned, stored as int32)
+1465775260
