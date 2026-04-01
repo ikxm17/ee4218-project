@@ -1,0 +1,2 @@
+// per-channel right-shift amount
+36
