@@ -3,11 +3,11 @@
 module tb_conv3d;
 
     // Parameters matching DUT
-    parameter ACT_SIZE     = 4;  // Toggle between 256 and 16 for your test cases
+    parameter ACT_SIZE     = 256;  // Toggle between 256 and 16 for your test cases
     parameter K            = 3;
     parameter STRIDE       = 1;
     parameter C_IN         = 3; // Toggle between 3 and 128
-    parameter MAX_PARALLEL = 4;
+    parameter MAX_PARALLEL = 2;
     parameter N_BITS       = 8;
     parameter ACC_BITS     = 32;
     parameter M0_BITS      = 32;
@@ -19,6 +19,9 @@ module tb_conv3d;
     logic rst;
     logic start;
     wire  done;
+    
+    logic req_weights;
+    logic weights_ready;
 
     // Quantization Scalars
     logic signed [N_BITS-1:0]   zp_in, zp_out;
@@ -34,7 +37,7 @@ module tb_conv3d;
     logic        [SHIFT_BITS-1:0]   n_shift_file [0:0];
 
     // BRAM Interfaces
-    wire [DEPTH_BITS-1:0]              pixel_bram_addr;
+    wire [((C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL)*DEPTH_BITS-1:0]              pixel_bram_addr;
     wire                               pixel_bram_en;
     logic signed [MAX_PARALLEL*N_BITS-1:0]    pixel_bram_data;
 
@@ -85,25 +88,58 @@ module tb_conv3d;
     // Weights Preparation (Combinational)
     // -------------------------------------------------------------------------
     // The module expects weights sliced per input channel: [In_Ch][K*K]
-    always_comb begin
-        weights_all_channels = '0;
+    // always_comb begin
+    //     weights_all_channels = '0;
+    //     for (int i = 0; i < MAX_PARALLEL; i++) begin
+    //         automatic int current_in_ch = (dut.round * MAX_PARALLEL) + i;
+    //         if (current_in_ch < C_IN) begin
+    //             // Flatten the KxK kernel for the specific input channel
+    //             for (int kh = 0; kh < K; kh++) begin
+    //                 for (int kw = 0; kw < K; kw++) begin
+    //                     // Indexing: channel i's K*K block, specifically the kh,kw bit range
+    //                     weights_all_channels[(i * K * K * N_BITS) + (kh * K + kw) * N_BITS +: N_BITS] 
+    //                         = weight_mem[kh][kw][current_in_ch];
+    //                 end
+    //             end
+    //         end
+    //     end
+    // end
+
+    // Task to manage weight updates for Round 1 and beyond
+    task automatic handle_weight_requests();
+        forever begin
+            @(posedge clk);
+            if (req_weights) begin
+                // The DUT is asking for the NEXT set of weights. 
+                // We pass the current dut.round + 1 to calculate the next round's weights.
+                update_weights_buffer(dut.round+1);
+                
+                // Assert ready for exactly one cycle
+                weights_ready <= 1'b1;
+                @(posedge clk);
+                weights_ready <= 1'b0;
+            end
+        end
+    endtask
+
+    // Logic to format weights based on a specific round index
+    task automatic update_weights_buffer(input int round_idx);
+        weights_all_channels = '0; 
+        
         for (int i = 0; i < MAX_PARALLEL; i++) begin
-            automatic int current_in_ch = (dut.round * MAX_PARALLEL) + i;
+            automatic int current_in_ch = (round_idx * MAX_PARALLEL) + i;
+            
             if (current_in_ch < C_IN) begin
-                // Flatten the KxK kernel for the specific input channel
                 for (int kh = 0; kh < K; kh++) begin
                     for (int kw = 0; kw < K; kw++) begin
-                        // Indexing: channel i's K*K block, specifically the kh,kw bit range
-                        // TODO: FIX THIS INDEXING 
-                        // currently its giving 1st weight of every channel to the first 
                         weights_all_channels[(i * K * K * N_BITS) + (kh * K + kw) * N_BITS +: N_BITS] 
                             = weight_mem[kh][kw][current_in_ch];
                     end
                 end
             end
         end
-    end
-
+    endtask
+    
     // -------------------------------------------------------------------------
     // BRAM Data Feeding Logic (Synchronous Read)
     // -------------------------------------------------------------------------
@@ -111,10 +147,15 @@ module tb_conv3d;
     // We check pixel_bram_en and return MAX_PARALLEL channels at pixel_bram_addr
     always_ff @(posedge clk) begin
         if (pixel_bram_en) begin
+            // pre-fill with zeros in for channels that are not active
+            pixel_bram_data <= '0;
+
             for (int i = 0; i < MAX_PARALLEL; i++) begin
                 automatic int current_in_ch = (dut.round * MAX_PARALLEL) + i;
                 if (current_in_ch < C_IN) begin
-                    pixel_bram_data[i*N_BITS +: N_BITS] <= pixel_mem[current_in_ch][pixel_bram_addr];
+                    // using a modulo to handle pixel_bram_addr for subsequent rounds
+                    // in actual implementation, pixel_bram_addr should be used directly as the RAM should be N_BITS*MAX_PARALLEL wide with depth = (C_IN/ MAX_PARALLEL) * (ACT_SIZE*ACT_SIZE)
+                    pixel_bram_data[i*N_BITS +: N_BITS] <= pixel_mem[current_in_ch][pixel_bram_addr % (ACT_SIZE * ACT_SIZE)];
                 end else begin
                     pixel_bram_data[i*N_BITS +: N_BITS] <= 0;
                 end
@@ -157,9 +198,18 @@ module tb_conv3d;
 
         // 2. Drive Reset and Start
         rst = 1; start = 0;
+        weights_ready = 0; 
+        update_weights_buffer(0);         // Pre-load round 0 weights manually before execution begins
+
         #20 rst = 0;
         #10 start = 1;
         #10 start = 0;
+
+        // if req_weights asserted, load new weights and assert weights_ready for 1 cycle
+        // Parallel Handshake Logic for subsequent rounds (Round 1+)
+        fork
+            handle_weight_requests();
+        join_none
 
         // 3. Wait for Done
         wait(done);

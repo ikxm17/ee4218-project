@@ -14,11 +14,11 @@
 // zp * n+2
 
 module conv3d #(
-    parameter ACT_SIZE     = 4, // test with 100
+    parameter ACT_SIZE     = 256, // test with 100
     parameter K            = 3,
     parameter STRIDE       = 1,
     parameter C_IN         = 3,
-    parameter MAX_PARALLEL = 4,     // test with 4, original design 16
+    parameter MAX_PARALLEL = 2,     // test with 4, original design 16
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
@@ -38,13 +38,13 @@ module conv3d #(
 
     // -------------------------------------------------------------------------
     // Pixel BRAM interface  (one BRAM that outputs MAX_PARALLEL pixels per cycle)
-    //   pixel_bram_addr – read address issued to input BRAM
+    //   pixel_bram_addr – read address issued to input BRAM. Depth = TOTAL_ROUNDS * DEPTH_BITS
     //   pixel_bram_en   – enb for each channel BRAM (0 on padding pixels)
     //   pixel_bram_data – registered read data from each channel BRAM
     // -------------------------------------------------------------------------
-    output reg [DEPTH_BITS-1:0]                     pixel_bram_addr,
-    output reg                                      pixel_bram_en,
-    input  wire signed [MAX_PARALLEL*N_BITS-1:0]    pixel_bram_data,
+    output reg [((C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL)*DEPTH_BITS-1:0]      pixel_bram_addr,
+    output reg                                                                  pixel_bram_en,
+    input  wire signed [MAX_PARALLEL*N_BITS-1:0]                                pixel_bram_data,
 
     // Weight BRAM read ports (one per slot, addressed by global channel index)
     input  wire signed [MAX_PARALLEL*K*K*N_BITS-1:0]   weights_all_channels,
@@ -63,8 +63,10 @@ module conv3d #(
     output reg [DEPTH_BITS-1:0]        RES_write_address,
     output reg signed [N_BITS-1:0]     RES_write_data_in,
 
-    // output wire signed [N_BITS-1:0]           conv3d_out,
-    // output wire                               valid_out,
+    // Control signals for weight loading if rounds > 1
+    output reg                              req_weights,   // signal to request next round's weights
+    input  wire                              weights_ready, // signal indicating requested weights are ready
+
     output reg                               done
 );
 
@@ -153,7 +155,7 @@ module conv3d #(
             // enable BRAM read for real pixels only (not padding)
             if (!is_padding) begin
                 pixel_bram_en = 1;
-                pixel_bram_addr = ((input_row-1) * (ACT_SIZE) + (input_col-1));
+                pixel_bram_addr = (round * (ACT_SIZE * ACT_SIZE)) + ((input_row-1) * (ACT_SIZE) + (input_col-1));
             end   
             else                pixel_bram_en = 0;
         end 
@@ -175,9 +177,8 @@ module conv3d #(
                 if (!is_padded_act) begin
                     // is_padding is used to determine enable BRAM read
                     // use enable to get correct act_zp
-                    // real pixel, subtract zp_in
+
                     // TODO: think about how to handle future rounds
-                    // act_zp = pixel_bram_data[gi * N_BITS +: N_BITS] - r_zp_in;
                     // bake zp_in into the bias calculation later
                     act_zp = pixel_bram_data[gi * N_BITS +: N_BITS];
                 end
@@ -223,6 +224,7 @@ module conv3d #(
             r_bias         <= 0;
             r_m0           <= 0;
             r_n_shift      <= 0;
+            req_weights    <= 0;
         end
         else 
         begin
@@ -239,6 +241,7 @@ module conv3d #(
                     r_n_shift <= n_shift;
                     round          <= 0;
                     rst_convolvers <= 1;
+                    req_weights    <= 0;
                     state          <= S_RUNNING;
                 end
             end
@@ -253,20 +256,26 @@ module conv3d #(
                     state <= S_WAIT_ROUND;
                     rst_convolvers <= 1;
                     conv_running <= 0;
+                    // request new weights for next round if not last round
+                    if (round != TOTAL_ROUNDS -1)   req_weights <= 1;
                 end
             end
 
             S_WAIT_ROUND: begin
                 rst_convolvers <= 0;
+                // only keep req_weights high for one cycle
+                req_weights <= 0;
                 if (round == TOTAL_ROUNDS -1) begin
                     // all ch_in convolutions completed
                     state <= S_IDLE;
                     done <= 1;
-                end else begin
+                end else if (weights_ready) begin
                     // start another batch of convolutions
                     round <= round + 1;
                     rst_convolvers <= 1;
                     state <= S_RUNNING;
+                end else begin
+                    // wait in this state until weights for next round are loaded
                 end
             end
 

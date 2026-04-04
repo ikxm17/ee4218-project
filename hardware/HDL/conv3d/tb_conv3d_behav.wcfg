@@ -11,15 +11,15 @@
       </db_ref>
    </db_ref_list>
    <zoom_setting>
-      <ZoomStartTime time="189.121 ns"></ZoomStartTime>
-      <ZoomEndTime time="310.122 ns"></ZoomEndTime>
-      <Cursor1Time time="245.000 ns"></Cursor1Time>
+      <ZoomStartTime time="164.167 ns"></ZoomStartTime>
+      <ZoomEndTime time="1,149.167 ns"></ZoomEndTime>
+      <Cursor1Time time="445.000 ns"></Cursor1Time>
    </zoom_setting>
    <column_width_setting>
       <NameColumnWidth column_width="238"></NameColumnWidth>
-      <ValueColumnWidth column_width="284"></ValueColumnWidth>
+      <ValueColumnWidth column_width="276"></ValueColumnWidth>
    </column_width_setting>
-   <WVObjectSize size="60" />
+   <WVObjectSize size="61" />
    <wvobject type="logic" fp_name="/tb_conv3d/clk">
       <obj_property name="ElementShortName">clk</obj_property>
       <obj_property name="ObjectShortName">clk</obj_property>
@@ -80,28 +80,28 @@
       <obj_property name="ObjectShortName">n_shift_file[0:0][5:0]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/pixel_bram_addr">
-      <obj_property name="ElementShortName">pixel_bram_addr[15:0]</obj_property>
-      <obj_property name="ObjectShortName">pixel_bram_addr[15:0]</obj_property>
+      <obj_property name="ElementShortName">pixel_bram_addr[31:0]</obj_property>
+      <obj_property name="ObjectShortName">pixel_bram_addr[31:0]</obj_property>
    </wvobject>
    <wvobject type="logic" fp_name="/tb_conv3d/pixel_bram_en">
       <obj_property name="ElementShortName">pixel_bram_en</obj_property>
       <obj_property name="ObjectShortName">pixel_bram_en</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/pixel_bram_data">
-      <obj_property name="ElementShortName">pixel_bram_data[31:0]</obj_property>
-      <obj_property name="ObjectShortName">pixel_bram_data[31:0]</obj_property>
+      <obj_property name="ElementShortName">pixel_bram_data[15:0]</obj_property>
+      <obj_property name="ObjectShortName">pixel_bram_data[15:0]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/weights_all_channels">
-      <obj_property name="ElementShortName">weights_all_channels[287:0]</obj_property>
-      <obj_property name="ObjectShortName">weights_all_channels[287:0]</obj_property>
+      <obj_property name="ElementShortName">weights_all_channels[143:0]</obj_property>
+      <obj_property name="ObjectShortName">weights_all_channels[143:0]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/state">
       <obj_property name="ElementShortName">state[1:0]</obj_property>
       <obj_property name="ObjectShortName">state[1:0]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/round">
-      <obj_property name="ElementShortName">round[0:0]</obj_property>
-      <obj_property name="ObjectShortName">round[0:0]</obj_property>
+      <obj_property name="ElementShortName">round[1:0]</obj_property>
+      <obj_property name="ObjectShortName">round[1:0]</obj_property>
    </wvobject>
    <wvobject type="logic" fp_name="/tb_conv3d/dut/conv_running">
       <obj_property name="ElementShortName">conv_running</obj_property>
@@ -128,21 +128,29 @@
       <obj_property name="ObjectShortName">is_padded_act</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/active_slots">
-      <obj_property name="ElementShortName">active_slots[2:0]</obj_property>
-      <obj_property name="ObjectShortName">active_slots[2:0]</obj_property>
+      <obj_property name="ElementShortName">active_slots[1:0]</obj_property>
+      <obj_property name="ObjectShortName">active_slots[1:0]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/slot_conv_out">
-      <obj_property name="ElementShortName">slot_conv_out[0:3][31:0]</obj_property>
-      <obj_property name="ObjectShortName">slot_conv_out[0:3][31:0]</obj_property>
+      <obj_property name="ElementShortName">slot_conv_out[0:1][31:0]</obj_property>
+      <obj_property name="ObjectShortName">slot_conv_out[0:1][31:0]</obj_property>
       <obj_property name="isExpanded"></obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/slot_valid">
-      <obj_property name="ElementShortName">slot_valid[0:3]</obj_property>
-      <obj_property name="ObjectShortName">slot_valid[0:3]</obj_property>
+      <obj_property name="ElementShortName">slot_valid[0:1]</obj_property>
+      <obj_property name="ObjectShortName">slot_valid[0:1]</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/slot_end">
-      <obj_property name="ElementShortName">slot_end[0:3]</obj_property>
-      <obj_property name="ObjectShortName">slot_end[0:3]</obj_property>
+      <obj_property name="ElementShortName">slot_end[0:1]</obj_property>
+      <obj_property name="ObjectShortName">slot_end[0:1]</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_conv3d/dut/req_weights">
+      <obj_property name="ElementShortName">req_weights</obj_property>
+      <obj_property name="ObjectShortName">req_weights</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_conv3d/dut/weights_ready">
+      <obj_property name="ElementShortName">weights_ready</obj_property>
+      <obj_property name="ObjectShortName">weights_ready</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/pix_acc">
       <obj_property name="ElementShortName">pix_acc[31:0]</obj_property>
@@ -170,11 +178,6 @@
       <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
    </wvobject>
    <wvobject type="array" fp_name="/tb_conv3d/dut/\SLOT[1].u_conv /activation">
-      <obj_property name="ElementShortName">activation[7:0]</obj_property>
-      <obj_property name="ObjectShortName">activation[7:0]</obj_property>
-      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
-   </wvobject>
-   <wvobject type="array" fp_name="/tb_conv3d/dut/\SLOT[2].u_conv /activation">
       <obj_property name="ElementShortName">activation[7:0]</obj_property>
       <obj_property name="ObjectShortName">activation[7:0]</obj_property>
       <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
