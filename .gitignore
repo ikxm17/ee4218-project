@@ -71,3 +71,6 @@ venv/
 
 # Training data
 coco3/
+
+# Inference outputs
+software/tflite_script/
