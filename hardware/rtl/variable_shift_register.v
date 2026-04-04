@@ -7,11 +7,11 @@ module variable_shift_register #(
 input clk,                                  //clock
 input ce,                                   //clock enable                        
 input rst,                                  //reset
-input [WIDTH-1:0] data_in,                  //data in
-output [WIDTH-1:0] data_out                 //data out
+input signed [WIDTH-1:0] data_in,                  //data in
+output signed [WIDTH-1:0] data_out                 //data out
 );
 
-reg [WIDTH-1:0] sr [SIZE-1:0];            //the register that holds the data
+reg signed [WIDTH-1:0] sr [SIZE-1:0];            //the register that holds the data
 
 generate
 genvar i;

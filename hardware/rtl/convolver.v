@@ -12,9 +12,9 @@ parameter ACC_BITS = 32     // accumulator bit width
 input clk,
 input ce,
 input global_rst,
-input [N-1:0] activation,
-input [(k*k)*N-1:0] weight1,
-output[ACC_BITS-1:0] conv_op,
+input signed [N-1:0] activation,
+input signed [(k*k)*N-1:0] weight1,
+output signed [ACC_BITS-1:0] conv_op,
 output valid_conv,
 output end_conv
 );
@@ -22,8 +22,8 @@ output end_conv
 reg [31:0] count,count2,count3,row_count;
 reg en1,en2,en3;
 
-wire [ACC_BITS-1:0] tmp [k*k+1:0];
-wire [N-1:0] weight [0:k*k-1];
+wire signed [ACC_BITS-1:0] tmp [k*k+1:0];
+wire signed [N-1:0] weight [0:k*k-1];
 
 //breaking our weights into separate variables. We are forced to do this because verilog does not allow us to pass multi-dimensional 
 //arrays as parameters
@@ -60,7 +60,7 @@ genvar i;
       end
       else
       begin
-      wire [ACC_BITS-1:0] tmp2;
+      wire signed [ACC_BITS-1:0] tmp2;
       //make a mac unit
       (* use_dsp = "yes" *)               //this line is optional depending on tool behaviour
       mac_manual #(.N(N),.ACC(ACC_BITS)) mac(                   
