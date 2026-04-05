@@ -17,7 +17,7 @@
 
 // width is the number of bits per location; depth_bits is the number of address bits. 2^depth_bits is the number of locations
 // Simple Dual-Port Block RAM with Dual Clocks (Verilog) from UG901
-module memory_RAM
+module memory_ram
 	#(
 		parameter width = 8, 					// width is the number of bits per location
 		parameter depth_bits = 2				// depth is the number of locations (2^number of address bits)
