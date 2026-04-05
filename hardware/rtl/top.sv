@@ -1,20 +1,40 @@
+`timescale 1ns / 1ps
 `include "layer_config.svh"
 
 module top #(
-    parameter AXI_DATA_WIDTH = 24 // RGB8
+    parameter AXI_DATA_WIDTH = 24, // RGB8
+    parameter MAX_PARALLEL   = C_PAR,
+    parameter N_BITS         = 8,
+    parameter DEPTH_BITS     = 16
 )(
-    input logic aclk,
-    input logic aresetn,
-    /* Slave (Receive) */
-    input logic s_axis_tvalid,
-    input logic s_axis_tlast,
-    input logic [AXI_DATA_WIDTH-1:0] s_axis_tdata,
+    input  logic aclk,
+    input  logic aresetn,
+
+    /* Inference control */
+    input  logic start,
+    output logic done,
+
+    /* Slave AXI-Stream (Receive) */
+    input  logic s_axis_tvalid,
+    input  logic s_axis_tlast,
+    input  logic [AXI_DATA_WIDTH-1:0] s_axis_tdata,
     output logic s_axis_tready,
-    /* Master (Transmit) */
-    input logic m_axis_tready,
+
+    /* Master AXI-Stream (Transmit) */
+    input  logic m_axis_tready,
     output logic m_axis_tvalid,
     output logic m_axis_tlast,
-    output logic [AXI_DATA_WIDTH-1:0] m_axis_tdata
+    output logic [AXI_DATA_WIDTH-1:0] m_axis_tdata,
+
+    /* Pixel BRAM interface (testbench drives) */
+    output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
+    output logic                             pixel_bram_en,
+    input  logic [MAX_PARALLEL*N_BITS-1:0]   pixel_bram_data,
+
+    /* RES output interface (testbench captures) */
+    output logic                             res_write_en,
+    output logic [DEPTH_BITS-1:0]            res_write_addr,
+    output logic signed [N_BITS-1:0]         res_write_data
 );
 
     /* ================================================================
@@ -80,14 +100,7 @@ module top #(
     logic [FMAP_ADDR_W-1:0]   fmap_b_addr_b;
     logic [FMAP_DATA_W-1:0]   fmap_b_dout_b;
 
-    /* QP Unpacked Fields */
-    logic signed [31:0] qp_bias;
-    logic        [31:0] qp_m0;
-    logic         [5:0] qp_nshift;
-
-    assign qp_bias   = qp_mem_dout_b[31:0];
-    assign qp_m0     = qp_mem_dout_b[63:32];
-    assign qp_nshift = qp_mem_dout_b[69:64];
+    /* QP unpacking is done inside inference_hdl */
 
     /* ================================================================
      *  Memory Instances
@@ -98,7 +111,7 @@ module top #(
         .DATA_WIDTH (WT_MEM_DATA_W),
         .DEPTH      (WT_MEM_DEPTH),
         .RAM_STYLE  ("ultra"),
-        .MEM_FILE   ("../../../../../../weights/hdl/weight_rom.mem")
+        .MEM_FILE   ("weight_rom.mem")
     ) u_wt_mem (
         .clk    (aclk),
         .en_a   (wt_mem_en_a),
@@ -115,7 +128,7 @@ module top #(
         .DATA_WIDTH (QP_MEM_DATA_W),
         .DEPTH      (QP_MEM_DEPTH),
         .RAM_STYLE  ("block"),
-        .MEM_FILE   ("../../../../../../weights/hdl/qp_packed_rom.mem")
+        .MEM_FILE   ("qp_packed_rom.mem")
     ) u_qp_mem (
         .clk    (aclk),
         .en_a   (qp_mem_en_a),
@@ -132,7 +145,7 @@ module top #(
         .DATA_WIDTH (SIG_MEM_DATA_W),
         .DEPTH      (SIG_MEM_DEPTH),
         .RAM_STYLE  ("distributed"),
-        .MEM_FILE   ("../../../../../../weights/hdl/sigmoid_lut.mem")
+        .MEM_FILE   ("sigmoid_lut.mem")
     ) u_sig_mem (
         .clk    (aclk),
         .en_a   (sig_mem_en_a),
@@ -196,55 +209,61 @@ module top #(
     assign sig_mem_din_a  = '0;
 
     /* ================================================================
-     *  FSM & Datapath (TODO)
+     *  Unused Memory Port Tie-offs
      * ================================================================ */
 
-    /* Next State Logic */
-    always_comb begin : next_state_logic
-        // TODO
-    end
+    /* Sigmoid LUT — not used by inference_hdl yet */
+    assign sig_mem_en_b   = 1'b0;
+    assign sig_mem_addr_b = '0;
 
-    /* State Memory */
-    always_ff @(posedge aclk) begin : state_memory
-        // TODO
-    end
+    /* Feature map buffers — not used yet (testbench feeds pixels directly) */
+    assign fmap_a_en_a    = 1'b0;
+    assign fmap_a_we_a    = 1'b0;
+    assign fmap_a_addr_a  = '0;
+    assign fmap_a_din_a   = '0;
+    assign fmap_a_en_b    = 1'b0;
+    assign fmap_a_addr_b  = '0;
+    assign fmap_b_en_a    = 1'b0;
+    assign fmap_b_we_a    = 1'b0;
+    assign fmap_b_addr_a  = '0;
+    assign fmap_b_din_a   = '0;
+    assign fmap_b_en_b    = 1'b0;
+    assign fmap_b_addr_b  = '0;
 
-    /* Counters */
-    always_ff @(posedge aclk) begin : counters
-        // TODO
-    end
+    /* ================================================================
+     *  Inference Controller
+     * ================================================================ */
+    inference_hdl #(
+        .MAX_PARALLEL (MAX_PARALLEL),
+        .K            (3),
+        .ACT_SIZE     (256),
+        .C_IN         (3),
+        .N_BITS       (N_BITS),
+        .ACC_BITS     (32),
+        .DEPTH_BITS   (DEPTH_BITS)
+    ) u_inference (
+        .aclk             (aclk),
+        .aresetn          (aresetn),
+        .start            (start),
+        .done             (done),
+        .wt_mem_en_b      (wt_mem_en_b),
+        .wt_mem_addr_b    (wt_mem_addr_b),
+        .wt_mem_dout_b    (wt_mem_dout_b),
+        .qp_mem_en_b      (qp_mem_en_b),
+        .qp_mem_addr_b    (qp_mem_addr_b),
+        .qp_mem_dout_b    (qp_mem_dout_b),
+        .pixel_bram_addr  (pixel_bram_addr),
+        .pixel_bram_en    (pixel_bram_en),
+        .pixel_bram_data  (pixel_bram_data),
+        .res_write_en     (res_write_en),
+        .res_write_addr   (res_write_addr),
+        .res_write_data   (res_write_data)
+    );
 
-    /* Datapath — default assignments prevent latches */
-    always_comb begin : datapath
-        // TODO: replace with FSM/compute pipeline logic
-        wt_mem_en_b    = 1'b0;
-        wt_mem_addr_b  = '0;
-        qp_mem_en_b    = 1'b0;
-        qp_mem_addr_b  = '0;
-        sig_mem_en_b   = 1'b0;
-        sig_mem_addr_b = '0;
-        fmap_a_en_a    = 1'b0;
-        fmap_a_we_a    = 1'b0;
-        fmap_a_addr_a  = '0;
-        fmap_a_din_a   = '0;
-        fmap_a_en_b    = 1'b0;
-        fmap_a_addr_b  = '0;
-        fmap_b_en_a    = 1'b0;
-        fmap_b_we_a    = 1'b0;
-        fmap_b_addr_a  = '0;
-        fmap_b_din_a   = '0;
-        fmap_b_en_b    = 1'b0;
-        fmap_b_addr_b  = '0;
-    end
-
-    /* Output Registers */
-    always_ff @(posedge aclk) begin
-        // TODO
-    end
-
-    /* Output Logic */
-    always_comb begin : output_logic
-        // TODO
-    end
+    /* AXI-Stream — not yet connected */
+    assign s_axis_tready = 1'b0;
+    assign m_axis_tvalid = 1'b0;
+    assign m_axis_tlast  = 1'b0;
+    assign m_axis_tdata  = '0;
 
 endmodule

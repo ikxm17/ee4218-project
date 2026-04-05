@@ -1,4 +1,5 @@
-/* 
+`timescale 1ns / 1ps
+/*
  * Simple Dual-Port RAM with One Clock (UG901)
 */
 module sdp_ram #(
