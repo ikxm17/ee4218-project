@@ -206,7 +206,7 @@ module tb_inference_hdl;
         integer errors = 0;
         integer total = ACT_SIZE * ACT_SIZE;
 
-        $display("Checking conv3d output against golden reference (%0d pixels).", total);
+        $display("Checking activated output against golden reference (%0d pixels).", total);
         for (int i = 0; i < total; i++) begin
             if (res_mem[i] !== golden_mem[i]) begin
                 if (errors < 10)
@@ -219,9 +219,9 @@ module tb_inference_hdl;
         end
 
         if (errors == 0)
-            $display("CONV3D OUTPUT CHECKS PASSED (%0d pixels)", total);
+            $display("CONV3D + SILU OUTPUT CHECKS PASSED (%0d pixels)", total);
         else begin
-            $display("CONV3D OUTPUT CHECKS FAILED: %0d / %0d mismatches", errors, total);
+            $display("CONV3D + SILU OUTPUT CHECKS FAILED: %0d / %0d mismatches", errors, total);
             if (errors > 10) $display("  (only first 10 shown)");
         end
     endtask
@@ -265,10 +265,10 @@ module tb_inference_hdl;
         repeat(15) @(posedge clk);
         verify_qp_regs();
 
-        // 5. Wait for conv3d
-        $display("[CYCLE %0d] conv3d computing...", cycle_count);
+        // 5. Wait for conv3d + activation pipeline
+        $display("[CYCLE %0d] conv3d + activation computing...", cycle_count);
         wait(done);
-        $display("[CYCLE %0d] conv3d done!", cycle_count);
+        $display("[CYCLE %0d] conv3d done (activation drains +1 cycle)", cycle_count);
         #100;
 
         // 6. Compare results

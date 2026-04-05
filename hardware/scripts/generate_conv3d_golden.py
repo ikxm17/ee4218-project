@@ -5,15 +5,17 @@ generate_conv3d_golden.py
 Generates golden reference data for RTL verification of inference_hdl.sv.
 
 Takes the test image and model weights, performs a reference 3x3 convolution
-for output channel 0 of layer 0, and saves:
+for output channel 0 of layer 0, applies SiLU activation via the precomputed
+LUT, and saves:
   - pixels_layer0.mem   : 256x256x3 INT8 input pixels (hex, for $readmemh)
-  - golden_kout0.mem    : 256x256 INT8 expected conv3d output (hex)
+  - golden_kout0.mem    : 256x256 INT8 expected output after SiLU (hex)
 
-The reference convolution matches conv3d.v's exact arithmetic:
+The reference pipeline matches the hardware exactly:
   1. Zero-pad input with zp_in (padding=1)
   2. For each output pixel: sum K*K*C_IN weighted products (no zp subtraction)
   3. Accumulate: acc = sum + bias
   4. Requantize: output = ((acc * m0) >> nshift) + zp_out, clamp to int8
+  5. SiLU activation: output = silu_lut[layer_idx * 256 + (output + 128)]
 
 Usage
 -----
@@ -137,6 +139,35 @@ def reference_conv3d_kout0(
     return output
 
 
+def load_silu_lut(lut_path: str) -> np.ndarray:
+    """Load the SiLU LUT .mem file into a [17, 256] int8 array."""
+    entries = []
+    with open(lut_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            entries.append(int(line, 16))
+    # Convert unsigned uint8 to signed int8
+    lut = np.array(entries, dtype=np.uint8).view(np.int8)
+    return lut.reshape(17, 256)
+
+
+def apply_silu_lut(
+    conv_output: np.ndarray,
+    silu_lut: np.ndarray,
+    layer_idx: int,
+) -> np.ndarray:
+    """Apply precomputed SiLU LUT to conv3d output, matching hardware exactly.
+
+    LUT address = layer_idx * 256 + (q + 128), where q is signed int8.
+    """
+    # q + 128 maps signed [-128..127] to unsigned [0..255]
+    unsigned_idx = (conv_output.astype(np.int16) + 128).astype(np.uint8)
+    activated = silu_lut[layer_idx, unsigned_idx.flatten()]
+    return activated.reshape(conv_output.shape)
+
+
 def write_hex_mem(path: str, data: np.ndarray, desc: str):
     """Write 1D or 2D array as hex .mem file (one value per line)."""
     flat = data.flatten()
@@ -152,6 +183,7 @@ def main():
     parser.add_argument("--model", required=True, help="TFLite model path")
     parser.add_argument("--image", required=True, help="Test image path")
     parser.add_argument("--golden", required=True, help="weight_rom_golden.npz path")
+    parser.add_argument("--lut", required=True, help="silu_lut.mem path")
     parser.add_argument("--out", required=True, help="Output directory for .mem files")
     args = parser.parse_args()
 
@@ -207,8 +239,15 @@ def main():
         cin=3,
         c_par=16,
     )
-    print(f"  Output shape: {golden_output.shape}")
-    print(f"  Range: [{golden_output.min()}, {golden_output.max()}]")
+    print(f"  Conv output shape: {golden_output.shape}")
+    print(f"  Conv output range: [{golden_output.min()}, {golden_output.max()}]")
+
+    # Apply SiLU activation via precomputed LUT
+    print(f"Loading SiLU LUT: {args.lut}")
+    silu_lut = load_silu_lut(args.lut)
+    print(f"  LUT shape: {silu_lut.shape}")
+    golden_output = apply_silu_lut(golden_output, silu_lut, layer_idx=0)
+    print(f"  Activated output range: [{golden_output.min()}, {golden_output.max()}]")
 
     # Save pixels as .mem (channel-interleaved: C_IN values per spatial position)
     # Conv3d reads MAX_PARALLEL channels at each pixel address.
