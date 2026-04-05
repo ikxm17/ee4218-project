@@ -2,6 +2,8 @@
 
 module tb_conv3d;
 
+    localparam MEM_PATH = "../../../../../../testbench/conv3d/";
+
     // Parameters matching DUT
     parameter ACT_SIZE     = 256;  // Toggle between 256 and 16 for your test cases
     parameter K            = 3;
@@ -186,15 +188,15 @@ module tb_conv3d;
     // Main Test Sequence
     initial begin
         // 1. Load data from .mem files
-        $readmemh("zp_in.mem", zp_in_file);   zp_in   = zp_in_file[0];
-        $readmemh("zp_out.mem", zp_out_file); zp_out  = zp_out_file[0];
-        $readmemh("bias.mem", bias_file);     bias    = bias_file[0];
-        $readmemh("m0.mem", m0_file);         m0      = m0_file[0];
-        $readmemh("n_shift.mem", n_shift_file); n_shift = n_shift_file[0];
+        $readmemh({MEM_PATH, "zp_in.mem"}, zp_in_file);   zp_in   = zp_in_file[0];
+        $readmemh({MEM_PATH, "zp_out.mem"}, zp_out_file); zp_out  = zp_out_file[0];
+        $readmemh({MEM_PATH, "bias.mem"}, bias_file);     bias    = bias_file[0];
+        $readmemh({MEM_PATH, "m0.mem"}, m0_file);         m0      = m0_file[0];
+        $readmemh({MEM_PATH, "n_shift.mem"}, n_shift_file); n_shift = n_shift_file[0];
 
         // Loading Multi-dimensional arrays (requires specific file formatting)
-        $readmemh("pixels.mem", pixel_mem);
-        $readmemh("weights.mem", weight_mem);
+        $readmemh({MEM_PATH, "pixels.mem"}, pixel_mem);
+        $readmemh({MEM_PATH, "weights.mem"}, weight_mem);
 
         // 2. Drive Reset and Start
         rst = 1; start = 0;
