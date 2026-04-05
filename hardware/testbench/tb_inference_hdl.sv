@@ -268,7 +268,7 @@ module tb_inference_hdl;
         // 5. Wait for conv3d + activation pipeline
         $display("[CYCLE %0d] conv3d + activation computing...", cycle_count);
         wait(done);
-        $display("[CYCLE %0d] conv3d done (activation drains +1 cycle)", cycle_count);
+        $display("[CYCLE %0d] conv3d + activation done", cycle_count);
         #100;
 
         // 6. Compare results
@@ -278,9 +278,10 @@ module tb_inference_hdl;
         // 7. Summary
         $display("=========================================");
         $display(" Summary:");
-        $display("  Total cycles: %0d", cycle_count - start_cycle);
-        $display("  Loading:      ~9 cycles");
-        $display("  Convolution:  ~%0d cycles", cycle_count - start_cycle - 9);
+        $display("  Total cycles:      %0d", cycle_count - start_cycle);
+        $display("  Loading:           ~9 cycles");
+        $display("  Convolution:       ~%0d cycles", cycle_count - start_cycle - 9);
+        $display("  Activation (SiLU): 1 cycle latency");
         $display("=========================================");
 
         #100;
