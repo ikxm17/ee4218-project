@@ -11,7 +11,7 @@ artifact the HDL inference accelerator needs:
   - nshift_rom.{coe,mem}     Per-channel right-shift amounts
   - zp_in_rom.{coe,mem}      Per-layer input zero-points
   - zp_out_rom.{coe,mem}     Per-layer output zero-points
-  - sigmoid_lut.{coe,mem}    Per-layer sigmoid LUTs (17 x 256)
+  - silu_lut.{coe,mem}       Per-layer SiLU LUTs (17 x 256)
   - layer_config.svh         SystemVerilog layer table header
   - rom_summary.json         Machine-readable parameter summary
   - weight_rom_golden.npz    NumPy archive for testbench verification
@@ -393,18 +393,19 @@ def write_dual(out_dir: str, name: str, hex_entries: list[str],
 
 
 # ---------------------------------------------------------------------------
-# Sigmoid LUT generation
+# SiLU LUT generation
 # ---------------------------------------------------------------------------
-def generate_sigmoid_lut(extracted: list[ExtractedLayer]) -> list[int]:
+def generate_silu_lut(extracted: list[ExtractedLayer]) -> list[int]:
     """
-    Generate per-layer sigmoid LUTs for the SiLU activation.
+    Generate per-layer SiLU LUTs for activation.
 
-    For each layer, maps each possible int8 input q in [-128..127] to:
-      1. Dequantize: x = (q - zp_out) * scale_out   (conv output domain)
-      2. Sigmoid:    s = 1 / (1 + exp(-x))
-      3. Quantize:   q_sig = clamp(round(s * 256) - 128, -128, 127)
+    For each layer with SiLU, maps each possible int8 input q in [-128..127]:
+      1. Dequantize: x = (q - zp_out) * scale_out        (conv output domain)
+      2. SiLU:       silu = x / (1 + exp(-x))             (= x * sigmoid(x))
+      3. Quantize:   q_silu = clamp(round(silu / scale_in_next) + zp_in_next)
 
-    The sigmoid output quantization is always scale=1/256, zp=-128.
+    The output quantization uses the next layer's input domain, so the LUT
+    absorbs both the nonlinear activation and the cross-layer requantization.
 
     Returns a flat list of 17*256 uint8 values.
     """
@@ -414,17 +415,19 @@ def generate_sigmoid_lut(extracted: list[ExtractedLayer]) -> list[int]:
         ext = extracted[i]
         has_activation = hdl.layer_type not in (CONV1_LIN,)
 
+        # Next layer's input quantization for the SiLU output domain
+        ext_next = extracted[i + 1] if (has_activation and i + 1 < len(extracted)) else None
+
         lut = []
         for q in range(-128, 128):
-            if has_activation:
+            if has_activation and ext_next is not None:
                 x_real = (q - ext.zp_out) * ext.scale_out
-                sig = 1.0 / (1.0 + math.exp(-x_real))
-                # Quantize to sigmoid domain: scale=1/256, zp=-128
-                q_sig = int(round(sig * 256.0)) + (-128)
-                q_sig = max(-128, min(127, q_sig))
+                silu_real = x_real / (1.0 + math.exp(-x_real))
+                q_silu = int(round(silu_real / ext_next.scale_in)) + ext_next.zp_in
+                q_silu = max(-128, min(127, q_silu))
             else:
-                q_sig = 0  # unused for linear layers
-            lut.append(q_sig & 0xFF)
+                q_silu = 0  # unused for linear layers (hardware bypasses)
+            lut.append(q_silu & 0xFF)
         lut_flat.extend(lut)
 
     return lut_flat
@@ -434,7 +437,7 @@ def generate_sigmoid_lut(extracted: list[ExtractedLayer]) -> list[int]:
 # SystemVerilog header generation
 # ---------------------------------------------------------------------------
 def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
-                 sigmoid_depth: int, model_path: str,
+                 act_lut_depth: int, model_path: str,
                  extracted: list[ExtractedLayer] | None = None):
     """Generate layer_config.svh with the layer table and ROM constants."""
     lines = [
@@ -452,7 +455,7 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
         f"localparam int BIAS_ROM_DEPTH    = {bias_depth};",
         f"localparam int QP_ROM_DEPTH      = {bias_depth};",
         f"localparam int QP_PACKED_ROM_DEPTH = {bias_depth};",
-        f"localparam int SIGMOID_LUT_DEPTH = {sigmoid_depth};",
+        f"localparam int ACT_LUT_DEPTH     = {act_lut_depth};",
         "",
         "// Layer type encoding (2-bit)",
         "//   Bit 1: kernel size  (0 = 3x3,  1 = 1x1)",
@@ -726,16 +729,16 @@ def main():
                        f"{{bias[31:0], m0[31:0], n_shift[5:0]}}")
     print(f"  QP packed ROM: {len(qp_packed)} entries x 72-bit")
 
-    # --- Step 7: Sigmoid LUTs ---
-    print("Generating sigmoid LUTs ...")
-    sigmoid_flat = generate_sigmoid_lut(extracted)
-    write_dual(args.out, "sigmoid_lut",
-               [int8_to_hex(v) for v in sigmoid_flat],
-               comment=f"sigmoid_lut.mem - {NUM_LAYERS} x 256 entries, layer N at addr N*256")
+    # --- Step 7: SiLU LUTs ---
+    print("Generating SiLU LUTs ...")
+    silu_flat = generate_silu_lut(extracted)
+    write_dual(args.out, "silu_lut",
+               [int8_to_hex(v) for v in silu_flat],
+               comment=f"silu_lut.mem - {NUM_LAYERS} x 256 entries, layer N at addr N*256")
 
     # --- Step 8: SystemVerilog header ---
     total_qp = sum(h.cout for h in HDL_LAYERS)
-    generate_svh(args.out, len(rom_words), total_qp, len(sigmoid_flat), args.model,
+    generate_svh(args.out, len(rom_words), total_qp, len(silu_flat), args.model,
                  extracted=extracted)
 
     # --- Step 9: Summary JSON + golden NPZ ---
@@ -760,7 +763,7 @@ def main():
     print(f"  Bias ROM:    {len(biases_flat):,d} entries")
     print(f"  QP ROMs:     {len(m0_flat):,d} entries (m0 + nshift)")
     print(f"  ZP ROMs:     {len(zp_in_flat):,d} entries (in + out)")
-    print(f"  Sigmoid LUT: {len(sigmoid_flat):,d} entries ({NUM_LAYERS} layers x 256)")
+    print(f"  SiLU LUT:    {len(silu_flat):,d} entries ({NUM_LAYERS} layers x 256)")
     print(f"  BRAM36 est:  ~{summary['bram36_estimate']}")
 
     # --- Step 10: Verify ---

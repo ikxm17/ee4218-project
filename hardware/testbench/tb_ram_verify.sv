@@ -71,35 +71,35 @@ module tb_ram_verify;
     initial $readmemh({MEM_PATH, "qp_packed_rom.mem"}, qp_ref);
 
     /* ================================================================
-     *  Sigmoid Memory — Distributed RAM, 8-bit x 4352
+     *  Activation LUT Memory — Distributed RAM, 8-bit x 4352
      * ================================================================ */
-    localparam SIG_DATA_W = 8;
-    localparam SIG_DEPTH  = SIGMOID_LUT_DEPTH; // 4352
-    localparam SIG_VALID  = SIGMOID_LUT_DEPTH;
-    localparam SIG_ADDR_W = $clog2(SIG_DEPTH);
+    localparam ACT_DATA_W = 8;
+    localparam ACT_DEPTH  = ACT_LUT_DEPTH; // 4352
+    localparam ACT_VALID  = ACT_LUT_DEPTH;
+    localparam ACT_ADDR_W = $clog2(ACT_DEPTH);
 
-    logic                    sig_en_b;
-    logic [SIG_ADDR_W-1:0]  sig_addr_b;
-    logic [SIG_DATA_W-1:0]  sig_dout_b;
+    logic                    act_en_b;
+    logic [ACT_ADDR_W-1:0]  act_addr_b;
+    logic [ACT_DATA_W-1:0]  act_dout_b;
 
     sdp_ram #(
-        .DATA_WIDTH (SIG_DATA_W),
-        .DEPTH      (SIG_DEPTH),
+        .DATA_WIDTH (ACT_DATA_W),
+        .DEPTH      (ACT_DEPTH),
         .RAM_STYLE  ("distributed"),
-        .MEM_FILE   ({MEM_PATH, "sigmoid_lut.mem"})
-    ) u_sig_mem (
+        .MEM_FILE   ({MEM_PATH, "silu_lut.mem"})
+    ) u_silu_mem (
         .clk    (clk),
         .en_a   (1'b0),
-        .en_b   (sig_en_b),
+        .en_b   (act_en_b),
         .we_a   (1'b0),
         .addr_a ('0),
-        .addr_b (sig_addr_b),
+        .addr_b (act_addr_b),
         .din_a  ('0),
-        .dout_b (sig_dout_b)
+        .dout_b (act_dout_b)
     );
 
-    reg [SIG_DATA_W-1:0] sig_ref [0:SIG_DEPTH-1];
-    initial $readmemh({MEM_PATH, "sigmoid_lut.mem"}, sig_ref);
+    reg [ACT_DATA_W-1:0] act_ref [0:ACT_DEPTH-1];
+    initial $readmemh({MEM_PATH, "silu_lut.mem"}, act_ref);
 
     /* ================================================================
      *  Verification
@@ -116,7 +116,7 @@ module tb_ram_verify;
         total_fail = 0;
         wt_en_b  = 0;
         qp_en_b  = 0;
-        sig_en_b = 0;
+        act_en_b = 0;
         #100; // let $readmemh initialisation settle
 
         // Sanity check: verify files were actually loaded (not all-X)
@@ -129,8 +129,8 @@ module tb_ram_verify;
             $display("[FATAL] qp_mem : reference array is X — .mem file not loaded");
             $finish;
         end
-        if ($isunknown(sig_ref[0])) begin
-            $display("[FATAL] sig_mem: reference array is X — .mem file not loaded");
+        if ($isunknown(act_ref[0])) begin
+            $display("[FATAL] act_mem: reference array is X — .mem file not loaded");
             $finish;
         end
         $display("  All .mem files loaded successfully");
@@ -193,32 +193,32 @@ module tb_ram_verify;
             total_fail++;
         end
 
-        /* ---- Sigmoid Memory ---- */
+        /* ---- Activation LUT Memory ---- */
         errors = 0;
         first_err = -1;
-        for (int i = 0; i <= SIG_VALID; i++) begin
+        for (int i = 0; i <= ACT_VALID; i++) begin
             @(posedge clk);
-            if (i < SIG_VALID) begin
-                sig_en_b   = 1'b1;
-                sig_addr_b = i[SIG_ADDR_W-1:0];
+            if (i < ACT_VALID) begin
+                act_en_b   = 1'b1;
+                act_addr_b = i[ACT_ADDR_W-1:0];
             end else begin
-                sig_en_b   = 1'b0;
+                act_en_b   = 1'b0;
             end
             if (i > 0) begin
-                if (sig_dout_b !== sig_ref[i-1]) begin
+                if (act_dout_b !== act_ref[i-1]) begin
                     errors++;
                     if (first_err == -1) first_err = i - 1;
                     if (errors <= 5)
-                        $display("  MISMATCH sig_mem[%0d]: got %h, exp %h",
-                                 i-1, sig_dout_b, sig_ref[i-1]);
+                        $display("  MISMATCH act_mem[%0d]: got %h, exp %h",
+                                 i-1, act_dout_b, act_ref[i-1]);
                 end
             end
         end
         if (errors == 0) begin
-            $display("[PASS] sig_mem: %0d/%0d entries verified", SIG_VALID, SIG_VALID);
+            $display("[PASS] act_mem: %0d/%0d entries verified", ACT_VALID, ACT_VALID);
             total_pass++;
         end else begin
-            $display("[FAIL] sig_mem: %0d mismatches (first @ 0x%0h)", errors, first_err);
+            $display("[FAIL] act_mem: %0d mismatches (first @ 0x%0h)", errors, first_err);
             total_fail++;
         end
 

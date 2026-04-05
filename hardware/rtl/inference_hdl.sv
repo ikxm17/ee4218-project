@@ -40,7 +40,11 @@ module inference_hdl #(
     /* RES output interface (testbench captures) */
     output logic                             res_write_en,
     output logic [DEPTH_BITS-1:0]            res_write_addr,
-    output logic signed [N_BITS-1:0]         res_write_data
+    output logic signed [N_BITS-1:0]         res_write_data,
+
+    /* Current layer info (for activation stage) */
+    output logic [1:0]                       curr_layer_type,
+    output logic [4:0]                       curr_layer_idx
 );
 
     /* ================================================================
@@ -60,6 +64,9 @@ module inference_hdl #(
 
     /* Layer config (from compile-time LAYER_CFG LUT) */
     layer_cfg_t r_cfg;
+
+    /* Layer index (for activation LUT addressing) */
+    logic [4:0] r_layer_idx;
 
     /* QP shadow registers (per output channel, from QP ROM) */
     logic signed [31:0] r_bias;
@@ -129,6 +136,7 @@ module inference_hdl #(
             preload_cnt        <= '0;
             wt_addr_reg        <= '0;
             round_loaded       <= '0;
+            r_layer_idx        <= '0;
         end else begin
             /* Default pulse signals low */
             conv3d_start       <= 1'b0;
@@ -140,6 +148,7 @@ module inference_hdl #(
                 S_IDLE: begin
                     if (start) begin
                         r_cfg        <= LAYER_CFG[0];
+                        r_layer_idx  <= 5'd0;
                         wt_addr_reg  <= LAYER_CFG[0].wt_base + 1;  // next addr after the one driven combinationally
                         load_cnt     <= 4'd0;
                         round_loaded <= 0;
@@ -276,6 +285,12 @@ module inference_hdl #(
             default: ;
         endcase
     end
+
+    /* ================================================================
+     *  Current Layer Info (for activation stage)
+     * ================================================================ */
+    assign curr_layer_type = r_cfg.layer_type;
+    assign curr_layer_idx  = r_layer_idx;
 
     /* ================================================================
      *  Conv3d Instance

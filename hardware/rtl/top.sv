@@ -48,9 +48,9 @@ module top #(
     localparam QP_MEM_DEPTH   = 1024;                   // next pow2 >= QP_PACKED_ROM_DEPTH
     localparam QP_MEM_ADDR_W  = $clog2(QP_MEM_DEPTH);  // 10
 
-    localparam SIG_MEM_DATA_W = 8;
-    localparam SIG_MEM_DEPTH  = SIGMOID_LUT_DEPTH;      // 4352
-    localparam SIG_MEM_ADDR_W = $clog2(SIG_MEM_DEPTH);  // 13
+    localparam ACT_MEM_DATA_W = 8;
+    localparam ACT_MEM_DEPTH  = ACT_LUT_DEPTH;           // 4352
+    localparam ACT_MEM_ADDR_W = $clog2(ACT_MEM_DEPTH);   // 13
 
     localparam FMAP_DATA_W    = C_PAR * 8;              // 128
     localparam FMAP_DEPTH     = 16384;
@@ -76,13 +76,13 @@ module top #(
     logic [QP_MEM_ADDR_W-1:0]  qp_mem_addr_b;
     logic [QP_MEM_DATA_W-1:0]  qp_mem_dout_b;
 
-    /* Sigmoid Memory */
-    logic                        sig_mem_en_a,  sig_mem_we_a;
-    logic [SIG_MEM_ADDR_W-1:0]  sig_mem_addr_a;
-    logic [SIG_MEM_DATA_W-1:0]  sig_mem_din_a;
-    logic                        sig_mem_en_b;
-    logic [SIG_MEM_ADDR_W-1:0]  sig_mem_addr_b;
-    logic [SIG_MEM_DATA_W-1:0]  sig_mem_dout_b;
+    /* Activation LUT Memory */
+    logic                        act_mem_en_a,  act_mem_we_a;
+    logic [ACT_MEM_ADDR_W-1:0]  act_mem_addr_a;
+    logic [ACT_MEM_DATA_W-1:0]  act_mem_din_a;
+    logic                        act_mem_en_b;
+    logic [ACT_MEM_ADDR_W-1:0]  act_mem_addr_b;
+    logic [ACT_MEM_DATA_W-1:0]  act_mem_dout_b;
 
     /* Feature Map Buffer A */
     logic                      fmap_a_en_a,  fmap_a_we_a;
@@ -140,21 +140,21 @@ module top #(
         .dout_b (qp_mem_dout_b)
     );
 
-    /* Sigmoid LUT Memory — Distributed RAM, 8-bit x 4352 */
+    /* Activation LUT Memory — Distributed RAM, 8-bit x 4352 */
     sdp_ram #(
-        .DATA_WIDTH (SIG_MEM_DATA_W),
-        .DEPTH      (SIG_MEM_DEPTH),
+        .DATA_WIDTH (ACT_MEM_DATA_W),
+        .DEPTH      (ACT_MEM_DEPTH),
         .RAM_STYLE  ("distributed"),
-        .MEM_FILE   ("sigmoid_lut.mem")
-    ) u_sig_mem (
+        .MEM_FILE   ("silu_lut.mem")
+    ) u_silu_mem (
         .clk    (aclk),
-        .en_a   (sig_mem_en_a),
-        .en_b   (sig_mem_en_b),
-        .we_a   (sig_mem_we_a),
-        .addr_a (sig_mem_addr_a),
-        .addr_b (sig_mem_addr_b),
-        .din_a  (sig_mem_din_a),
-        .dout_b (sig_mem_dout_b)
+        .en_a   (act_mem_en_a),
+        .en_b   (act_mem_en_b),
+        .we_a   (act_mem_we_a),
+        .addr_a (act_mem_addr_a),
+        .addr_b (act_mem_addr_b),
+        .din_a  (act_mem_din_a),
+        .dout_b (act_mem_dout_b)
     );
 
     /* Feature Map Buffer A — URAM, 128-bit x 16384 */
@@ -203,18 +203,14 @@ module top #(
     assign qp_mem_addr_a = '0;
     assign qp_mem_din_a  = '0;
 
-    assign sig_mem_en_a   = 1'b0;
-    assign sig_mem_we_a   = 1'b0;
-    assign sig_mem_addr_a = '0;
-    assign sig_mem_din_a  = '0;
+    assign act_mem_en_a   = 1'b0;
+    assign act_mem_we_a   = 1'b0;
+    assign act_mem_addr_a = '0;
+    assign act_mem_din_a  = '0;
 
     /* ================================================================
      *  Unused Memory Port Tie-offs
      * ================================================================ */
-
-    /* Sigmoid LUT — not used by inference_hdl yet */
-    assign sig_mem_en_b   = 1'b0;
-    assign sig_mem_addr_b = '0;
 
     /* Feature map buffers — not used yet (testbench feeds pixels directly) */
     assign fmap_a_en_a    = 1'b0;
@@ -233,6 +229,12 @@ module top #(
     /* ================================================================
      *  Inference Controller
      * ================================================================ */
+    logic                        conv_res_en;
+    logic [DEPTH_BITS-1:0]       conv_res_addr;
+    logic signed [N_BITS-1:0]    conv_res_data;
+    logic [1:0]                  curr_layer_type;
+    logic [4:0]                  curr_layer_idx;
+
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .K            (3),
@@ -255,9 +257,34 @@ module top #(
         .pixel_bram_addr  (pixel_bram_addr),
         .pixel_bram_en    (pixel_bram_en),
         .pixel_bram_data  (pixel_bram_data),
-        .res_write_en     (res_write_en),
-        .res_write_addr   (res_write_addr),
-        .res_write_data   (res_write_data)
+        .res_write_en     (conv_res_en),
+        .res_write_addr   (conv_res_addr),
+        .res_write_data   (conv_res_data),
+        .curr_layer_type  (curr_layer_type),
+        .curr_layer_idx   (curr_layer_idx)
+    );
+
+    /* ================================================================
+     *  Activation Stage (SiLU LUT with CONV1_LIN bypass)
+     * ================================================================ */
+    activation #(
+        .N_BITS     (N_BITS),
+        .DEPTH_BITS (DEPTH_BITS),
+        .LUT_ADDR_W (ACT_MEM_ADDR_W)
+    ) u_activation (
+        .clk        (aclk),
+        .rst_n      (aresetn),
+        .layer_type (curr_layer_type),
+        .layer_idx  (curr_layer_idx),
+        .in_valid   (conv_res_en),
+        .in_addr    (conv_res_addr),
+        .in_data    (conv_res_data),
+        .lut_en     (act_mem_en_b),
+        .lut_addr   (act_mem_addr_b),
+        .lut_rdata  (act_mem_dout_b),
+        .out_valid  (res_write_en),
+        .out_addr   (res_write_addr),
+        .out_data   (res_write_data)
     );
 
     /* AXI-Stream — not yet connected */
