@@ -2,7 +2,7 @@
 `include "layer_config.svh"
 
 module inference_hdl #(
-    parameter MAX_PARALLEL = C_PAR,
+    parameter MAX_PARALLEL = C_PARALLEL,
     parameter K            = 3,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
@@ -601,7 +601,7 @@ module inference_hdl #(
      *  ACC Scratch BRAM (intermediate accumulation across rounds)
      *
      *  Depth sized for the largest multi-round layer: layer 4 at
-     *  64x64 = 4096 entries.  Single-round layers (Cin <= C_PAR)
+     *  64x64 = 4096 entries.  Single-round layers (Cin <= C_PARALLEL)
      *  write to ACC but never read back (quantizer uses the
      *  combinational wire), so address aliasing is harmless.
      * ================================================================ */

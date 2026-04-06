@@ -11,7 +11,7 @@ module tb_ram_verify;
     /* ================================================================
      *  Weight Memory — URAM, 128-bit x 32768
      * ================================================================ */
-    localparam WT_DATA_W = C_PAR * 8;          // 128
+    localparam WT_DATA_W = C_PARALLEL * 8;          // 128
     localparam WT_DEPTH  = 32768;
     localparam WT_VALID  = WEIGHT_ROM_DEPTH;   // 25654
     localparam WT_ADDR_W = $clog2(WT_DEPTH);

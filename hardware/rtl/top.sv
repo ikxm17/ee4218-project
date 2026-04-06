@@ -3,7 +3,7 @@
 
 module top #(
     parameter AXI_DATA_WIDTH = 24,
-    parameter MAX_PARALLEL   = C_PAR,
+    parameter MAX_PARALLEL   = C_PARALLEL,
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
     parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
@@ -55,7 +55,7 @@ module top #(
     /* ================================================================
      *  Memory Subsystem Parameters
      * ================================================================ */
-    localparam WT_MEM_DATA_W  = C_PAR * 8;
+    localparam WT_MEM_DATA_W  = C_PARALLEL * 8;
     localparam WT_MEM_DEPTH   = 32768;
     localparam WT_MEM_ADDR_W  = $clog2(WT_MEM_DEPTH);
 
@@ -67,7 +67,7 @@ module top #(
     localparam ACT_MEM_DEPTH  = ACT_LUT_DEPTH;
     localparam ACT_MEM_ADDR_W = $clog2(ACT_MEM_DEPTH);
 
-    localparam FMAP_DATA_W    = C_PAR * 8;
+    localparam FMAP_DATA_W    = C_PARALLEL * 8;
     localparam FMAP_DEPTH     = 16384;
     localparam FMAP_ADDR_W    = $clog2(FMAP_DEPTH);
 

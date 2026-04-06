@@ -7,7 +7,7 @@
 `define LAYER_CONFIG_SVH
 
 localparam int NUM_LAYERS        = 17;
-localparam int C_PAR             = 16;
+localparam int C_PARALLEL             = 16;
 localparam int WEIGHT_ROM_DEPTH  = 25654;
 localparam int BIAS_ROM_DEPTH    = 827;
 localparam int QP_ROM_DEPTH      = 827;
