@@ -237,11 +237,9 @@ module tb_inference_hdl;
     endtask
 
     // =========================================================================
-    //  Layer 1 Pipeline Debug Monitor
-    //
-    //  Traces data at key pipeline stages during layer 1, ch_out=0 to
-    //  pinpoint where the computation diverges from the golden reference.
+    //  Debug Monitors (enable with +define+DEBUG_TRACE in xsim)
     // =========================================================================
+`ifdef DEBUG_TRACE
     integer l1_read_cnt, l1_acc_cnt, l1_silu_cnt;
     logic   l1_started;
 
@@ -255,102 +253,73 @@ module tb_inference_hdl;
     always_ff @(posedge clk) begin
         if (dut.u_inference.curr_layer_idx == 5'd1 &&
             dut.u_inference.ch_out == 8'd0) begin
-
-            // Print QP values when conv3d starts for layer 1 ch_out=0
             if (dut.u_inference.conv3d_start && !l1_started) begin
                 l1_started <= 1;
                 $display("\n=== L1 CH0 CONV START (cycle %0d) ===", cycle_count);
-                $display("  bias=%0d (0x%08h)",
+                $display("  bias=%0d, m0=0x%08h, nshift=%0d, zp_in=%0d, zp_out=%0d",
                          $signed(dut.u_inference.r_bias),
-                         dut.u_inference.r_bias);
-                $display("  m0=0x%08h, nshift=%0d",
                          dut.u_inference.r_m0,
-                         dut.u_inference.r_nshift);
-                $display("  zp_in=%0d, zp_out=%0d",
+                         dut.u_inference.r_nshift,
                          $signed(dut.u_inference.r_cfg.zp_in),
                          $signed(dut.u_inference.r_cfg.zp_out));
-                $display("  fmap_a[0]=0x%032h (expected input at addr 0)",
-                         dut.u_fmap_a.ram[0]);
                 $display("  QP ROM[0]=0x%018h, ROM[16]=0x%018h",
                          dut.u_qp_mem.ram[0], dut.u_qp_mem.ram[16]);
-                $display("  conv3d.r_bias=%0d, conv3d.r_m0=0x%08h, conv3d.r_n_shift=%0d",
-                         $signed(dut.u_inference.u_conv3d.r_bias),
-                         dut.u_inference.u_conv3d.r_m0,
-                         dut.u_inference.u_conv3d.r_n_shift);
             end
 
-            // Print first 3 non-padding pixel data seen by conv3d
             if (dut.u_inference.u_conv3d.conv_running &&
                 !dut.u_inference.u_conv3d.is_padded_act &&
                 l1_read_cnt < 3) begin
-                $display("  [L1 PIXRD %0d] pixel_bram_data=0x%032h",
+                $display("  [L1 PIXRD %0d] data=0x%032h",
                          l1_read_cnt,
                          dut.u_inference.u_conv3d.pixel_bram_data);
                 l1_read_cnt <= l1_read_cnt + 1;
             end
 
-            // Print first 5 accumulator outputs
-            if (dut.u_inference.u_conv3d.ACC_write_en &&
-                l1_acc_cnt < 5) begin
-                $display("  [L1 ACC %0d] addr=%0d, acc_in=%0d (0x%08h), round=%0d, q_pix=%0d",
+            if (dut.u_inference.u_conv3d.ACC_write_en && l1_acc_cnt < 5) begin
+                $display("  [L1 ACC %0d] addr=%0d, acc=%0d, q_pix=%0d",
                          l1_acc_cnt,
                          dut.u_inference.u_conv3d.ACC_write_address,
                          $signed(dut.u_inference.u_conv3d.ACC_write_data_in),
-                         dut.u_inference.u_conv3d.ACC_write_data_in,
-                         dut.u_inference.u_conv3d.round,
                          $signed(dut.u_inference.u_conv3d.q_pix));
                 l1_acc_cnt <= l1_acc_cnt + 1;
             end
         end
 
-        // Post-SiLU output for layer 1 ch_out=0
         if (dut.u_inference.curr_layer_idx == 5'd1 &&
             dut.u_inference.ch_out == 8'd0 &&
             dut.u_activation.out_valid &&
             l1_silu_cnt < 5) begin
-            $display("  [L1 SILU %0d] addr=%0d, data=%0d (0x%02h), lut_addr=0x%04h",
+            $display("  [L1 SILU %0d] addr=%0d, data=%0d (0x%02h)",
                      l1_silu_cnt,
                      dut.u_activation.out_addr,
                      $signed(dut.u_activation.out_data),
-                     dut.u_activation.out_data[7:0],
-                     dut.u_activation.lut_addr);
+                     dut.u_activation.out_data[7:0]);
             l1_silu_cnt <= l1_silu_cnt + 1;
         end
     end
 
-    // =========================================================================
-    //  QP ROM Read Trace — Layer Transition
-    //
-    //  Monitors the QP ROM port signals during S_NEXT_LAYER → S_LOAD to
-    //  verify the address/enable/data timing for the layer 1 QP read.
-    // =========================================================================
     logic qp_trace_armed;
     integer qp_trace_cnt;
     initial begin qp_trace_armed = 0; qp_trace_cnt = 0; end
 
     always_ff @(posedge clk) begin
-        // Arm when layer_idx is about to transition (state=S_NEXT_CHOUT, last ch_out)
-        if (dut.u_inference.state == 3'd3 &&                // S_NEXT_CHOUT
-            dut.u_inference.layer_idx == 5'd0 &&             // still layer 0
+        if (dut.u_inference.state == 3'd3 &&
+            dut.u_inference.layer_idx == 5'd0 &&
             dut.u_inference.ch_out + 8'd1 >= dut.u_inference.r_cfg.cout) begin
             qp_trace_armed <= 1;
             qp_trace_cnt   <= 0;
         end
 
-        // Print 15 cycles of QP ROM signals after arming
         if (qp_trace_armed && qp_trace_cnt < 15) begin
-            $display("  [QP TRACE %0d] state=%0d, qp_en=%b, qp_addr=%0d, qp_dout=0x%018h, r_bias=%0d, load_cnt=%0d",
-                     qp_trace_cnt,
-                     dut.u_inference.state,
-                     dut.u_qp_mem.en_b,
-                     dut.u_qp_mem.addr_b,
-                     dut.u_qp_mem.dout_b,
-                     $signed(dut.u_inference.r_bias),
-                     dut.u_inference.load_cnt);
+            $display("  [QP TRACE %0d] state=%0d, qp_en=%b, qp_addr=%0d, qp_dout=0x%018h, r_bias=%0d",
+                     qp_trace_cnt, dut.u_inference.state,
+                     dut.u_qp_mem.en_b, dut.u_qp_mem.addr_b,
+                     dut.u_qp_mem.dout_b, $signed(dut.u_inference.r_bias));
             qp_trace_cnt <= qp_trace_cnt + 1;
             if (qp_trace_cnt == 14) qp_trace_armed <= 0;
         end
     end
+`endif
 
     // =========================================================================
     //  Main Test Sequence

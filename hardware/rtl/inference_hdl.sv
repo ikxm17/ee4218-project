@@ -98,6 +98,7 @@ module inference_hdl #(
      * ================================================================ */
     logic [7:0]  ch_out;
     logic [4:0]  layer_idx;
+    wire  [4:0]  next_layer_idx  = layer_idx + 5'd1;
 
     wire  [8:0]  rt_act_size     = r_cfg.h_in;
     wire  [7:0]  rt_cin          = r_cfg.cin;
@@ -270,24 +271,23 @@ module inference_hdl #(
 
                 /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
-                    if (layer_idx + 5'd1 < 5'd2) begin
-                        /* XSim workaround: extract fields via a local
-                           variable to avoid the variable-indexed struct
-                           field extraction bug (see always_comb block). */
+                    if (next_layer_idx < 5'd2) begin
+                        /* XSim workaround: assign whole struct to a local
+                           before extracting fields — see always_comb note. */
                         begin
                             layer_cfg_t _next;
-                            _next = LAYER_CFG[layer_idx + 5'd1];
+                            _next = LAYER_CFG[next_layer_idx];
+                            r_cfg       <= _next;
                             wt_addr_reg <= _next.wt_base + 1;
                         end
-                        layer_idx   <= layer_idx + 5'd1;
-                        r_layer_idx <= layer_idx + 5'd1;
-                        r_cfg       <= LAYER_CFG[layer_idx + 5'd1];
-                        ch_out      <= 8'd0;
-                        round_loaded <= 0;
+                        layer_idx      <= next_layer_idx;
+                        r_layer_idx    <= next_layer_idx;
+                        ch_out         <= 8'd0;
+                        round_loaded   <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
-                        load_cnt    <= 4'd0;
-                        state       <= S_LOAD;
+                        load_cnt       <= 4'd0;
+                        state          <= S_LOAD;
                     end else begin
                         done  <= 1'b1;
                         state <= S_IDLE;
@@ -303,12 +303,10 @@ module inference_hdl #(
      *  FSM — Combinational ROM Drive
      * ================================================================ */
     always_comb begin
-        /* Local variable for next layer config — XSim does not correctly
-           extract struct fields when the localparam array is indexed with
-           a variable (e.g. LAYER_CFG[layer_idx + 1].qp_base returns 0).
+        /* XSim workaround: LAYER_CFG[variable].field silently returns 0.
            Assigning the whole struct to a local first works around this. */
         layer_cfg_t next_layer_cfg;
-        next_layer_cfg = LAYER_CFG[layer_idx + 5'd1];
+        next_layer_cfg = LAYER_CFG[next_layer_idx];
 
         /* Defaults — ROM ports idle */
         wt_mem_en_b   = 1'b0;
@@ -352,7 +350,7 @@ module inference_hdl #(
             end
 
             S_NEXT_LAYER: begin
-                if (layer_idx + 5'd1 < 5'd2) begin
+                if (next_layer_idx < 5'd2) begin
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
