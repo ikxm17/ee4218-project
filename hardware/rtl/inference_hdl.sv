@@ -2,20 +2,15 @@
 `include "layer_config.svh"
 
 module inference_hdl #(
-    parameter MAX_PARALLEL = C_PAR,     // 16 — matches ROM word width
+    parameter MAX_PARALLEL = C_PAR,
     parameter K            = 3,
-    parameter ACT_SIZE     = 256,
-    parameter C_IN         = 3,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter DEPTH_BITS   = 16,
-    // Derived (do not override)
     parameter KSQ          = K * K,
-    parameter TOTAL_ROUNDS = (C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL,
-    parameter PIXEL_ADDR_W = TOTAL_ROUNDS * DEPTH_BITS,
-    parameter WT_DATA_W    = MAX_PARALLEL * N_BITS,   // 128
-    parameter WT_ADDR_W    = $clog2(32768),            // 15
-    parameter QP_ADDR_W    = $clog2(1024)              // 10
+    parameter WT_DATA_W    = MAX_PARALLEL * N_BITS,
+    parameter WT_ADDR_W    = $clog2(32768),
+    parameter QP_ADDR_W    = $clog2(1024)
 )(
     input  logic                             aclk,
     input  logic                             aresetn,
@@ -33,7 +28,7 @@ module inference_hdl #(
     input  logic [71:0]                      qp_mem_dout_b,
 
     /* Pixel BRAM interface (testbench drives) */
-    output logic [PIXEL_ADDR_W-1:0]          pixel_bram_addr,
+    output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
     output logic                             pixel_bram_en,
     input  logic [MAX_PARALLEL*N_BITS-1:0]   pixel_bram_data,
 
@@ -45,16 +40,19 @@ module inference_hdl #(
     /* Current layer info (for activation + pool stages) */
     output logic [1:0]                       curr_layer_type,
     output logic [4:0]                       curr_layer_idx,
-    output logic [8:0]                       curr_act_size
+    output logic [8:0]                       curr_act_size,
+    output logic [7:0]                       curr_ch_out
 );
 
     /* ================================================================
      *  FSM State Encoding
      * ================================================================ */
-    typedef enum logic [1:0] {
-        S_IDLE    = 2'd0,
-        S_LOAD    = 2'd1,
-        S_COMPUTE = 2'd2
+    typedef enum logic [2:0] {
+        S_IDLE       = 3'd0,
+        S_LOAD       = 3'd1,
+        S_COMPUTE    = 3'd2,
+        S_NEXT_CHOUT = 3'd3,
+        S_NEXT_LAYER = 3'd4
     } state_t;
 
     state_t state;
@@ -98,9 +96,18 @@ module inference_hdl #(
     /* ================================================================
      *  Counters & Control
      * ================================================================ */
+    logic [7:0]  ch_out;
+    logic [4:0]  layer_idx;
+
+    wire  [8:0]  rt_act_size     = r_cfg.h_in;
+    wire  [7:0]  rt_cin          = r_cfg.cin;
+    wire  [7:0]  rt_cout         = r_cfg.cout;
+    wire  [3:0]  rt_cin_grp      = r_cfg.cin_grp;
+    wire  [3:0]  rt_total_rounds = r_cfg.cin_grp;
+
     logic [WT_ADDR_W-1:0]                       wt_addr_reg;
     logic [3:0]                                 load_cnt;       // 0..KSQ-1 in S_LOAD
-    logic [$clog2(TOTAL_ROUNDS+1)-1:0]          round_loaded;   // how many rounds loaded so far
+    logic [3:0]                                 round_loaded;   // how many rounds loaded so far
 
     /* Background preload (runs inside S_COMPUTE) */
     logic       preload_active;
@@ -150,7 +157,9 @@ module inference_hdl #(
                     if (start) begin
                         r_cfg        <= LAYER_CFG[0];
                         r_layer_idx  <= 5'd0;
-                        wt_addr_reg  <= LAYER_CFG[0].wt_base + 1;  // next addr after the one driven combinationally
+                        ch_out       <= 8'd0;
+                        layer_idx    <= 5'd0;
+                        wt_addr_reg  <= LAYER_CFG[0].wt_base + 1;
                         load_cnt     <= 4'd0;
                         round_loaded <= 0;
                         preload_active <= 1'b0;
@@ -188,7 +197,7 @@ module inference_hdl #(
                         state        <= S_COMPUTE;
 
                         /* Kick off background preload if more rounds remain */
-                        if (round_loaded + 1 < TOTAL_ROUNDS) begin
+                        if (round_loaded + 1 < rt_total_rounds) begin
                             preload_active <= 1'b1;
                             preload_cnt    <= 4'd0;
                             preload_done   <= 1'b0;
@@ -229,7 +238,7 @@ module inference_hdl #(
                         conv3d_weights_ready <= 1'b1;
 
                         /* Start next preload if more rounds remain */
-                        if (round_loaded < TOTAL_ROUNDS) begin
+                        if (round_loaded < rt_total_rounds) begin
                             preload_active <= 1'b1;
                             preload_cnt    <= 4'd0;
                             preload_done   <= 1'b0;
@@ -238,6 +247,41 @@ module inference_hdl #(
 
                     /* ── Conv3d finished ── */
                     if (conv3d_done) begin
+                        state <= S_NEXT_CHOUT;
+                    end
+                end
+
+                /* ──────────────────────────────────────── */
+                S_NEXT_CHOUT: begin
+                    if (ch_out + 8'd1 < r_cfg.cout) begin
+                        ch_out       <= ch_out + 8'd1;
+                        round_loaded <= 0;
+                        preload_active <= 1'b0;
+                        preload_done   <= 1'b0;
+                        wt_addr_reg <= r_cfg.wt_base
+                                     + (ch_out + 8'd1) * r_cfg.cin_grp * KSQ
+                                     + 1;
+                        load_cnt <= 4'd0;
+                        state    <= S_LOAD;
+                    end else begin
+                        state <= S_NEXT_LAYER;
+                    end
+                end
+
+                /* ──────────────────────────────────────── */
+                S_NEXT_LAYER: begin
+                    if (layer_idx + 5'd1 < 5'd2) begin
+                        layer_idx   <= layer_idx + 5'd1;
+                        r_layer_idx <= layer_idx + 5'd1;
+                        r_cfg       <= LAYER_CFG[layer_idx + 5'd1];
+                        ch_out      <= 8'd0;
+                        round_loaded <= 0;
+                        preload_active <= 1'b0;
+                        preload_done   <= 1'b0;
+                        wt_addr_reg <= LAYER_CFG[layer_idx + 5'd1].wt_base + 1;
+                        load_cnt    <= 4'd0;
+                        state       <= S_LOAD;
+                    end else begin
                         done  <= 1'b1;
                         state <= S_IDLE;
                     end
@@ -283,6 +327,25 @@ module inference_hdl #(
                 end
             end
 
+            S_NEXT_CHOUT: begin
+                if (ch_out + 8'd1 < r_cfg.cout) begin
+                    qp_mem_en_b   = 1'b1;
+                    qp_mem_addr_b = r_cfg.qp_base + ch_out + 10'd1;
+                    wt_mem_en_b   = 1'b1;
+                    wt_mem_addr_b = r_cfg.wt_base
+                                 + (ch_out + 8'd1) * r_cfg.cin_grp * KSQ;
+                end
+            end
+
+            S_NEXT_LAYER: begin
+                if (layer_idx + 5'd1 < 5'd2) begin
+                    qp_mem_en_b   = 1'b1;
+                    qp_mem_addr_b = LAYER_CFG[layer_idx + 5'd1].qp_base;
+                    wt_mem_en_b   = 1'b1;
+                    wt_mem_addr_b = LAYER_CFG[layer_idx + 5'd1].wt_base;
+                end
+            end
+
             default: ;
         endcase
     end
@@ -293,15 +356,14 @@ module inference_hdl #(
     assign curr_layer_type = r_cfg.layer_type;
     assign curr_layer_idx  = r_layer_idx;
     assign curr_act_size   = r_cfg.h_in;
+    assign curr_ch_out     = ch_out;
 
     /* ================================================================
      *  Conv3d Instance
      * ================================================================ */
     conv3d #(
-        .ACT_SIZE     (ACT_SIZE),
         .K            (K),
         .STRIDE       (1),
-        .C_IN         (C_IN),
         .MAX_PARALLEL (MAX_PARALLEL),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
@@ -312,6 +374,8 @@ module inference_hdl #(
         .clk                  (aclk),
         .rst                  (!aresetn),
         .start                (conv3d_start),
+        .act_size             (rt_act_size),
+        .cin                  (rt_cin),
         .zp_in                (r_cfg.zp_in),
         .zp_out               (r_cfg.zp_out),
         .bias                 (r_bias),
