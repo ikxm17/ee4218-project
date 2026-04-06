@@ -234,6 +234,12 @@ module top #(
     logic signed [N_BITS-1:0]    conv_res_data;
     logic [1:0]                  curr_layer_type;
     logic [4:0]                  curr_layer_idx;
+    logic [8:0]                  curr_act_size;
+
+    /* Activation → Max Pool intermediate signals */
+    logic                        act_out_valid;
+    logic [DEPTH_BITS-1:0]       act_out_addr;
+    logic signed [N_BITS-1:0]    act_out_data;
 
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
@@ -261,7 +267,8 @@ module top #(
         .res_write_addr   (conv_res_addr),
         .res_write_data   (conv_res_data),
         .curr_layer_type  (curr_layer_type),
-        .curr_layer_idx   (curr_layer_idx)
+        .curr_layer_idx   (curr_layer_idx),
+        .curr_act_size    (curr_act_size)
     );
 
     /* ================================================================
@@ -282,6 +289,25 @@ module top #(
         .lut_en     (act_mem_en_b),
         .lut_addr   (act_mem_addr_b),
         .lut_rdata  (act_mem_dout_b),
+        .out_valid  (act_out_valid),
+        .out_addr   (act_out_addr),
+        .out_data   (act_out_data)
+    );
+
+    /* ================================================================
+     *  Max Pooling Stage (2x2 stride-2, CONV3_POOL layers only)
+     * ================================================================ */
+    max_pool #(
+        .N_BITS     (N_BITS),
+        .DEPTH_BITS (DEPTH_BITS)
+    ) u_max_pool (
+        .clk        (aclk),
+        .rst_n      (aresetn),
+        .layer_type (curr_layer_type),
+        .act_size   (curr_act_size),
+        .in_valid   (act_out_valid),
+        .in_addr    (act_out_addr),
+        .in_data    (act_out_data),
         .out_valid  (res_write_en),
         .out_addr   (res_write_addr),
         .out_data   (res_write_data)

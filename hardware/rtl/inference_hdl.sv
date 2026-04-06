@@ -42,9 +42,10 @@ module inference_hdl #(
     output logic [DEPTH_BITS-1:0]            res_write_addr,
     output logic signed [N_BITS-1:0]         res_write_data,
 
-    /* Current layer info (for activation stage) */
+    /* Current layer info (for activation + pool stages) */
     output logic [1:0]                       curr_layer_type,
-    output logic [4:0]                       curr_layer_idx
+    output logic [4:0]                       curr_layer_idx,
+    output logic [8:0]                       curr_act_size
 );
 
     /* ================================================================
@@ -291,6 +292,7 @@ module inference_hdl #(
      * ================================================================ */
     assign curr_layer_type = r_cfg.layer_type;
     assign curr_layer_idx  = r_layer_idx;
+    assign curr_act_size   = r_cfg.h_in;
 
     /* ================================================================
      *  Conv3d Instance
