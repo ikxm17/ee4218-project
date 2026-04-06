@@ -14,20 +14,22 @@
 // zp * n+2
 
 module conv3d #(
-    parameter ACT_SIZE     = 256, // test with 100
     parameter K            = 3,
     parameter STRIDE       = 1,
-    parameter C_IN         = 3,
-    parameter MAX_PARALLEL = 2,     // test with 4, original design 16
+    parameter MAX_PARALLEL = 16,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
     parameter SHIFT_BITS   = 6,
-    parameter DEPTH_BITS   = 16   // address bits: 2^DEPTH_BITS >= ACT_SIZE²
+    parameter DEPTH_BITS   = 16
 )(
     input  wire                               clk,
     input  wire                               rst,
     input  wire                               start,
+
+    // Runtime layer dimensions
+    input  wire [8:0]                         act_size,
+    input  wire [7:0]                         cin,
 
     // Quantisation scalars
     input  wire signed [N_BITS-1:0]           zp_in,
@@ -38,11 +40,11 @@ module conv3d #(
 
     // -------------------------------------------------------------------------
     // Pixel BRAM interface  (one BRAM that outputs MAX_PARALLEL pixels per cycle)
-    //   pixel_bram_addr – read address issued to input BRAM. Depth = TOTAL_ROUNDS * DEPTH_BITS
+    //   pixel_bram_addr – read address issued to input BRAM
     //   pixel_bram_en   – enb for each channel BRAM (0 on padding pixels)
     //   pixel_bram_data – registered read data from each channel BRAM
     // -------------------------------------------------------------------------
-    output reg [((C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL)*DEPTH_BITS-1:0]      pixel_bram_addr,
+    output reg  [DEPTH_BITS-1:0]                                                pixel_bram_addr,
     output reg                                                                  pixel_bram_en,
     input  wire signed [MAX_PARALLEL*N_BITS-1:0]                                pixel_bram_data,
 
@@ -70,12 +72,19 @@ module conv3d #(
     output reg                               done
 );
 
-    // Constants
-    localparam PAD_SIZE       = ACT_SIZE + 2;                      // 258 for 256
-    localparam OUT_SIZE       = (PAD_SIZE - K) / STRIDE + 1;       // 256 for K=3,S=1
-    localparam OUT_PIXELS     = OUT_SIZE * OUT_SIZE;
-    localparam TOTAL_ROUNDS   = (C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL; // round up
-    localparam LAST_ROUND_CIN = C_IN - (TOTAL_ROUNDS - 1) * MAX_PARALLEL;
+    // Runtime-derived constants
+    wire [8:0]  pad_size       = act_size + 9'd2;
+    wire [3:0]  total_rounds   = cin[7:4] + (|cin[3:0]);  // ceil(cin / 16)
+    wire [4:0]  last_round_cin = (cin[3:0] == 4'd0) ? 5'd16 : {1'b0, cin[3:0]};
+
+    // Pre-compute act_size^2 for pixel addressing (registered)
+    reg [17:0] act_size_sq;
+    always @(posedge clk) begin
+        if (rst)
+            act_size_sq <= 0;
+        else if (start)
+            act_size_sq <= act_size * act_size;
+    end
 
     // Quantization parameters to be stored in registers
     reg signed [N_BITS-1:0]         r_zp_in, r_zp_out;
@@ -89,20 +98,20 @@ module conv3d #(
     localparam S_WAIT_ROUND     = 2'd2;
 
     reg [1:0]                              state;
-    reg [$clog2(TOTAL_ROUNDS+1)-1:0]       round;
+    reg [3:0]                              round;
     reg                                    conv_running;        // needed as condition to enable convolver
     reg                                    rst_convolvers;      // set after every round of convolutions
 
     // Input addressing and padding
-    reg [$clog2(ACT_SIZE +2)-1:0]              input_row;         
-    reg [$clog2(ACT_SIZE +2)-1:0]              input_col;
+    reg [8:0]                                  input_row;
+    reg [8:0]                                  input_col;
     reg                                        is_padding;
     reg                                        is_padded_act; // lags one cycle behind is_padding
        
     // Track number of convolvers running in parallel (aka slots)
     wire [$clog2(MAX_PARALLEL+1)-1:0] active_slots;
-    assign active_slots = (round == TOTAL_ROUNDS - 1)
-                        ? LAST_ROUND_CIN[$clog2(MAX_PARALLEL+1)-1:0]
+    assign active_slots = (round == total_rounds - 1)
+                        ? last_round_cin[$clog2(MAX_PARALLEL+1)-1:0]
                         : MAX_PARALLEL[$clog2(MAX_PARALLEL+1)-1:0];
 
     // Outputs of convolvers and pad streamers running in parallel
@@ -118,7 +127,8 @@ module conv3d #(
 
     // padding logic
     always @(*) begin
-        is_padding = (input_row == 0) || (input_row == ACT_SIZE +1) || (input_col == 0) || (input_col == ACT_SIZE +1);
+        is_padding = (input_row == 0) || (input_row == act_size + 9'd1)
+                  || (input_col == 0) || (input_col == act_size + 9'd1);
     end
     
     // used to track if act fed into activation is a padded value or not
@@ -133,9 +143,9 @@ module conv3d #(
             input_col <= 0;
         end else if (state == S_RUNNING) begin
             // advance pixel stream position every cycle while convolvers running
-            if (input_col == ACT_SIZE + 1) begin
+            if (input_col == act_size + 9'd1) begin
                 input_col <= 0;
-                if (input_row == ACT_SIZE + 1) begin
+                if (input_row == act_size + 9'd1) begin
                     input_row <= 0;
                 end else begin
                     input_row <= input_row + 1;
@@ -155,7 +165,7 @@ module conv3d #(
             // enable BRAM read for real pixels only (not padding)
             if (!is_padding) begin
                 pixel_bram_en = 1;
-                pixel_bram_addr = (round * (ACT_SIZE * ACT_SIZE)) + ((input_row-1) * (ACT_SIZE) + (input_col-1));
+                pixel_bram_addr = (round * act_size_sq) + ((input_row - 1) * act_size + (input_col - 1));
             end   
             else                pixel_bram_en = 0;
         end 
@@ -168,7 +178,7 @@ module conv3d #(
             wire slot_active = conv_running && (gi < active_slots);
 
             // ------------------------------------------------------------------
-            // convolver  (sees PAD_SIZE-wide stream)
+            // convolver  (sees pad_size-wide stream)
             // ------------------------------------------------------------------
             // act_zp is the zero-point subtracted and padded activation value fed into the convolver
             reg signed [N_BITS-1:0] act_zp;
@@ -190,15 +200,15 @@ module conv3d #(
             end 
 
             convolver #(
-                .n (PAD_SIZE),   // convolver sees the PADDED width
                 .k (K),
                 .s (STRIDE),
-                .N (N_BITS), 
+                .N (N_BITS),
                 .ACC_BITS(ACC_BITS)
             ) u_conv (
                 .clk        (clk),
                 .ce         (slot_active),
                 .global_rst (rst || rst_convolvers),
+                .n          (pad_size),
                 .activation (act_zp),
                 .weight1    (weights_all_channels[gi*K*K*N_BITS +: K*K*N_BITS]),
                 .conv_op    (slot_conv_out[gi]),
@@ -257,7 +267,7 @@ module conv3d #(
                     rst_convolvers <= 1;
                     conv_running <= 0;
                     // request new weights for next round if not last round
-                    if (round != TOTAL_ROUNDS -1)   req_weights <= 1;
+                    if (round != total_rounds - 1)   req_weights <= 1;
                 end
             end
 
@@ -265,7 +275,7 @@ module conv3d #(
                 rst_convolvers <= 0;
                 // only keep req_weights high for one cycle
                 req_weights <= 0;
-                if (round == TOTAL_ROUNDS -1) begin
+                if (round == total_rounds - 1) begin
                     // all ch_in convolutions completed
                     state <= S_IDLE;
                     done <= 1;
@@ -291,7 +301,7 @@ module conv3d #(
     // ------------------------------------------------------------------
     
     // intermediate acc values are stored in ACC_BRAM
-    // each pixel accumulates over TOTAL_ROUNDS rounds of convolutions
+    // each pixel accumulates over total_rounds rounds of convolutions
     // updated acc values are written to ACC_BRAM two cycles after valid conv_op
 
 
@@ -346,7 +356,7 @@ module conv3d #(
         end
 
         S_WAIT_ROUND: begin
-            if (round != TOTAL_ROUNDS -1) begin
+            if (round != total_rounds - 1) begin
                 // start another batch of convolutions, reset addresses for new acc. values
                 ACC_write_address <= 0;
                 ACC_read_address <= 0;
@@ -374,7 +384,7 @@ module conv3d #(
     always @(*) begin
         RES_write_data_in = q_pix;
         RES_write_address = ACC_write_address;
-        if (round == TOTAL_ROUNDS -1) begin
+        if (round == total_rounds - 1) begin
             // only write to RES in last round after each pixel's valid convolution outputs
             RES_write_en = ACC_write_en; 
         end
