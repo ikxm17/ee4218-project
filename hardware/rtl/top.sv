@@ -3,7 +3,7 @@
 
 module top #(
     parameter AXI_DATA_WIDTH = 24,
-    parameter MAX_PARALLEL   = C_PARALLEL,
+    parameter MAX_PARALLEL   = 16,  // must match C_PARALLEL in layer_config.svh
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
     parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
