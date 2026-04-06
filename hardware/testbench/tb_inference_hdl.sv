@@ -237,6 +237,82 @@ module tb_inference_hdl;
     endtask
 
     // =========================================================================
+    //  Layer 1 Pipeline Debug Monitor
+    //
+    //  Traces data at key pipeline stages during layer 1, ch_out=0 to
+    //  pinpoint where the computation diverges from the golden reference.
+    // =========================================================================
+    integer l1_read_cnt, l1_acc_cnt, l1_silu_cnt;
+    logic   l1_started;
+
+    initial begin
+        l1_read_cnt = 0;
+        l1_acc_cnt  = 0;
+        l1_silu_cnt = 0;
+        l1_started  = 0;
+    end
+
+    always_ff @(posedge clk) begin
+        if (dut.u_inference.curr_layer_idx == 5'd1 &&
+            dut.u_inference.ch_out == 8'd0) begin
+
+            // Print QP values when conv3d starts for layer 1 ch_out=0
+            if (dut.u_inference.conv3d_start && !l1_started) begin
+                l1_started <= 1;
+                $display("\n=== L1 CH0 CONV START (cycle %0d) ===", cycle_count);
+                $display("  bias=%0d (0x%08h)",
+                         $signed(dut.u_inference.r_bias),
+                         dut.u_inference.r_bias);
+                $display("  m0=0x%08h, nshift=%0d",
+                         dut.u_inference.r_m0,
+                         dut.u_inference.r_nshift);
+                $display("  zp_in=%0d, zp_out=%0d",
+                         $signed(dut.u_inference.r_cfg.zp_in),
+                         $signed(dut.u_inference.r_cfg.zp_out));
+                $display("  fmap_a[0]=0x%032h (expected input at addr 0)",
+                         dut.u_fmap_a.ram[0]);
+            end
+
+            // Print first 3 non-padding pixel data seen by conv3d
+            if (dut.u_inference.u_conv3d.conv_running &&
+                !dut.u_inference.u_conv3d.is_padded_act &&
+                l1_read_cnt < 3) begin
+                $display("  [L1 PIXRD %0d] pixel_bram_data=0x%032h",
+                         l1_read_cnt,
+                         dut.u_inference.u_conv3d.pixel_bram_data);
+                l1_read_cnt <= l1_read_cnt + 1;
+            end
+
+            // Print first 5 accumulator outputs
+            if (dut.u_inference.u_conv3d.ACC_write_en &&
+                l1_acc_cnt < 5) begin
+                $display("  [L1 ACC %0d] addr=%0d, acc_in=%0d (0x%08h), round=%0d, q_pix=%0d",
+                         l1_acc_cnt,
+                         dut.u_inference.u_conv3d.ACC_write_address,
+                         $signed(dut.u_inference.u_conv3d.ACC_write_data_in),
+                         dut.u_inference.u_conv3d.ACC_write_data_in,
+                         dut.u_inference.u_conv3d.round,
+                         $signed(dut.u_inference.u_conv3d.q_pix));
+                l1_acc_cnt <= l1_acc_cnt + 1;
+            end
+        end
+
+        // Post-SiLU output for layer 1 ch_out=0
+        if (dut.u_inference.curr_layer_idx == 5'd1 &&
+            dut.u_inference.ch_out == 8'd0 &&
+            dut.u_activation.out_valid &&
+            l1_silu_cnt < 5) begin
+            $display("  [L1 SILU %0d] addr=%0d, data=%0d (0x%02h), lut_addr=0x%04h",
+                     l1_silu_cnt,
+                     dut.u_activation.out_addr,
+                     $signed(dut.u_activation.out_data),
+                     dut.u_activation.out_data[7:0],
+                     dut.u_activation.lut_addr);
+            l1_silu_cnt <= l1_silu_cnt + 1;
+        end
+    end
+
+    // =========================================================================
     //  Main Test Sequence
     // =========================================================================
     initial begin
@@ -282,8 +358,43 @@ module tb_inference_hdl;
         $display("[CYCLE %0d] Inference complete", cycle_count);
         #100;
 
-        // 6. Verify URAM contents
+        // 6. Diagnostic dumps
         $display("-----------------------------------------");
+        $display("=== DIAGNOSTICS ===");
+
+        // Dump first 4 URAM words from fmap_a (layer 0 output)
+        $display("fmap_a[0:3] (layer 0 output, first 4 words):");
+        for (int d = 0; d < 4; d++)
+            $display("  fmap_a[%0d] = 0x%032h", d, dut.u_fmap_a.ram[d]);
+
+        // Dump first 4 URAM words from fmap_b (layer 1 output)
+        $display("fmap_b[0:3] (layer 1 output, first 4 words):");
+        for (int d = 0; d < 4; d++)
+            $display("  fmap_b[%0d] = 0x%032h", d, dut.u_fmap_b.ram[d]);
+
+        // Check golden layer 0 vs fmap_a for first 4 words
+        $display("golden_layer0[0:3] (expected layer 0 output):");
+        for (int d = 0; d < 4; d++)
+            $display("  golden_l0[%0d] = 0x%032h", d, golden_layer0[d]);
+
+        // Check golden layer 1 vs fmap_b for first 4 words
+        $display("golden_layer1[0:3] (expected layer 1 output):");
+        for (int d = 0; d < 4; d++)
+            $display("  golden_l1[%0d] = 0x%032h", d, golden_layer1[d]);
+
+        // Check layer 1 QP registers (should be layer 1, last ch_out=15)
+        $display("Final state: layer_idx=%0d, ch_out=%0d",
+                 dut.u_inference.layer_idx, dut.u_inference.ch_out);
+        $display("  r_cfg.zp_in=%0d, r_cfg.zp_out=%0d",
+                 dut.u_inference.r_cfg.zp_in, dut.u_inference.r_cfg.zp_out);
+        $display("  r_cfg.h_in=%0d, r_cfg.cin=%0d, r_cfg.cout=%0d",
+                 dut.u_inference.r_cfg.h_in, dut.u_inference.r_cfg.cin,
+                 dut.u_inference.r_cfg.cout);
+
+        $display("=== END DIAGNOSTICS ===");
+        $display("-----------------------------------------");
+
+        // 7. Verify URAM contents
         $display("Verifying Layer 0 output (fmap_a, 128x128x16)...");
         verify_uram("fmap_a", L0_URAM_WORDS, golden_layer0);
 
