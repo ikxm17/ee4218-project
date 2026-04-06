@@ -33,10 +33,30 @@ module tb_inference_hdl;
     logic [DEPTH_BITS-1:0]              res_write_addr;
     logic signed [N_BITS-1:0]           res_write_data;
 
-    // AXI-Stream stubs
-    logic s_axis_tvalid, s_axis_tlast, s_axis_tready;
-    logic m_axis_tready, m_axis_tvalid, m_axis_tlast;
-    logic [23:0] s_axis_tdata, m_axis_tdata;
+    // AXI stubs (USE_FMAP_INPUT=0, all tied off internally by top.sv)
+    logic [12:0] s_axi_lite_awaddr;
+    logic        s_axi_lite_awvalid;
+    logic        s_axi_lite_awready;
+    logic [31:0] s_axi_lite_wdata;
+    logic [3:0]  s_axi_lite_wstrb;
+    logic        s_axi_lite_wvalid;
+    logic        s_axi_lite_wready;
+    logic [1:0]  s_axi_lite_bresp;
+    logic        s_axi_lite_bvalid;
+    logic        s_axi_lite_bready;
+    logic [12:0] s_axi_lite_araddr;
+    logic        s_axi_lite_arvalid;
+    logic        s_axi_lite_arready;
+    logic [31:0] s_axi_lite_rdata;
+    logic [1:0]  s_axi_lite_rresp;
+    logic        s_axi_lite_rvalid;
+    logic        s_axi_lite_rready;
+    logic [31:0] s_axis_tdata;
+    logic        s_axis_tvalid;
+    logic        s_axis_tlast;
+    logic [0:0]  s_axis_tuser;
+    logic        s_axis_tready;
+    logic        irq_done;
 
     // =========================================================================
     //  Clock & Cycle Counter
@@ -54,38 +74,63 @@ module tb_inference_hdl;
             cycle_count <= cycle_count + 1;
     end
 
-    // AXI-Stream tie-offs
-    assign s_axis_tvalid = 1'b0;
-    assign s_axis_tlast  = 1'b0;
-    assign s_axis_tdata  = '0;
-    assign m_axis_tready = 1'b0;
+    // AXI tie-offs (USE_FMAP_INPUT=0: all unused)
+    assign s_axi_lite_awaddr  = '0;
+    assign s_axi_lite_awvalid = 1'b0;
+    assign s_axi_lite_wdata   = '0;
+    assign s_axi_lite_wstrb   = '0;
+    assign s_axi_lite_wvalid  = 1'b0;
+    assign s_axi_lite_bready  = 1'b0;
+    assign s_axi_lite_araddr  = '0;
+    assign s_axi_lite_arvalid = 1'b0;
+    assign s_axi_lite_rready  = 1'b0;
+    assign s_axis_tdata       = '0;
+    assign s_axis_tvalid      = 1'b0;
+    assign s_axis_tlast       = 1'b0;
+    assign s_axis_tuser       = 1'b0;
 
     // =========================================================================
-    //  DUT
+    //  DUT (USE_FMAP_INPUT=0: testbench mode, direct start/done/pixel_bram)
     // =========================================================================
     top #(
-        .MAX_PARALLEL (MAX_PARALLEL),
-        .N_BITS       (N_BITS),
-        .DEPTH_BITS   (DEPTH_BITS)
+        .MAX_PARALLEL  (MAX_PARALLEL),
+        .N_BITS        (N_BITS),
+        .DEPTH_BITS    (DEPTH_BITS),
+        .USE_FMAP_INPUT(0)
     ) dut (
-        .aclk            (clk),
-        .aresetn         (aresetn),
-        .start           (start),
-        .done            (done),
-        .s_axis_tvalid   (s_axis_tvalid),
-        .s_axis_tlast    (s_axis_tlast),
-        .s_axis_tdata    (s_axis_tdata),
-        .s_axis_tready   (s_axis_tready),
-        .m_axis_tready   (m_axis_tready),
-        .m_axis_tvalid   (m_axis_tvalid),
-        .m_axis_tlast    (m_axis_tlast),
-        .m_axis_tdata    (m_axis_tdata),
-        .pixel_bram_addr (pixel_bram_addr),
-        .pixel_bram_en   (pixel_bram_en),
-        .pixel_bram_data (pixel_bram_data),
-        .res_write_en    (res_write_en),
-        .res_write_addr  (res_write_addr),
-        .res_write_data  (res_write_data)
+        .aclk                (clk),
+        .aresetn             (aresetn),
+        .start               (start),
+        .done                (done),
+        .pixel_bram_addr     (pixel_bram_addr),
+        .pixel_bram_en       (pixel_bram_en),
+        .pixel_bram_data     (pixel_bram_data),
+        .res_write_en        (res_write_en),
+        .res_write_addr      (res_write_addr),
+        .res_write_data      (res_write_data),
+        .s_axi_lite_awaddr   (s_axi_lite_awaddr),
+        .s_axi_lite_awvalid  (s_axi_lite_awvalid),
+        .s_axi_lite_awready  (s_axi_lite_awready),
+        .s_axi_lite_wdata    (s_axi_lite_wdata),
+        .s_axi_lite_wstrb    (s_axi_lite_wstrb),
+        .s_axi_lite_wvalid   (s_axi_lite_wvalid),
+        .s_axi_lite_wready   (s_axi_lite_wready),
+        .s_axi_lite_bresp    (s_axi_lite_bresp),
+        .s_axi_lite_bvalid   (s_axi_lite_bvalid),
+        .s_axi_lite_bready   (s_axi_lite_bready),
+        .s_axi_lite_araddr   (s_axi_lite_araddr),
+        .s_axi_lite_arvalid  (s_axi_lite_arvalid),
+        .s_axi_lite_arready  (s_axi_lite_arready),
+        .s_axi_lite_rdata    (s_axi_lite_rdata),
+        .s_axi_lite_rresp    (s_axi_lite_rresp),
+        .s_axi_lite_rvalid   (s_axi_lite_rvalid),
+        .s_axi_lite_rready   (s_axi_lite_rready),
+        .s_axis_tdata        (s_axis_tdata),
+        .s_axis_tvalid       (s_axis_tvalid),
+        .s_axis_tlast        (s_axis_tlast),
+        .s_axis_tuser        (s_axis_tuser),
+        .s_axis_tready       (s_axis_tready),
+        .irq_done            (irq_done)
     );
 
     // =========================================================================
