@@ -271,6 +271,14 @@ module inference_hdl #(
                 /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
                     if (layer_idx + 5'd1 < 5'd2) begin
+                        /* XSim workaround: extract fields via a local
+                           variable to avoid the variable-indexed struct
+                           field extraction bug (see always_comb block). */
+                        begin
+                            layer_cfg_t _next;
+                            _next = LAYER_CFG[layer_idx + 5'd1];
+                            wt_addr_reg <= _next.wt_base + 1;
+                        end
                         layer_idx   <= layer_idx + 5'd1;
                         r_layer_idx <= layer_idx + 5'd1;
                         r_cfg       <= LAYER_CFG[layer_idx + 5'd1];
@@ -278,7 +286,6 @@ module inference_hdl #(
                         round_loaded <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
-                        wt_addr_reg <= LAYER_CFG[layer_idx + 5'd1].wt_base + 1;
                         load_cnt    <= 4'd0;
                         state       <= S_LOAD;
                     end else begin
