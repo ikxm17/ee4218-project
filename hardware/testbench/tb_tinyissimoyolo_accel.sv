@@ -214,9 +214,27 @@ module tb_tinyissimoyolo_accel;
     };
 
     task automatic load_golden(input int layer_idx);
-        string fname;
-        $sformat(fname, "%sgolden_layer%0d_uram.mem", MEM_PATH, layer_idx);
-        $readmemh(fname, golden_buf);
+        // Use case statement with compile-time string concatenation;
+        // xsim $readmemh does not support runtime-constructed filenames.
+        case (layer_idx)
+             0: $readmemh({MEM_PATH, "golden_layer0_uram.mem"},  golden_buf);
+             1: $readmemh({MEM_PATH, "golden_layer1_uram.mem"},  golden_buf);
+             2: $readmemh({MEM_PATH, "golden_layer2_uram.mem"},  golden_buf);
+             3: $readmemh({MEM_PATH, "golden_layer3_uram.mem"},  golden_buf);
+             4: $readmemh({MEM_PATH, "golden_layer4_uram.mem"},  golden_buf);
+             5: $readmemh({MEM_PATH, "golden_layer5_uram.mem"},  golden_buf);
+             6: $readmemh({MEM_PATH, "golden_layer6_uram.mem"},  golden_buf);
+             7: $readmemh({MEM_PATH, "golden_layer7_uram.mem"},  golden_buf);
+             8: $readmemh({MEM_PATH, "golden_layer8_uram.mem"},  golden_buf);
+             9: $readmemh({MEM_PATH, "golden_layer9_uram.mem"},  golden_buf);
+            10: $readmemh({MEM_PATH, "golden_layer10_uram.mem"}, golden_buf);
+            11: $readmemh({MEM_PATH, "golden_layer11_uram.mem"}, golden_buf);
+            12: $readmemh({MEM_PATH, "golden_layer12_uram.mem"}, golden_buf);
+            13: $readmemh({MEM_PATH, "golden_layer13_uram.mem"}, golden_buf);
+            14: $readmemh({MEM_PATH, "golden_layer14_uram.mem"}, golden_buf);
+            15: $readmemh({MEM_PATH, "golden_layer15_uram.mem"}, golden_buf);
+            16: $readmemh({MEM_PATH, "golden_layer16_uram.mem"}, golden_buf);
+        endcase
     endtask
 
     task automatic verify_uram_at_offset(
@@ -333,11 +351,20 @@ module tb_tinyissimoyolo_accel;
                  read_val, real'(read_val) / 100_000.0);
 
         // -----------------------------------------------------------------
-        //  Step 5: Verify intermediate layer outputs (hierarchical access)
+        //  Step 5: Verify surviving layer outputs (hierarchical access)
+        //
+        //  Ping-pong buffers are reused across layers, so only the last
+        //  writer at each (buffer, offset) survives after full inference:
+        //    fmap_a[0:127]   = layer 10   fmap_b[256:511] = layer 13
+        //    fmap_a[256:511] = layer 12   fmap_b[512:575] = layer 16
+        //    fmap_a[512:639] = layer 15
+        //  Layers 0-9, 11, 14 are overwritten and cannot be verified.
         // -----------------------------------------------------------------
         $display("-----------------------------------------");
-        $display("[STEP 5] Verifying all %0d layers...", NUM_TEST_LAYERS);
+        $display("[STEP 5] Verifying surviving layers (10,12,13,15,16)...");
         for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
+            // Skip layers whose URAM contents have been overwritten
+            if (li < 10 || li == 11 || li == 14) continue;
             load_golden(li);
             if (PP_BUF_SEL[li] == 0)
                 verify_uram_at_offset("fmap_a", URAM_WORDS[li], WR_OFFSET[li]);
