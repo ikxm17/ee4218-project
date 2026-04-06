@@ -3,24 +3,41 @@
 `timescale 1ns / 1ps
 
 module convolver #(
-parameter n = 9'h00a,     // activation map size
-parameter k = 9'h003,     // kernel size 
-parameter s = 1,          // value of stride (horizontal and vertical stride are equal)
-parameter N = 8,         // input and weights bit width
-parameter ACC_BITS = 32     // accumulator bit width
+    parameter k = 9'h003,
+    parameter s = 1,
+    parameter N = 8,
+    parameter ACC_BITS = 32
 )(
-input clk,
-input ce,
-input global_rst,
-input signed [N-1:0] activation,
-input signed [(k*k)*N-1:0] weight1,
-output signed [ACC_BITS-1:0] conv_op,
-output valid_conv,
-output end_conv
+    input clk,
+    input ce,
+    input global_rst,
+    input [8:0] n,
+    input signed [N-1:0] activation,
+    input signed [(k*k)*N-1:0] weight1,
+    output signed [ACC_BITS-1:0] conv_op,
+    output valid_conv,
+    output end_conv
 );
 
 reg [31:0] count,count2,count3,row_count;
 reg en1,en2,en3;
+
+// Pre-compute n-dependent values (registered for timing)
+reg [17:0] n_sq_plus2;     // n*n + 2
+reg [8:0]  n_minus_k;      // n - k
+reg [17:0] fill_count;     // (k-1)*n + k - 1
+
+always @(posedge clk or posedge global_rst) begin
+    if (global_rst) begin
+        n_sq_plus2 <= 0;
+        n_minus_k  <= 0;
+        fill_count <= 0;
+    end else begin
+        n_sq_plus2 <= n * n + 18'd2;
+        n_minus_k  <= n - k;
+        fill_count <= (k - 1) * n + (k - 1);
+    end
+end
 
 wire signed [ACC_BITS-1:0] tmp [k*k+1:0];
 wire signed [N-1:0] weight [0:k*k-1];
@@ -73,13 +90,17 @@ genvar i;
         .p(tmp2) 
         );
 
-      variable_shift_register #(.WIDTH(ACC_BITS),.SIZE(n-k)) SR (
-          .clk(clk),                 // input clk
-          .ce(ce),                   // input ce
-          .rst(global_rst),          // input rst
-          .data_in(tmp2),                  // input [32 : 0] d
-          .data_out(tmp[i+1])             // output [32 : 0] q
-          );
+      circular_buffer #(
+          .WIDTH     (ACC_BITS),
+          .MAX_DEPTH (255)
+      ) SR (
+          .clk      (clk),
+          .ce       (ce),
+          .rst      (global_rst),
+          .depth    (n_minus_k),
+          .data_in  (tmp2),
+          .data_out (tmp[i+1])
+      );
       end
     end
     else
@@ -113,7 +134,7 @@ begin
   end
   else if(ce)
   begin
-    if(count == (k-1)*n+k-1)        // time taken for the pipeline to fill up is (k-1)*n+k-1
+    if(count == fill_count)           // time taken for the pipeline to fill up is (k-1)*n+k-1
     begin
       en1 <= 1'b1;
       count <= count+1'b1;
@@ -125,7 +146,7 @@ begin
   end
   if(en1 && en2) 
   begin
-    if(count2 == n-k)
+    if(count2 == n_minus_k)
     begin
       count2 <= 0;
       en2 <= 0 ;
@@ -148,13 +169,13 @@ begin
     count3 <= count3 + 1'b1;
   end
   //one in every 's' convolutions becomes valid, also some exceptional cases handled for high when count2 = 0
-  if((((count2 + 1) % s == 0) && (row_count % s == 0))||(count3 == k-2)&&(row_count % s == 0)||(count == (k-1)*n+k-1))
+  if((((count2 + 1) % s == 0) && (row_count % s == 0))||(count3 == k-2)&&(row_count % s == 0)||(count == fill_count))
   begin                                                                                                                        
     en3 <= 1;                                                                                                                             
   end
   else 
     en3 <= 0;
 end
-    assign end_conv = (count>= n*n+2) ? 1'b1 : 1'b0;
+    assign end_conv = (count >= n_sq_plus2) ? 1'b1 : 1'b0;
     assign valid_conv = (en1&&en2&&en3);
 endmodule
