@@ -219,6 +219,9 @@ module top #(
     logic inference_start;
     logic inference_done;
 
+    /* Inference controller outputs — declared here so generate blocks can read them */
+    logic [4:0]                  curr_layer_idx;
+
     generate if (!TB_MODE) begin : gen_axi_integration
         /* ---- Phase FSM ---- */
         typedef enum logic [2:0] {
@@ -461,7 +464,6 @@ module top #(
     logic [DEPTH_BITS-1:0]       conv_res_addr;
     logic signed [N_BITS-1:0]    conv_res_data;
     logic [1:0]                  curr_layer_type;
-    logic [4:0]                  curr_layer_idx;
     logic [8:0]                  curr_act_size;
     logic [7:0]                  curr_ch_out;
     logic                        curr_pp_buf_sel;
