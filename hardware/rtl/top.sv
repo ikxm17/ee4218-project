@@ -209,22 +209,51 @@ module top #(
     assign act_mem_din_a  = '0;
 
     /* ================================================================
-     *  Unused Memory Port Tie-offs
+     *  URAM Port Routing
+     *
+     *  Each buffer has port A (write) and port B (read).
+     *
+     *  Write buffer (output): port A = RMW write, port B = RMW read
+     *  Read buffer (input):   port B = conv3d pixel read, port A = unused
+     *
+     *  buf_sel=0 (even layer): write=A, read=B
+     *  buf_sel=1 (odd layer):  write=B, read=A
      * ================================================================ */
 
-    /* Feature map buffers — not used yet (testbench feeds pixels directly) */
-    assign fmap_a_en_a    = 1'b0;
-    assign fmap_a_we_a    = 1'b0;
-    assign fmap_a_addr_a  = '0;
-    assign fmap_a_din_a   = '0;
-    assign fmap_a_en_b    = 1'b0;
-    assign fmap_a_addr_b  = '0;
-    assign fmap_b_en_a    = 1'b0;
-    assign fmap_b_we_a    = 1'b0;
-    assign fmap_b_addr_a  = '0;
-    assign fmap_b_din_a   = '0;
-    assign fmap_b_en_b    = 1'b0;
-    assign fmap_b_addr_b  = '0;
+    // --- Conv3d input read (read buffer port B) ---
+    logic input_rd_en;
+    logic [FMAP_ADDR_W-1:0] input_rd_addr;
+    assign input_rd_en   = (curr_layer_idx != 0) && pixel_en_int;
+    assign input_rd_addr = pixel_addr_int[FMAP_ADDR_W-1:0];
+
+    // --- RMW output write signals (computed in RMW pipeline below) ---
+    logic                    rmw_wr_en;
+    logic [FMAP_ADDR_W-1:0]  rmw_wr_addr;
+    logic [FMAP_DATA_W-1:0]  rmw_wr_data;
+    logic                    rmw_rd_en;
+    logic [FMAP_ADDR_W-1:0]  rmw_rd_addr;
+    logic [FMAP_DATA_W-1:0]  rmw_rd_data;
+    assign rmw_rd_data = buf_sel ? fmap_b_dout_b : fmap_a_dout_b;
+
+    // --- fmap_a port allocation ---
+    // buf_sel=0: A is write buffer -> port A=RMW write, port B=RMW read
+    // buf_sel=1: A is read buffer  -> port A=unused,    port B=conv3d read
+    assign fmap_a_en_a   = !buf_sel ? rmw_wr_en     : 1'b0;
+    assign fmap_a_we_a   = !buf_sel ? rmw_wr_en     : 1'b0;
+    assign fmap_a_addr_a = !buf_sel ? rmw_wr_addr    : '0;
+    assign fmap_a_din_a  = !buf_sel ? rmw_wr_data    : '0;
+    assign fmap_a_en_b   = !buf_sel ? rmw_rd_en      : input_rd_en;
+    assign fmap_a_addr_b = !buf_sel ? rmw_rd_addr    : input_rd_addr;
+
+    // --- fmap_b port allocation ---
+    // buf_sel=0: B is read buffer  -> port A=unused,    port B=conv3d read
+    // buf_sel=1: B is write buffer -> port A=RMW write, port B=RMW read
+    assign fmap_b_en_a   = buf_sel ? rmw_wr_en      : 1'b0;
+    assign fmap_b_we_a   = buf_sel ? rmw_wr_en      : 1'b0;
+    assign fmap_b_addr_a = buf_sel ? rmw_wr_addr     : '0;
+    assign fmap_b_din_a  = buf_sel ? rmw_wr_data     : '0;
+    assign fmap_b_en_b   = buf_sel ? rmw_rd_en       : input_rd_en;
+    assign fmap_b_addr_b = buf_sel ? rmw_rd_addr     : input_rd_addr;
 
     /* ================================================================
      *  Inference Controller
@@ -235,6 +264,12 @@ module top #(
     logic [1:0]                  curr_layer_type;
     logic [4:0]                  curr_layer_idx;
     logic [8:0]                  curr_act_size;
+    logic [7:0]                  curr_ch_out;
+
+    /* Internal pixel interface (between inference_hdl and mux) */
+    logic [DEPTH_BITS-1:0]            pixel_addr_int;
+    logic                             pixel_en_int;
+    logic [MAX_PARALLEL*N_BITS-1:0]   pixel_data_int;
 
     /* Activation → Max Pool intermediate signals */
     logic                        act_out_valid;
@@ -244,8 +279,6 @@ module top #(
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .K            (3),
-        .ACT_SIZE     (256),
-        .C_IN         (3),
         .N_BITS       (N_BITS),
         .ACC_BITS     (32),
         .DEPTH_BITS   (DEPTH_BITS)
@@ -260,16 +293,39 @@ module top #(
         .qp_mem_en_b      (qp_mem_en_b),
         .qp_mem_addr_b    (qp_mem_addr_b),
         .qp_mem_dout_b    (qp_mem_dout_b),
-        .pixel_bram_addr  (pixel_bram_addr),
-        .pixel_bram_en    (pixel_bram_en),
-        .pixel_bram_data  (pixel_bram_data),
+        .pixel_bram_addr  (pixel_addr_int),
+        .pixel_bram_en    (pixel_en_int),
+        .pixel_bram_data  (pixel_data_int),
         .res_write_en     (conv_res_en),
         .res_write_addr   (conv_res_addr),
         .res_write_data   (conv_res_data),
         .curr_layer_type  (curr_layer_type),
         .curr_layer_idx   (curr_layer_idx),
-        .curr_act_size    (curr_act_size)
+        .curr_act_size    (curr_act_size),
+        .curr_ch_out      (curr_ch_out)
     );
+
+    /* ================================================================
+     *  Pixel Input Mux & URAM Read Routing
+     *
+     *  Layer 0: reads from external pixel BRAM (testbench)
+     *  Layer 1+: reads from URAM input buffer (ping-pong)
+     *
+     *  Ping-pong: buf_sel = layer_idx[0]
+     *    Even layers -> write fmap_a, read fmap_b
+     *    Odd layers  -> write fmap_b, read fmap_a
+     * ================================================================ */
+    logic buf_sel;
+    assign buf_sel = curr_layer_idx[0];
+
+    // Forward address/enable to top-level for layer 0 (testbench)
+    assign pixel_bram_addr = pixel_addr_int;
+    assign pixel_bram_en   = pixel_en_int;
+
+    // Pixel data mux: layer 0 from external, layer 1+ from URAM
+    logic [FMAP_DATA_W-1:0] uram_input_rd_data;
+    assign uram_input_rd_data = buf_sel ? fmap_a_dout_b : fmap_b_dout_b;
+    assign pixel_data_int = (curr_layer_idx == 0) ? pixel_bram_data : uram_input_rd_data;
 
     /* ================================================================
      *  Activation Stage (SiLU LUT with CONV1_LIN bypass)
@@ -312,6 +368,58 @@ module top #(
         .out_addr   (res_write_addr),
         .out_data   (res_write_data)
     );
+
+    /* ================================================================
+     *  RMW Output Writer
+     *
+     *  Pipeline: max_pool output -> read old URAM word (1 cycle) ->
+     *            splice byte -> write modified word
+     *
+     *  URAM address: (ch_out / 16) * H_out * W_out + pixel_addr
+     *  Byte position: ch_out[3:0]
+     * ================================================================ */
+
+    // Pipeline stage 0: issue URAM read
+    logic                     rmw_s0_valid;
+    logic [FMAP_ADDR_W-1:0]  rmw_s0_addr;
+    logic signed [N_BITS-1:0] rmw_s0_data;
+    logic [3:0]               rmw_s0_byte_pos;
+
+    // Compute output spatial size (after pool: act_size/2, else: act_size)
+    wire [8:0] h_out = (curr_layer_type == CONV3_POOL) ? (curr_act_size >> 1) : curr_act_size;
+    wire [FMAP_ADDR_W-1:0] rmw_base_addr = (curr_ch_out >> 4) * h_out * h_out;
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            rmw_s0_valid    <= 1'b0;
+        end else begin
+            rmw_s0_valid    <= res_write_en;
+            rmw_s0_addr     <= rmw_base_addr + res_write_addr[FMAP_ADDR_W-1:0];
+            rmw_s0_data     <= res_write_data;
+            rmw_s0_byte_pos <= curr_ch_out[3:0];
+        end
+    end
+
+    // Issue read on write buffer port B
+    assign rmw_rd_en   = res_write_en;
+    assign rmw_rd_addr = rmw_base_addr + res_write_addr[FMAP_ADDR_W-1:0];
+
+    // Pipeline stage 1: splice byte and write
+    logic [FMAP_DATA_W-1:0] spliced_word;
+    always_comb begin
+        spliced_word = rmw_rd_data;
+        spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
+    end
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            rmw_wr_en <= 1'b0;
+        end else begin
+            rmw_wr_en   <= rmw_s0_valid;
+            rmw_wr_addr <= rmw_s0_addr;
+            rmw_wr_data <= spliced_word;
+        end
+    end
 
     /* AXI-Stream — not yet connected */
     assign s_axis_tready = 1'b0;
