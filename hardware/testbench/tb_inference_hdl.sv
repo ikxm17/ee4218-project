@@ -88,9 +88,17 @@ module tb_inference_hdl;
     // =========================================================================
     //  Memories
     // =========================================================================
+    // Golden reference for URAM-packed output (128-bit words)
+    localparam L0_OUT_SIZE = 128;   // 128x128 after pool
+    localparam L0_URAM_WORDS = L0_OUT_SIZE * L0_OUT_SIZE;  // 16384 (1 group x 128x128)
+    localparam L1_OUT_SIZE = 128;   // 128x128 no pool
+    localparam L1_URAM_WORDS = L1_OUT_SIZE * L1_OUT_SIZE;  // 16384
+
     logic signed [N_BITS-1:0] pixel_mem  [0:C_IN-1][0:ACT_SIZE*ACT_SIZE-1];
-    logic signed [N_BITS-1:0] golden_mem [0:POOL_OUT*POOL_OUT-1];
-    logic signed [N_BITS-1:0] res_mem    [0:POOL_OUT*POOL_OUT-1];
+    logic [127:0] golden_layer0 [0:L0_URAM_WORDS-1];
+    logic [127:0] golden_layer1 [0:L1_URAM_WORDS-1];
+    // Keep single-channel golden for backwards compat
+    logic signed [N_BITS-1:0] golden_mem [0:L0_OUT_SIZE*L0_OUT_SIZE-1];
 
     // =========================================================================
     //  Pixel BRAM Feeding (1-cycle latency)
@@ -109,12 +117,8 @@ module tb_inference_hdl;
     end
 
     // =========================================================================
-    //  Result Capture
+    //  Result Capture (debug — primary verification is via URAM readback)
     // =========================================================================
-    always_ff @(posedge clk) begin
-        if (res_write_en)
-            res_mem[res_write_addr] <= res_write_data;
-    end
 
     // =========================================================================
     //  Verification Tasks
@@ -203,28 +207,33 @@ module tb_inference_hdl;
         end
     endtask
 
-    task automatic compare_results();
+    task automatic verify_uram(
+        input string buf_name,
+        input int    num_words,
+        input logic [127:0] expected [0:16383]
+    );
         integer errors = 0;
-        integer total = POOL_OUT * POOL_OUT;
+        logic [127:0] actual;
 
-        $display("Checking pooled output against golden reference (%0d pixels, %0dx%0d).", total, POOL_OUT, POOL_OUT);
-        for (int i = 0; i < total; i++) begin
-            if (res_mem[i] !== golden_mem[i]) begin
+        $display("Checking %s (%0d x 128-bit words)...", buf_name, num_words);
+        for (int i = 0; i < num_words; i++) begin
+            if (buf_name == "fmap_a")
+                actual = dut.u_fmap_a.ram[i];
+            else
+                actual = dut.u_fmap_b.ram[i];
+
+            if (actual !== expected[i]) begin
                 if (errors < 10)
-                    $display("  %s Pixel[%0d] Expected: %0d (0x%02h), Got: %0d (0x%02h)",
-                             "[FAIL]", i,
-                             golden_mem[i], golden_mem[i] & 8'hFF,
-                             res_mem[i], res_mem[i] & 8'hFF);
+                    $display("  [FAIL] %s[%0d] Expected: 0x%032h, Got: 0x%032h",
+                             buf_name, i, expected[i], actual);
                 errors++;
             end
         end
 
         if (errors == 0)
-            $display("CONV3D + SILU + POOL OUTPUT CHECKS PASSED (%0d pixels)", total);
-        else begin
-            $display("CONV3D + SILU + POOL OUTPUT CHECKS FAILED: %0d / %0d mismatches", errors, total);
-            if (errors > 10) $display("  (only first 10 shown)");
-        end
+            $display("  [PASS] %s: all %0d words match", buf_name, num_words);
+        else
+            $display("  [FAIL] %s: %0d / %0d mismatches", buf_name, errors, num_words);
     endtask
 
     // =========================================================================
@@ -232,20 +241,21 @@ module tb_inference_hdl;
     // =========================================================================
     initial begin
         $display("=========================================");
-        $display(" tb_inference_hdl");
-        $display("  Layer:          0 (CONV3_POOL)");
-        $display("  Output Channel: 0 of 16");
-        $display("  Input:          %0dx%0dx%0d INT8", ACT_SIZE, ACT_SIZE, C_IN);
-        $display("  Kernel:         %0dx%0d, stride=1, pad=1", K, K);
-        $display("  Parallelism:    %0d convolvers", MAX_PARALLEL);
+        $display(" tb_inference_hdl - 2-layer pipeline test");
+        $display("  Layer 0: CONV3_POOL 256x256x3 -> 128x128x16");
+        $display("  Layer 1: CONV3     128x128x16 -> 128x128x16");
+        $display("  Parallelism: %0d convolvers", MAX_PARALLEL);
         $display("=========================================");
 
         // 1. Load test data
         $display("[INIT] Loading test data...");
         $readmemh({MEM_PATH, "pixels_layer0.mem"}, pixel_mem);
-        $readmemh({MEM_PATH, "golden_kout0.mem"}, golden_mem);
+        $readmemh({MEM_PATH, "golden_ch_out0.mem"}, golden_mem);
+        $readmemh({MEM_PATH, "golden_layer0_uram.mem"}, golden_layer0);
+        $readmemh({MEM_PATH, "golden_layer1_uram.mem"}, golden_layer1);
         $display("[INIT] Pixel mem:     %0d channels x %0d pixels", C_IN, ACT_SIZE*ACT_SIZE);
-        $display("[INIT] Golden output: %0d pixels (pooled %0dx%0d)", POOL_OUT*POOL_OUT, POOL_OUT, POOL_OUT);
+        $display("[INIT] Golden URAM L0: %0d words", L0_URAM_WORDS);
+        $display("[INIT] Golden URAM L1: %0d words", L1_URAM_WORDS);
         #1;
         verify_rom_contents();
 
@@ -266,24 +276,24 @@ module tb_inference_hdl;
         repeat(15) @(posedge clk);
         verify_qp_regs();
 
-        // 5. Wait for conv3d + activation + pool pipeline
-        $display("[CYCLE %0d] conv3d + activation + pool computing...", cycle_count);
+        // 5. Wait for full 2-layer inference
+        $display("[CYCLE %0d] Running 2-layer inference...", cycle_count);
         wait(done);
-        $display("[CYCLE %0d] conv3d done (pool pipeline flushing...)", cycle_count);
+        $display("[CYCLE %0d] Inference complete", cycle_count);
         #100;
 
-        // 6. Compare results
+        // 6. Verify URAM contents
         $display("-----------------------------------------");
-        compare_results();
+        $display("Verifying Layer 0 output (fmap_a, 128x128x16)...");
+        verify_uram("fmap_a", L0_URAM_WORDS, golden_layer0);
+
+        $display("Verifying Layer 1 output (fmap_b, 128x128x16)...");
+        verify_uram("fmap_b", L1_URAM_WORDS, golden_layer1);
 
         // 7. Summary
         $display("=========================================");
         $display(" Summary:");
         $display("  Total cycles:      %0d", cycle_count - start_cycle);
-        $display("  Loading:           ~9 cycles");
-        $display("  Convolution:       ~%0d cycles", cycle_count - start_cycle - 9);
-        $display("  Activation (SiLU): 1 cycle latency");
-        $display("  Max Pool (2x2):    1 cycle latency");
         $display("=========================================");
 
         #100;
@@ -292,8 +302,8 @@ module tb_inference_hdl;
 
     // Timeout watchdog
     initial begin
-        #100_000_000;
-        $display("TIMEOUT: simulation exceeded 100ms");
+        #200_000_000;   // 200ms timeout
+        $display("TIMEOUT: simulation exceeded 200ms");
         $finish;
     end
 
