@@ -481,14 +481,14 @@ module inference_hdl #(
     /* ================================================================
      *  Conv1x1 Instance (K=1 pointwise convolution)
      * ================================================================ */
-    conv1x1 #(
+    conv1d #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
         .M0_BITS      (32),
         .SHIFT_BITS   (6),
         .DEPTH_BITS   (DEPTH_BITS)
-    ) u_conv1x1 (
+    ) u_conv1d (
         .clk                  (aclk),
         .rst                  (!aresetn),
         .start                (conv1_start),

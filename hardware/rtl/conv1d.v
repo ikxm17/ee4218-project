@@ -6,7 +6,7 @@
 // No padding, no line buffers, no pipeline fill time.
 // ACC/RES interface matches conv3d.v for drop-in muxing.
 
-module conv1x1 #(
+module conv1d #(
     parameter MAX_PARALLEL = 16,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
