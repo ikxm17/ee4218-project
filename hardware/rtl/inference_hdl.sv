@@ -41,7 +41,12 @@ module inference_hdl #(
     output logic [1:0]                       curr_layer_type,
     output logic [4:0]                       curr_layer_idx,
     output logic [8:0]                       curr_act_size,
-    output logic [7:0]                       curr_ch_out
+    output logic [7:0]                       curr_ch_out,
+
+    /* Sub-pingpong config (for top.sv URAM routing) */
+    output logic                             curr_pp_buf_sel,
+    output logic [13:0]                      curr_pp_rd_offset,
+    output logic [13:0]                      curr_pp_wr_offset
 );
 
     /* ================================================================
@@ -330,7 +335,7 @@ module inference_hdl #(
 
                 /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
-                    if (next_layer_idx < 5'd11) begin
+                    if (next_layer_idx < NUM_LAYERS) begin
                         /* XSim workaround: assign whole struct to a local
                            before extracting fields — see always_comb note. */
                         begin
@@ -409,7 +414,7 @@ module inference_hdl #(
             end
 
             S_NEXT_LAYER: begin
-                if (next_layer_idx < 5'd11) begin
+                if (next_layer_idx < NUM_LAYERS) begin
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
@@ -424,10 +429,13 @@ module inference_hdl #(
     /* ================================================================
      *  Current Layer Info (for activation stage)
      * ================================================================ */
-    assign curr_layer_type = r_cfg.layer_type;
-    assign curr_layer_idx  = r_layer_idx;
-    assign curr_act_size   = r_cfg.h_in;
-    assign curr_ch_out     = ch_out;
+    assign curr_layer_type   = r_cfg.layer_type;
+    assign curr_layer_idx    = r_layer_idx;
+    assign curr_act_size     = r_cfg.h_in;
+    assign curr_ch_out       = ch_out;
+    assign curr_pp_buf_sel   = r_cfg.pp_buf_sel;
+    assign curr_pp_rd_offset = r_cfg.pp_rd_offset;
+    assign curr_pp_wr_offset = r_cfg.pp_wr_offset;
 
     /* ================================================================
      *  Conv3d Instance (K=3 convolution)

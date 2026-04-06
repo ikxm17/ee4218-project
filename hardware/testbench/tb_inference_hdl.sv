@@ -15,7 +15,7 @@ module tb_inference_hdl;
     parameter DEPTH_BITS   = 16;
 
     // Number of layers to test
-    localparam NUM_TEST_LAYERS = 11;
+    localparam NUM_TEST_LAYERS = 17;
 
     // Clock and Reset
     logic clk;
@@ -89,23 +89,46 @@ module tb_inference_hdl;
     );
 
     // =========================================================================
-    //  Per-Layer URAM Word Counts
+    //  Per-Layer Verification Config
     //
     //  URAM words = ceil(cout / 16) * h_out * w_out
-    //  Pool layers output h_in/2 × w_in/2
+    //  buf_sel: 0 = verify fmap_a, 1 = verify fmap_b
+    //  wr_offset: URAM address offset for sub-pingpong branches
     // =========================================================================
     localparam int URAM_WORDS [0:NUM_TEST_LAYERS-1] = '{
-        16384,  // L0:  128x128x16  = 1 * 128*128
-        16384,  // L1:  128x128x16  = 1 * 128*128
-         4096,  // L2:  64x64x16    = 1 * 64*64
-         8192,  // L3:  64x64x32    = 2 * 64*64
-         2048,  // L4:  32x32x32    = 2 * 32*32
-         4096,  // L5:  32x32x64    = 4 * 32*32
-         1024,  // L6:  16x16x64    = 4 * 16*16
-         1024,  // L7:  16x16x64    = 4 * 16*16
-          512,  // L8:  8x8x128     = 8 * 8*8
-          512,  // L9:  8x8x128     = 8 * 8*8
-          128   // L10: 8x8x24      = 2 * 8*8  (CONV1)
+        16384,  // L0:  128x128x16
+        16384,  // L1:  128x128x16
+         4096,  // L2:  64x64x16
+         8192,  // L3:  64x64x32
+         2048,  // L4:  32x32x32
+         4096,  // L5:  32x32x64
+         1024,  // L6:  16x16x64
+         1024,  // L7:  16x16x64
+          512,  // L8:  8x8x128
+          512,  // L9:  8x8x128
+          128,  // L10: 8x8x24   (CONV1)
+          256,  // L11: 8x8x64   (cv2)
+          256,  // L12: 8x8x64   (cv2)
+          256,  // L13: 8x8x64   (cv2, CONV1_LIN)
+          128,  // L14: 8x8x24   (cv3)
+          128,  // L15: 8x8x24   (cv3)
+           64   // L16: 8x8x3    (cv3, CONV1_LIN)
+    };
+
+    // pp_buf_sel per layer (0=fmap_a, 1=fmap_b)
+    localparam bit PP_BUF_SEL [0:NUM_TEST_LAYERS-1] = '{
+        0, 1, 0, 1, 0, 1, 0, 1, 0, 1,  // backbone
+        0,     // L10
+        1, 0, 1,  // cv2: L11-L13
+        1, 0, 1   // cv3: L14-L16
+    };
+
+    // Write offset per layer
+    localparam int WR_OFFSET [0:NUM_TEST_LAYERS-1] = '{
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // backbone
+        0,         // L10
+        256, 256, 256,  // cv2
+        512, 512, 512   // cv3
     };
 
     // =========================================================================
@@ -143,7 +166,6 @@ module tb_inference_hdl;
     task automatic verify_rom_contents();
         logic [71:0]  qp_word0;
         logic [127:0] wt_word0;
-        // Expected values (from generate_conv3d_golden.py output)
         logic [71:0]  qp_expected = 72'h294d9185ff000013ab;
         logic [127:0] wt_expected = 128'h00000000000000000000000000cda9b6;
         integer errors = 0;
@@ -170,24 +192,26 @@ module tb_inference_hdl;
         else $fatal(1, "ROM CHECKS FAILED - .mem files not loaded correctly");
     endtask
 
-    task automatic verify_uram(
+    task automatic verify_uram_at_offset(
         input string buf_name,
-        input int    num_words
+        input int    num_words,
+        input int    offset
     );
         integer errors = 0;
         logic [127:0] actual;
 
-        $display("Checking %s (%0d x 128-bit words)...", buf_name, num_words);
+        $display("Checking %s[%0d..%0d] (%0d x 128-bit words)...",
+                 buf_name, offset, offset + num_words - 1, num_words);
         for (int i = 0; i < num_words; i++) begin
             if (buf_name == "fmap_a")
-                actual = dut.u_fmap_a.ram[i];
+                actual = dut.u_fmap_a.ram[offset + i];
             else
-                actual = dut.u_fmap_b.ram[i];
+                actual = dut.u_fmap_b.ram[offset + i];
 
             if (actual !== golden_buf[i]) begin
                 if (errors < 10)
                     $display("  [FAIL] %s[%0d] Expected: 0x%032h, Got: 0x%032h",
-                             buf_name, i, golden_buf[i], actual);
+                             buf_name, offset + i, golden_buf[i], actual);
                 errors++;
             end
         end
@@ -200,17 +224,23 @@ module tb_inference_hdl;
 
     task automatic load_golden(input int layer_idx);
         case (layer_idx)
-            0: $readmemh({MEM_PATH, "golden_layer0_uram.mem"}, golden_buf);
-            1: $readmemh({MEM_PATH, "golden_layer1_uram.mem"}, golden_buf);
-            2: $readmemh({MEM_PATH, "golden_layer2_uram.mem"}, golden_buf);
-            3: $readmemh({MEM_PATH, "golden_layer3_uram.mem"}, golden_buf);
-            4: $readmemh({MEM_PATH, "golden_layer4_uram.mem"}, golden_buf);
-            5: $readmemh({MEM_PATH, "golden_layer5_uram.mem"}, golden_buf);
-            6: $readmemh({MEM_PATH, "golden_layer6_uram.mem"}, golden_buf);
-            7: $readmemh({MEM_PATH, "golden_layer7_uram.mem"}, golden_buf);
-            8: $readmemh({MEM_PATH, "golden_layer8_uram.mem"}, golden_buf);
-            9: $readmemh({MEM_PATH, "golden_layer9_uram.mem"}, golden_buf);
-           10: $readmemh({MEM_PATH, "golden_layer10_uram.mem"}, golden_buf);
+             0: $readmemh({MEM_PATH, "golden_layer0_uram.mem"},  golden_buf);
+             1: $readmemh({MEM_PATH, "golden_layer1_uram.mem"},  golden_buf);
+             2: $readmemh({MEM_PATH, "golden_layer2_uram.mem"},  golden_buf);
+             3: $readmemh({MEM_PATH, "golden_layer3_uram.mem"},  golden_buf);
+             4: $readmemh({MEM_PATH, "golden_layer4_uram.mem"},  golden_buf);
+             5: $readmemh({MEM_PATH, "golden_layer5_uram.mem"},  golden_buf);
+             6: $readmemh({MEM_PATH, "golden_layer6_uram.mem"},  golden_buf);
+             7: $readmemh({MEM_PATH, "golden_layer7_uram.mem"},  golden_buf);
+             8: $readmemh({MEM_PATH, "golden_layer8_uram.mem"},  golden_buf);
+             9: $readmemh({MEM_PATH, "golden_layer9_uram.mem"},  golden_buf);
+            10: $readmemh({MEM_PATH, "golden_layer10_uram.mem"}, golden_buf);
+            11: $readmemh({MEM_PATH, "golden_layer11_uram.mem"}, golden_buf);
+            12: $readmemh({MEM_PATH, "golden_layer12_uram.mem"}, golden_buf);
+            13: $readmemh({MEM_PATH, "golden_layer13_uram.mem"}, golden_buf);
+            14: $readmemh({MEM_PATH, "golden_layer14_uram.mem"}, golden_buf);
+            15: $readmemh({MEM_PATH, "golden_layer15_uram.mem"}, golden_buf);
+            16: $readmemh({MEM_PATH, "golden_layer16_uram.mem"}, golden_buf);
         endcase
     endtask
 
@@ -231,14 +261,12 @@ module tb_inference_hdl;
     // =========================================================================
     //  Main Test Sequence
     // =========================================================================
-    integer total_errors;
-
     initial begin
         $display("=========================================");
         $display(" tb_inference_hdl - %0d-layer pipeline test", NUM_TEST_LAYERS);
-        for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
-            $display("  Layer %0d: %0d URAM words", li, URAM_WORDS[li]);
-        end
+        $display("  Backbone:  layers 0-10 (CONV3 + CONV1)");
+        $display("  cv2 branch: layers 11-13 (offset 256)");
+        $display("  cv3 branch: layers 14-16 (offset 512)");
         $display("  Parallelism: %0d convolvers", MAX_PARALLEL);
         $display("=========================================");
 
@@ -264,13 +292,11 @@ module tb_inference_hdl;
         #10; start = 0;
 
         // 4. Run and verify each layer as it completes
-        total_errors = 0;
-
         for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
             if (li < NUM_TEST_LAYERS - 1) begin
                 // Wait for FSM to advance to next layer
                 wait(dut.u_inference.layer_idx == li + 1);
-                @(posedge clk); // one extra cycle for URAM write to settle
+                @(posedge clk);
             end else begin
                 // Last layer: wait for done
                 wait(done);
@@ -280,14 +306,16 @@ module tb_inference_hdl;
             $display("-----------------------------------------");
             $display("[CYCLE %0d] Layer %0d complete", cycle_count, li);
 
-            // Load golden for this layer and verify
+            // Load golden and verify at correct buffer + offset
             load_golden(li);
-            if (li[0] == 0) begin
-                $display("Verifying Layer %0d output (fmap_a, %0d words)...", li, URAM_WORDS[li]);
-                verify_uram("fmap_a", URAM_WORDS[li]);
+            if (PP_BUF_SEL[li] == 0) begin
+                $display("Verifying Layer %0d output (fmap_a +%0d, %0d words)...",
+                         li, WR_OFFSET[li], URAM_WORDS[li]);
+                verify_uram_at_offset("fmap_a", URAM_WORDS[li], WR_OFFSET[li]);
             end else begin
-                $display("Verifying Layer %0d output (fmap_b, %0d words)...", li, URAM_WORDS[li]);
-                verify_uram("fmap_b", URAM_WORDS[li]);
+                $display("Verifying Layer %0d output (fmap_b +%0d, %0d words)...",
+                         li, WR_OFFSET[li], URAM_WORDS[li]);
+                verify_uram_at_offset("fmap_b", URAM_WORDS[li], WR_OFFSET[li]);
             end
         end
 
