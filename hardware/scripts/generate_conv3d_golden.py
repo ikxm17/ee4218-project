@@ -6,9 +6,9 @@ Generates golden reference data for RTL verification of inference_hdl.sv.
 
 Takes the test image and model weights, performs a reference 3x3 convolution
 for output channel 0 of layer 0, applies SiLU activation via the precomputed
-LUT, and saves:
+LUT, applies 2x2 max pooling (layer 0 is CONV3_POOL), and saves:
   - pixels_layer0.mem   : 256x256x3 INT8 input pixels (hex, for $readmemh)
-  - golden_kout0.mem    : 256x256 INT8 expected output after SiLU (hex)
+  - golden_kout0.mem    : 128x128 INT8 expected output after pool (hex)
 
 The reference pipeline matches the hardware exactly:
   1. Zero-pad input with zp_in (padding=1)
@@ -16,6 +16,7 @@ The reference pipeline matches the hardware exactly:
   3. Accumulate: acc = sum + bias
   4. Requantize: output = ((acc * m0) >> nshift) + zp_out, clamp to int8
   5. SiLU activation: output = silu_lut[layer_idx * 256 + (output + 128)]
+  6. Max pool 2x2 stride 2: output = max(2x2 window) → 128x128
 
 Usage
 -----
@@ -168,6 +169,17 @@ def apply_silu_lut(
     return activated.reshape(conv_output.shape)
 
 
+def apply_max_pool_2x2(data: np.ndarray) -> np.ndarray:
+    """Apply 2x2 stride-2 max pooling matching max_pool.sv behaviour.
+
+    Input is signed int8 [H, W]; output is [H/2, W/2].
+    Uses signed comparison (numpy respects int8 signedness).
+    """
+    h, w = data.shape
+    # Reshape into 2x2 blocks and take max over both block dimensions
+    return data.reshape(h // 2, 2, w // 2, 2).max(axis=(1, 3))
+
+
 def write_hex_mem(path: str, data: np.ndarray, desc: str):
     """Write 1D or 2D array as hex .mem file (one value per line)."""
     flat = data.flatten()
@@ -248,6 +260,12 @@ def main():
     print(f"  LUT shape: {silu_lut.shape}")
     golden_output = apply_silu_lut(golden_output, silu_lut, layer_idx=0)
     print(f"  Activated output range: [{golden_output.min()}, {golden_output.max()}]")
+
+    # Apply 2x2 max pooling (layer 0 is CONV3_POOL)
+    print("Applying 2x2 max pooling...")
+    golden_output = apply_max_pool_2x2(golden_output)
+    print(f"  Pooled output shape: {golden_output.shape}")
+    print(f"  Pooled output range: [{golden_output.min()}, {golden_output.max()}]")
 
     # Save pixels as .mem (channel-interleaved: C_IN values per spatial position)
     # Conv3d reads MAX_PARALLEL channels at each pixel address.

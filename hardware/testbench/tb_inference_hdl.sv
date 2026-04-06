@@ -6,6 +6,7 @@ module tb_inference_hdl;
 
     // Parameters matching DUT (layer 0)
     parameter ACT_SIZE     = 256;
+    parameter POOL_OUT     = ACT_SIZE / 2;   // layer 0 is CONV3_POOL → 128x128
     parameter K            = 3;
     parameter C_IN         = 3;
     parameter MAX_PARALLEL = 16;
@@ -88,8 +89,8 @@ module tb_inference_hdl;
     //  Memories
     // =========================================================================
     logic signed [N_BITS-1:0] pixel_mem  [0:C_IN-1][0:ACT_SIZE*ACT_SIZE-1];
-    logic signed [N_BITS-1:0] golden_mem [0:ACT_SIZE*ACT_SIZE-1];
-    logic signed [N_BITS-1:0] res_mem    [0:ACT_SIZE*ACT_SIZE-1];
+    logic signed [N_BITS-1:0] golden_mem [0:POOL_OUT*POOL_OUT-1];
+    logic signed [N_BITS-1:0] res_mem    [0:POOL_OUT*POOL_OUT-1];
 
     // =========================================================================
     //  Pixel BRAM Feeding (1-cycle latency)
@@ -204,9 +205,9 @@ module tb_inference_hdl;
 
     task automatic compare_results();
         integer errors = 0;
-        integer total = ACT_SIZE * ACT_SIZE;
+        integer total = POOL_OUT * POOL_OUT;
 
-        $display("Checking activated output against golden reference (%0d pixels).", total);
+        $display("Checking pooled output against golden reference (%0d pixels, %0dx%0d).", total, POOL_OUT, POOL_OUT);
         for (int i = 0; i < total; i++) begin
             if (res_mem[i] !== golden_mem[i]) begin
                 if (errors < 10)
@@ -219,9 +220,9 @@ module tb_inference_hdl;
         end
 
         if (errors == 0)
-            $display("CONV3D + SILU OUTPUT CHECKS PASSED (%0d pixels)", total);
+            $display("CONV3D + SILU + POOL OUTPUT CHECKS PASSED (%0d pixels)", total);
         else begin
-            $display("CONV3D + SILU OUTPUT CHECKS FAILED: %0d / %0d mismatches", errors, total);
+            $display("CONV3D + SILU + POOL OUTPUT CHECKS FAILED: %0d / %0d mismatches", errors, total);
             if (errors > 10) $display("  (only first 10 shown)");
         end
     endtask
@@ -244,7 +245,7 @@ module tb_inference_hdl;
         $readmemh({MEM_PATH, "pixels_layer0.mem"}, pixel_mem);
         $readmemh({MEM_PATH, "golden_kout0.mem"}, golden_mem);
         $display("[INIT] Pixel mem:     %0d channels x %0d pixels", C_IN, ACT_SIZE*ACT_SIZE);
-        $display("[INIT] Golden output: %0d pixels", ACT_SIZE*ACT_SIZE);
+        $display("[INIT] Golden output: %0d pixels (pooled %0dx%0d)", POOL_OUT*POOL_OUT, POOL_OUT, POOL_OUT);
         #1;
         verify_rom_contents();
 
@@ -265,10 +266,10 @@ module tb_inference_hdl;
         repeat(15) @(posedge clk);
         verify_qp_regs();
 
-        // 5. Wait for conv3d + activation pipeline
-        $display("[CYCLE %0d] conv3d + activation computing...", cycle_count);
+        // 5. Wait for conv3d + activation + pool pipeline
+        $display("[CYCLE %0d] conv3d + activation + pool computing...", cycle_count);
         wait(done);
-        $display("[CYCLE %0d] conv3d + activation done", cycle_count);
+        $display("[CYCLE %0d] conv3d done (pool pipeline flushing...)", cycle_count);
         #100;
 
         // 6. Compare results
@@ -282,6 +283,7 @@ module tb_inference_hdl;
         $display("  Loading:           ~9 cycles");
         $display("  Convolution:       ~%0d cycles", cycle_count - start_cycle - 9);
         $display("  Activation (SiLU): 1 cycle latency");
+        $display("  Max Pool (2x2):    1 cycle latency");
         $display("=========================================");
 
         #100;
