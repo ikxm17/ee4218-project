@@ -405,9 +405,11 @@ module top #(
     assign rmw_rd_addr = rmw_base_addr + res_write_addr[FMAP_ADDR_W-1:0];
 
     // Pipeline stage 1: splice byte and write
+    // When byte_pos == 0 (first channel of a group), start from a zeroed
+    // word to clear stale data from previous layers in unused channels.
     logic [FMAP_DATA_W-1:0] spliced_word;
     always_comb begin
-        spliced_word = rmw_rd_data;
+        spliced_word = (rmw_s0_byte_pos == 4'd0) ? {FMAP_DATA_W{1'b0}} : rmw_rd_data;
         spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
     end
 
