@@ -6,7 +6,7 @@ module top #(
     parameter MAX_PARALLEL   = C_PAR,
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
-    parameter USE_FMAP_INPUT = 0,  // 0 = ext pixel BRAM (testbench), 1 = AXI IP mode
+    parameter USE_FMAP_INPUT = 1,  // 0 = ext pixel BRAM (testbench), 1 = AXI IP mode
     parameter AXI_ADDR_W     = 13
 )(
     input  logic aclk,
