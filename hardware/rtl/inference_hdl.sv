@@ -296,6 +296,13 @@ module inference_hdl #(
      *  FSM — Combinational ROM Drive
      * ================================================================ */
     always_comb begin
+        /* Local variable for next layer config — XSim does not correctly
+           extract struct fields when the localparam array is indexed with
+           a variable (e.g. LAYER_CFG[layer_idx + 1].qp_base returns 0).
+           Assigning the whole struct to a local first works around this. */
+        layer_cfg_t next_layer_cfg;
+        next_layer_cfg = LAYER_CFG[layer_idx + 5'd1];
+
         /* Defaults — ROM ports idle */
         wt_mem_en_b   = 1'b0;
         wt_mem_addr_b = '0;
@@ -340,9 +347,9 @@ module inference_hdl #(
             S_NEXT_LAYER: begin
                 if (layer_idx + 5'd1 < 5'd2) begin
                     qp_mem_en_b   = 1'b1;
-                    qp_mem_addr_b = LAYER_CFG[layer_idx + 5'd1].qp_base;
+                    qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
-                    wt_mem_addr_b = LAYER_CFG[layer_idx + 5'd1].wt_base;
+                    wt_mem_addr_b = next_layer_cfg.wt_base;
                 end
             end
 
