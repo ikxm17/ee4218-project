@@ -73,10 +73,16 @@ module inference_hdl #(
     logic         [5:0] r_nshift;
 
     /* ================================================================
+     *  Runtime Layer-Type Derived Signals
+     * ================================================================ */
+    wire        is_conv1  = r_cfg.layer_type[1];   // 1 for CONV1/CONV1_LIN
+    wire  [3:0] wt_words  = is_conv1 ? 4'd1 : 4'd9; // weight entries per (ch_out, cin_group)
+
+    /* ================================================================
      *  Double-Buffered Weight Register File
      * ================================================================ */
 
-    /* Two banks: 9 rows × 16 cols × 8 bits each */
+    /* Two banks: 9 rows × 16 cols × 8 bits each (CONV1 uses only row 0) */
     logic signed [N_BITS-1:0] wt_bank_a [0:KSQ-1][0:MAX_PARALLEL-1];
     logic signed [N_BITS-1:0] wt_bank_b [0:KSQ-1][0:MAX_PARALLEL-1];
     logic                     wt_sel;   // 0 = bank A active, 1 = bank B active
@@ -90,6 +96,16 @@ module inference_hdl #(
                 assign weights_flat[slot*KSQ*N_BITS + kp*N_BITS +: N_BITS] =
                     wt_sel ? wt_bank_b[kp][slot] : wt_bank_a[kp][slot];
             end
+        end
+    endgenerate
+
+    /* Conv1x1 weight bus: only row 0 of each bank (K=1, one weight per channel) */
+    logic [MAX_PARALLEL*N_BITS-1:0] weights_1x1;
+
+    generate
+        for (genvar s = 0; s < MAX_PARALLEL; s++) begin : g_w1
+            assign weights_1x1[s*N_BITS +: N_BITS] =
+                wt_sel ? wt_bank_b[0][s] : wt_bank_a[0][s];
         end
     endgenerate
 
@@ -107,27 +123,60 @@ module inference_hdl #(
     wire  [3:0]  rt_total_rounds = r_cfg.cin_grp;
 
     logic [WT_ADDR_W-1:0]                       wt_addr_reg;
-    logic [3:0]                                 load_cnt;       // 0..KSQ-1 in S_LOAD
+    logic [3:0]                                 load_cnt;       // 0..wt_words-1 in S_LOAD
     logic [3:0]                                 round_loaded;   // how many rounds loaded so far
 
     /* Background preload (runs inside S_COMPUTE) */
     logic       preload_active;
     logic       preload_done;
-    logic [3:0] preload_cnt;    // 0..KSQ in preload sequence
+    logic [3:0] preload_cnt;    // 0..wt_words in preload sequence
 
-    /* Conv3d interface signals */
-    logic conv3d_start;
-    logic conv3d_done;
-    logic conv3d_req_weights;
-    logic conv3d_weights_ready;
+    /* Compute engine interface signals */
+    logic conv3d_start, conv1_start;
+    logic conv3d_done,  conv1_done;
+    logic conv3d_req_weights, conv1_req_weights;
+    logic conv3d_weights_ready, conv1_weights_ready;
 
-    /* ACC BRAM internal signals */
+    /* Muxed compute signals */
+    wire compute_done   = is_conv1 ? conv1_done        : conv3d_done;
+    wire compute_req_wt = is_conv1 ? conv1_req_weights  : conv3d_req_weights;
+
+    /* Per-engine pixel interface */
+    logic [DEPTH_BITS-1:0] conv3d_pixel_addr, conv1_pixel_addr;
+    logic                  conv3d_pixel_en,   conv1_pixel_en;
+
+    /* Per-engine ACC interface */
+    logic                      conv3d_acc_wr_en,   conv1_acc_wr_en;
+    logic [DEPTH_BITS-1:0]     conv3d_acc_wr_addr, conv1_acc_wr_addr;
+    logic signed [ACC_BITS-1:0] conv3d_acc_wr_data, conv1_acc_wr_data;
+    logic                      conv3d_acc_rd_en,   conv1_acc_rd_en;
+    logic [DEPTH_BITS-1:0]     conv3d_acc_rd_addr, conv1_acc_rd_addr;
+
+    /* Per-engine RES interface */
+    logic                      conv3d_res_en,   conv1_res_en;
+    logic [DEPTH_BITS-1:0]     conv3d_res_addr, conv1_res_addr;
+    logic signed [N_BITS-1:0]  conv3d_res_data, conv1_res_data;
+
+    /* Muxed ACC BRAM signals */
     logic                      acc_wr_en;
     logic [DEPTH_BITS-1:0]     acc_wr_addr;
     logic signed [ACC_BITS-1:0] acc_wr_data;
     logic                      acc_rd_en;
     logic [DEPTH_BITS-1:0]     acc_rd_addr;
     logic signed [ACC_BITS-1:0] acc_rd_data;
+
+    assign pixel_bram_addr = is_conv1 ? conv1_pixel_addr : conv3d_pixel_addr;
+    assign pixel_bram_en   = is_conv1 ? conv1_pixel_en   : conv3d_pixel_en;
+
+    assign acc_wr_en   = is_conv1 ? conv1_acc_wr_en   : conv3d_acc_wr_en;
+    assign acc_wr_addr = is_conv1 ? conv1_acc_wr_addr  : conv3d_acc_wr_addr;
+    assign acc_wr_data = is_conv1 ? conv1_acc_wr_data  : conv3d_acc_wr_data;
+    assign acc_rd_en   = is_conv1 ? conv1_acc_rd_en    : conv3d_acc_rd_en;
+    assign acc_rd_addr = is_conv1 ? conv1_acc_rd_addr  : conv3d_acc_rd_addr;
+
+    assign res_write_en   = is_conv1 ? conv1_res_en   : conv3d_res_en;
+    assign res_write_addr = is_conv1 ? conv1_res_addr  : conv3d_res_addr;
+    assign res_write_data = is_conv1 ? conv1_res_data  : conv3d_res_data;
 
     /* ================================================================
      *  FSM — Sequential Logic
@@ -137,7 +186,9 @@ module inference_hdl #(
             state              <= S_IDLE;
             wt_sel             <= 1'b0;
             conv3d_start       <= 1'b0;
+            conv1_start        <= 1'b0;
             conv3d_weights_ready <= 1'b0;
+            conv1_weights_ready  <= 1'b0;
             done               <= 1'b0;
             preload_active     <= 1'b0;
             preload_done       <= 1'b0;
@@ -149,7 +200,9 @@ module inference_hdl #(
         end else begin
             /* Default pulse signals low */
             conv3d_start       <= 1'b0;
+            conv1_start        <= 1'b0;
             conv3d_weights_ready <= 1'b0;
+            conv1_weights_ready  <= 1'b0;
             done               <= 1'b0;
 
             case (state)
@@ -186,14 +239,17 @@ module inference_hdl #(
                             wt_bank_b[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
                     end
 
-                    if (load_cnt < KSQ - 1) begin
-                        /* Drive next weight address (combinationally via wt_addr_reg) */
+                    if (load_cnt < wt_words - 1) begin
+                        /* Drive next weight address */
                         wt_addr_reg <= wt_addr_reg + 1;
                         load_cnt    <= load_cnt + 1;
                     end else begin
-                        /* All K² words loaded — swap and start conv3d */
+                        /* All weight words loaded — swap and start compute */
                         wt_sel       <= ~wt_sel;
-                        conv3d_start <= 1'b1;
+                        if (!is_conv1)
+                            conv3d_start <= 1'b1;
+                        else
+                            conv1_start  <= 1'b1;
                         round_loaded <= round_loaded + 1;
                         state        <= S_COMPUTE;
 
@@ -220,23 +276,26 @@ module inference_hdl #(
                             end
                         end
 
-                        if (preload_cnt < KSQ) begin
+                        if (preload_cnt < wt_words) begin
                             /* Advance address for next word */
                             wt_addr_reg <= wt_addr_reg + 1;
                             preload_cnt <= preload_cnt + 1;
                         end else begin
-                            /* preload_cnt == KSQ → last word latched, done */
+                            /* preload_cnt == wt_words → last word latched, done */
                             preload_done   <= 1'b1;
                             preload_active <= 1'b0;
                             round_loaded   <= round_loaded + 1;
                         end
                     end
 
-                    /* ── Handle conv3d weight request ── */
-                    if (conv3d_req_weights) begin
+                    /* ── Handle weight request from active engine ── */
+                    if (compute_req_wt) begin
                         /* Swap banks (shadow → active) */
                         wt_sel <= ~wt_sel;
-                        conv3d_weights_ready <= 1'b1;
+                        if (!is_conv1)
+                            conv3d_weights_ready <= 1'b1;
+                        else
+                            conv1_weights_ready  <= 1'b1;
 
                         /* Start next preload if more rounds remain */
                         if (round_loaded < rt_total_rounds) begin
@@ -246,8 +305,8 @@ module inference_hdl #(
                         end
                     end
 
-                    /* ── Conv3d finished ── */
-                    if (conv3d_done) begin
+                    /* ── Compute engine finished ── */
+                    if (compute_done) begin
                         state <= S_NEXT_CHOUT;
                     end
                 end
@@ -260,7 +319,7 @@ module inference_hdl #(
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
                         wt_addr_reg <= r_cfg.wt_base
-                                     + (ch_out + 8'd1) * r_cfg.cin_grp * KSQ
+                                     + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words
                                      + 1;
                         load_cnt <= 4'd0;
                         state    <= S_LOAD;
@@ -271,7 +330,7 @@ module inference_hdl #(
 
                 /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
-                    if (next_layer_idx < 5'd10) begin
+                    if (next_layer_idx < 5'd11) begin
                         /* XSim workaround: assign whole struct to a local
                            before extracting fields — see always_comb note. */
                         begin
@@ -326,14 +385,14 @@ module inference_hdl #(
             end
 
             S_LOAD: begin
-                if (load_cnt < KSQ - 1) begin
+                if (load_cnt < wt_words - 1) begin
                     wt_mem_en_b   = 1'b1;
                     wt_mem_addr_b = wt_addr_reg;
                 end
             end
 
             S_COMPUTE: begin
-                if (preload_active && !preload_done && preload_cnt < KSQ) begin
+                if (preload_active && !preload_done && preload_cnt < wt_words) begin
                     wt_mem_en_b   = 1'b1;
                     wt_mem_addr_b = wt_addr_reg;
                 end
@@ -345,12 +404,12 @@ module inference_hdl #(
                     qp_mem_addr_b = r_cfg.qp_base + ch_out + 10'd1;
                     wt_mem_en_b   = 1'b1;
                     wt_mem_addr_b = r_cfg.wt_base
-                                 + (ch_out + 8'd1) * r_cfg.cin_grp * KSQ;
+                                 + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words;
                 end
             end
 
             S_NEXT_LAYER: begin
-                if (next_layer_idx < 5'd10) begin
+                if (next_layer_idx < 5'd11) begin
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
@@ -371,7 +430,7 @@ module inference_hdl #(
     assign curr_ch_out     = ch_out;
 
     /* ================================================================
-     *  Conv3d Instance
+     *  Conv3d Instance (K=3 convolution)
      * ================================================================ */
     conv3d #(
         .K            (K),
@@ -393,22 +452,61 @@ module inference_hdl #(
         .bias                 (r_bias),
         .m0                   (r_m0),
         .n_shift              (r_nshift),
-        .pixel_bram_addr      (pixel_bram_addr),
-        .pixel_bram_en        (pixel_bram_en),
+        .pixel_bram_addr      (conv3d_pixel_addr),
+        .pixel_bram_en        (conv3d_pixel_en),
         .pixel_bram_data      (pixel_bram_data),
         .weights_all_channels (weights_flat),
-        .ACC_write_en         (acc_wr_en),
-        .ACC_write_address    (acc_wr_addr),
-        .ACC_write_data_in    (acc_wr_data),
-        .ACC_read_en          (acc_rd_en),
-        .ACC_read_address     (acc_rd_addr),
+        .ACC_write_en         (conv3d_acc_wr_en),
+        .ACC_write_address    (conv3d_acc_wr_addr),
+        .ACC_write_data_in    (conv3d_acc_wr_data),
+        .ACC_read_en          (conv3d_acc_rd_en),
+        .ACC_read_address     (conv3d_acc_rd_addr),
         .ACC_read_data_out    (acc_rd_data),
-        .RES_write_en         (res_write_en),
-        .RES_write_address    (res_write_addr),
-        .RES_write_data_in    (res_write_data),
+        .RES_write_en         (conv3d_res_en),
+        .RES_write_address    (conv3d_res_addr),
+        .RES_write_data_in    (conv3d_res_data),
         .req_weights          (conv3d_req_weights),
         .weights_ready        (conv3d_weights_ready),
         .done                 (conv3d_done)
+    );
+
+    /* ================================================================
+     *  Conv1x1 Instance (K=1 pointwise convolution)
+     * ================================================================ */
+    conv1x1 #(
+        .MAX_PARALLEL (MAX_PARALLEL),
+        .N_BITS       (N_BITS),
+        .ACC_BITS     (ACC_BITS),
+        .M0_BITS      (32),
+        .SHIFT_BITS   (6),
+        .DEPTH_BITS   (DEPTH_BITS)
+    ) u_conv1x1 (
+        .clk                  (aclk),
+        .rst                  (!aresetn),
+        .start                (conv1_start),
+        .act_size             (rt_act_size),
+        .cin                  (rt_cin),
+        .zp_in                (r_cfg.zp_in),
+        .zp_out               (r_cfg.zp_out),
+        .bias                 (r_bias),
+        .m0                   (r_m0),
+        .n_shift              (r_nshift),
+        .pixel_bram_addr      (conv1_pixel_addr),
+        .pixel_bram_en        (conv1_pixel_en),
+        .pixel_bram_data      (pixel_bram_data),
+        .weights_all_channels (weights_1x1),
+        .ACC_write_en         (conv1_acc_wr_en),
+        .ACC_write_address    (conv1_acc_wr_addr),
+        .ACC_write_data_in    (conv1_acc_wr_data),
+        .ACC_read_en          (conv1_acc_rd_en),
+        .ACC_read_address     (conv1_acc_rd_addr),
+        .ACC_read_data_out    (acc_rd_data),
+        .RES_write_en         (conv1_res_en),
+        .RES_write_address    (conv1_res_addr),
+        .RES_write_data_in    (conv1_res_data),
+        .req_weights          (conv1_req_weights),
+        .weights_ready        (conv1_weights_ready),
+        .done                 (conv1_done)
     );
 
     /* ================================================================

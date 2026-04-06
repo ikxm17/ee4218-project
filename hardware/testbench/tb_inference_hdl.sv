@@ -15,7 +15,7 @@ module tb_inference_hdl;
     parameter DEPTH_BITS   = 16;
 
     // Number of layers to test
-    localparam NUM_TEST_LAYERS = 10;
+    localparam NUM_TEST_LAYERS = 11;
 
     // Clock and Reset
     logic clk;
@@ -104,7 +104,8 @@ module tb_inference_hdl;
          1024,  // L6:  16x16x64    = 4 * 16*16
          1024,  // L7:  16x16x64    = 4 * 16*16
           512,  // L8:  8x8x128     = 8 * 8*8
-          512   // L9:  8x8x128     = 8 * 8*8
+          512,  // L9:  8x8x128     = 8 * 8*8
+          128   // L10: 8x8x24      = 2 * 8*8  (CONV1)
     };
 
     // =========================================================================
@@ -209,6 +210,7 @@ module tb_inference_hdl;
             7: $readmemh({MEM_PATH, "golden_layer7_uram.mem"}, golden_buf);
             8: $readmemh({MEM_PATH, "golden_layer8_uram.mem"}, golden_buf);
             9: $readmemh({MEM_PATH, "golden_layer9_uram.mem"}, golden_buf);
+           10: $readmemh({MEM_PATH, "golden_layer10_uram.mem"}, golden_buf);
         endcase
     endtask
 
