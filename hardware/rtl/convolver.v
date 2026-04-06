@@ -22,22 +22,13 @@ module convolver #(
 reg [31:0] count,count2,count3,row_count;
 reg en1,en2,en3;
 
-// Pre-compute n-dependent values (registered for timing)
-reg [17:0] n_sq_plus2;     // n*n + 2
-reg [8:0]  n_minus_k;      // n - k
-reg [17:0] fill_count;     // (k-1)*n + k - 1
-
-always @(posedge clk or posedge global_rst) begin
-    if (global_rst) begin
-        n_sq_plus2 <= 0;
-        n_minus_k  <= 0;
-        fill_count <= 0;
-    end else begin
-        n_sq_plus2 <= n * n + 18'd2;
-        n_minus_k  <= n - k;
-        fill_count <= (k - 1) * n + (k - 1);
-    end
-end
+// Combinational n-dependent values (must be valid immediately, not
+// registered, because end_conv/fill checks fire on the first cycle
+// after reset — a registered version initializes to 0 and would
+// falsely trigger end_conv and pipeline-full conditions)
+wire [17:0] n_sq_plus2 = n * n + 18'd2;
+wire [8:0]  n_minus_k  = n - k;
+wire [17:0] fill_count = (k - 1) * n + (k - 1);
 
 wire signed [ACC_BITS-1:0] tmp [k*k+1:0];
 wire signed [N-1:0] weight [0:k*k-1];
