@@ -337,19 +337,27 @@ module inference_hdl #(
 
     /* ================================================================
      *  ACC Scratch BRAM (intermediate accumulation across rounds)
+     *
+     *  Depth sized for the largest multi-round layer: layer 4 at
+     *  64x64 = 4096 entries.  Single-round layers (Cin <= C_PAR)
+     *  write to ACC but never read back (quantizer uses the
+     *  combinational wire), so address aliasing is harmless.
      * ================================================================ */
+    localparam ACC_DEPTH  = 4096;
+    localparam ACC_ADDR_W = $clog2(ACC_DEPTH);  // 12
+
     sdp_ram #(
         .DATA_WIDTH (ACC_BITS),
-        .DEPTH      (1 << DEPTH_BITS),
-        .RAM_STYLE  ("ultra")
+        .DEPTH      (ACC_DEPTH),
+        .RAM_STYLE  ("block")
     ) u_acc_mem (
         .clk    (aclk),
         .en_a   (acc_wr_en),
         .we_a   (acc_wr_en),
-        .addr_a (acc_wr_addr),
+        .addr_a (acc_wr_addr[ACC_ADDR_W-1:0]),
         .din_a  (acc_wr_data),
         .en_b   (acc_rd_en),
-        .addr_b (acc_rd_addr),
+        .addr_b (acc_rd_addr[ACC_ADDR_W-1:0]),
         .dout_b (acc_rd_data)
     );
 
