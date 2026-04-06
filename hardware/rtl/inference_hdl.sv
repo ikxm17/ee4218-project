@@ -61,6 +61,7 @@ module inference_hdl #(
     } state_t;
 
     state_t state;
+    state_t next_state;
 
     /* ================================================================
      *  Shadow Registers
@@ -87,12 +88,12 @@ module inference_hdl #(
      *  Double-Buffered Weight Register File
      * ================================================================ */
 
-    /* Two banks: 9 rows × 16 cols × 8 bits each (CONV1 uses only row 0) */
+    /* Two banks: 9 rows x 16 cols x 8 bits each (CONV1 uses only row 0) */
     logic signed [N_BITS-1:0] wt_bank_a [0:KSQ-1][0:MAX_PARALLEL-1];
     logic signed [N_BITS-1:0] wt_bank_b [0:KSQ-1][0:MAX_PARALLEL-1];
     logic                     wt_sel;   // 0 = bank A active, 1 = bank B active
 
-    /* Transpose + mux: ROM [kp][channel] → conv3d [channel][kp] */
+    /* Transpose + mux: ROM [kp][channel] -> conv3d [channel][kp] */
     logic [MAX_PARALLEL*KSQ*N_BITS-1:0] weights_flat;
 
     generate
@@ -184,81 +185,78 @@ module inference_hdl #(
     assign res_write_data = is_conv1 ? conv1_res_data  : conv3d_res_data;
 
     /* ================================================================
-     *  FSM — Sequential Logic
+     *  Next State Logic
      * ================================================================ */
-    always_ff @(posedge aclk or negedge aresetn) begin
-        if (!aresetn) begin
-            state              <= S_IDLE;
-            wt_sel             <= 1'b0;
-            conv3d_start       <= 1'b0;
-            conv1_start        <= 1'b0;
-            conv3d_weights_ready <= 1'b0;
-            conv1_weights_ready  <= 1'b0;
-            done               <= 1'b0;
-            preload_active     <= 1'b0;
-            preload_done       <= 1'b0;
-            load_cnt           <= '0;
-            preload_cnt        <= '0;
-            wt_addr_reg        <= '0;
-            round_loaded       <= '0;
-            r_layer_idx        <= '0;
-        end else begin
-            /* Default pulse signals low */
-            conv3d_start       <= 1'b0;
-            conv1_start        <= 1'b0;
-            conv3d_weights_ready <= 1'b0;
-            conv1_weights_ready  <= 1'b0;
-            done               <= 1'b0;
+    always_comb begin : next_state_logic
+        next_state = state;
+        case (state)
+            S_IDLE:
+                if (start)
+                    next_state = S_LOAD;
+            S_LOAD:
+                if (load_cnt >= wt_words - 1)
+                    next_state = S_COMPUTE;
+            S_COMPUTE:
+                if (compute_done)
+                    next_state = S_NEXT_CHOUT;
+            S_NEXT_CHOUT:
+                if (ch_out + 8'd1 < r_cfg.cout)
+                    next_state = S_LOAD;
+                else
+                    next_state = S_NEXT_LAYER;
+            S_NEXT_LAYER:
+                if (next_layer_idx < NUM_LAYERS)
+                    next_state = S_LOAD;
+                else
+                    next_state = S_IDLE;
+            default:
+                next_state = S_IDLE;
+        endcase
+    end
 
+    /* ================================================================
+     *  State Memory
+     * ================================================================ */
+    always_ff @(posedge aclk or negedge aresetn) begin : state_memory
+        if (!aresetn)
+            state <= S_IDLE;
+        else
+            state <= next_state;
+    end
+
+    /* ================================================================
+     *  Counters
+     * ================================================================ */
+    always_ff @(posedge aclk or negedge aresetn) begin : counters
+        if (!aresetn) begin
+            load_cnt       <= '0;
+            preload_cnt    <= '0;
+            wt_addr_reg    <= '0;
+            round_loaded   <= '0;
+            r_layer_idx    <= '0;
+            preload_active <= 1'b0;
+            preload_done   <= 1'b0;
+        end else begin
             case (state)
-                /* ──────────────────────────────────────── */
                 S_IDLE: begin
                     if (start) begin
-                        r_cfg        <= LAYER_CFG[0];
-                        r_layer_idx  <= 5'd0;
-                        ch_out       <= 8'd0;
-                        layer_idx    <= 5'd0;
-                        wt_addr_reg  <= LAYER_CFG[0].wt_base + 1;
-                        load_cnt     <= 4'd0;
-                        round_loaded <= 0;
+                        r_layer_idx    <= 5'd0;
+                        ch_out         <= 8'd0;
+                        layer_idx      <= 5'd0;
+                        wt_addr_reg    <= LAYER_CFG[0].wt_base + 1;
+                        load_cnt       <= 4'd0;
+                        round_loaded   <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
-                        state        <= S_LOAD;
                     end
                 end
 
-                /* ──────────────────────────────────────── */
                 S_LOAD: begin
-                    /* ── Latch QP on first cycle (data arrived from address driven in S_IDLE) ── */
-                    if (load_cnt == 0) begin
-                        r_bias   <= $signed(qp_mem_dout_b[31:0]);
-                        r_m0     <= qp_mem_dout_b[63:32];
-                        r_nshift <= qp_mem_dout_b[69:64];
-                    end
-
-                    /* ── Latch weight row into shadow bank ── */
-                    for (int c = 0; c < MAX_PARALLEL; c++) begin
-                        if (wt_sel)   // shadow = A
-                            wt_bank_a[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
-                        else          // shadow = B
-                            wt_bank_b[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
-                    end
-
                     if (load_cnt < wt_words - 1) begin
-                        /* Drive next weight address */
                         wt_addr_reg <= wt_addr_reg + 1;
                         load_cnt    <= load_cnt + 1;
                     end else begin
-                        /* All weight words loaded — swap and start compute */
-                        wt_sel       <= ~wt_sel;
-                        if (!is_conv1)
-                            conv3d_start <= 1'b1;
-                        else
-                            conv1_start  <= 1'b1;
                         round_loaded <= round_loaded + 1;
-                        state        <= S_COMPUTE;
-
-                        /* Kick off background preload if more rounds remain */
                         if (round_loaded + 1 < rt_total_rounds) begin
                             preload_active <= 1'b1;
                             preload_cnt    <= 4'd0;
@@ -267,83 +265,48 @@ module inference_hdl #(
                     end
                 end
 
-                /* ──────────────────────────────────────── */
                 S_COMPUTE: begin
-                    /* ── Background preload into shadow bank ── */
+                    /* Preload counter management — must come BEFORE compute_req_wt
+                       so that compute_req_wt's preload_active<=1 wins when both
+                       preload completion and weight request fire on the same cycle. */
                     if (preload_active && !preload_done) begin
-                        if (preload_cnt > 0) begin
-                            /* Latch data that arrived from previous cycle's address */
-                            for (int c = 0; c < MAX_PARALLEL; c++) begin
-                                if (wt_sel)   // shadow = A (active = B)
-                                    wt_bank_a[preload_cnt - 1][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
-                                else          // shadow = B (active = A)
-                                    wt_bank_b[preload_cnt - 1][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
-                            end
-                        end
-
                         if (preload_cnt < wt_words) begin
-                            /* Advance address for next word */
                             wt_addr_reg <= wt_addr_reg + 1;
                             preload_cnt <= preload_cnt + 1;
                         end else begin
-                            /* preload_cnt == wt_words → last word latched, done */
                             preload_done   <= 1'b1;
                             preload_active <= 1'b0;
                             round_loaded   <= round_loaded + 1;
                         end
                     end
 
-                    /* ── Handle weight request from active engine ── */
                     if (compute_req_wt) begin
-                        /* Swap banks (shadow → active) */
-                        wt_sel <= ~wt_sel;
-                        if (!is_conv1)
-                            conv3d_weights_ready <= 1'b1;
-                        else
-                            conv1_weights_ready  <= 1'b1;
-
-                        /* Start next preload if more rounds remain */
                         if (round_loaded < rt_total_rounds) begin
                             preload_active <= 1'b1;
                             preload_cnt    <= 4'd0;
                             preload_done   <= 1'b0;
                         end
                     end
-
-                    /* ── Compute engine finished ── */
-                    if (compute_done) begin
-                        state <= S_NEXT_CHOUT;
-                    end
                 end
 
-                /* ──────────────────────────────────────── */
                 S_NEXT_CHOUT: begin
                     if (ch_out + 8'd1 < r_cfg.cout) begin
-                        ch_out       <= ch_out + 8'd1;
-                        round_loaded <= 0;
+                        ch_out         <= ch_out + 8'd1;
+                        round_loaded   <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
-                        wt_addr_reg <= r_cfg.wt_base
-                                     + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words
-                                     + 1;
-                        load_cnt <= 4'd0;
-                        state    <= S_LOAD;
-                    end else begin
-                        state <= S_NEXT_LAYER;
+                        wt_addr_reg    <= r_cfg.wt_base
+                                       + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words
+                                       + 1;
+                        load_cnt       <= 4'd0;
                     end
                 end
 
-                /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
                     if (next_layer_idx < NUM_LAYERS) begin
-                        /* XSim workaround: assign whole struct to a local
-                           before extracting fields — see always_comb note. */
-                        begin
-                            layer_cfg_t _next;
-                            _next = LAYER_CFG[next_layer_idx];
-                            r_cfg       <= _next;
-                            wt_addr_reg <= _next.wt_base + 1;
-                        end
+                        layer_cfg_t _next;
+                        _next = LAYER_CFG[next_layer_idx];
+                        wt_addr_reg    <= _next.wt_base + 1;
                         layer_idx      <= next_layer_idx;
                         r_layer_idx    <= next_layer_idx;
                         ch_out         <= 8'd0;
@@ -351,28 +314,145 @@ module inference_hdl #(
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
                         load_cnt       <= 4'd0;
-                        state          <= S_LOAD;
-                    end else begin
-                        done  <= 1'b1;
-                        state <= S_IDLE;
                     end
                 end
 
-                default: state <= S_IDLE;
+                default: ;
             endcase
         end
     end
 
     /* ================================================================
-     *  FSM — Combinational ROM Drive
+     *  Weight Banks
      * ================================================================ */
-    always_comb begin
+    always_ff @(posedge aclk or negedge aresetn) begin : weight_banks
+        if (!aresetn) begin
+            wt_sel <= 1'b0;
+        end else begin
+            case (state)
+                S_LOAD: begin
+                    /* Latch weight row into shadow bank */
+                    for (int c = 0; c < MAX_PARALLEL; c++) begin
+                        if (wt_sel)   // shadow = A
+                            wt_bank_a[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
+                        else          // shadow = B
+                            wt_bank_b[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
+                    end
+
+                    /* Swap active bank on load complete */
+                    if (load_cnt >= wt_words - 1)
+                        wt_sel <= ~wt_sel;
+                end
+
+                S_COMPUTE: begin
+                    /* Background preload writes into shadow bank */
+                    if (preload_active && !preload_done) begin
+                        if (preload_cnt > 0) begin
+                            for (int c = 0; c < MAX_PARALLEL; c++) begin
+                                if (wt_sel)   // shadow = A (active = B)
+                                    wt_bank_a[preload_cnt - 1][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
+                                else          // shadow = B (active = A)
+                                    wt_bank_b[preload_cnt - 1][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
+                            end
+                        end
+                    end
+
+                    /* Swap on weight request from compute engine */
+                    if (compute_req_wt)
+                        wt_sel <= ~wt_sel;
+                end
+
+                default: ;
+            endcase
+        end
+    end
+
+    /* ================================================================
+     *  Shadow Registers (layer config + quantization parameters)
+     * ================================================================ */
+    always_ff @(posedge aclk) begin : shadow_registers
+        case (state)
+            S_IDLE: begin
+                if (start)
+                    r_cfg <= LAYER_CFG[0];
+            end
+
+            S_LOAD: begin
+                if (load_cnt == 0) begin
+                    r_bias   <= $signed(qp_mem_dout_b[31:0]);
+                    r_m0     <= qp_mem_dout_b[63:32];
+                    r_nshift <= qp_mem_dout_b[69:64];
+                end
+            end
+
+            S_NEXT_LAYER: begin
+                if (next_layer_idx < NUM_LAYERS) begin
+                    layer_cfg_t _next;
+                    _next = LAYER_CFG[next_layer_idx];
+                    r_cfg <= _next;
+                end
+            end
+
+            default: ;
+        endcase
+    end
+
+    /* ================================================================
+     *  Output Registers (single-cycle pulses)
+     * ================================================================ */
+    always_ff @(posedge aclk or negedge aresetn) begin : output_registers
+        if (!aresetn) begin
+            conv3d_start         <= 1'b0;
+            conv1_start          <= 1'b0;
+            conv3d_weights_ready <= 1'b0;
+            conv1_weights_ready  <= 1'b0;
+            done                 <= 1'b0;
+        end else begin
+            conv3d_start         <= 1'b0;
+            conv1_start          <= 1'b0;
+            conv3d_weights_ready <= 1'b0;
+            conv1_weights_ready  <= 1'b0;
+            done                 <= 1'b0;
+
+            case (state)
+                S_LOAD: begin
+                    if (load_cnt >= wt_words - 1) begin
+                        if (!is_conv1)
+                            conv3d_start <= 1'b1;
+                        else
+                            conv1_start  <= 1'b1;
+                    end
+                end
+
+                S_COMPUTE: begin
+                    if (compute_req_wt) begin
+                        if (!is_conv1)
+                            conv3d_weights_ready <= 1'b1;
+                        else
+                            conv1_weights_ready  <= 1'b1;
+                    end
+                end
+
+                S_NEXT_LAYER: begin
+                    if (!(next_layer_idx < NUM_LAYERS))
+                        done <= 1'b1;
+                end
+
+                default: ;
+            endcase
+        end
+    end
+
+    /* ================================================================
+     *  Combinational ROM Drive
+     * ================================================================ */
+    always_comb begin : rom_drive
         /* XSim workaround: LAYER_CFG[variable].field silently returns 0.
            Assigning the whole struct to a local first works around this. */
         layer_cfg_t next_layer_cfg;
         next_layer_cfg = LAYER_CFG[next_layer_idx];
 
-        /* Defaults — ROM ports idle */
+        /* Defaults -- ROM ports idle */
         wt_mem_en_b   = 1'b0;
         wt_mem_addr_b = '0;
         qp_mem_en_b   = 1'b0;
