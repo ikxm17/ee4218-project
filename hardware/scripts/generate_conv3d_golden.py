@@ -4,21 +4,24 @@ generate_conv3d_golden.py
 =========================
 Generates golden reference data for RTL verification of inference_hdl.sv.
 
-Takes the test image and model weights, performs reference 3x3 convolutions
-for all output channels of layers 0 and 1, applies SiLU activation via the
-precomputed LUT, applies 2x2 max pooling where needed, and saves:
-  - pixels_layer0.mem       : 256x256x3 INT8 input pixels (hex, for $readmemh)
-  - golden_ch_out0.mem      : 128x128 INT8 layer 0 ch_out=0 (backwards compat)
-  - golden_layer0_uram.mem  : 128x128x16 URAM-packed 128-bit words (layer 0)
-  - golden_layer1_uram.mem  : 128x128x16 URAM-packed 128-bit words (layer 1)
+Takes the test image and model weights, performs reference convolutions
+for all output channels of all requested layers, applies SiLU activation
+via the precomputed LUT, applies 2x2 max pooling where needed, and saves:
+  - pixels_layer0.mem              : 256x256x3 INT8 input pixels
+  - golden_ch_out0.mem             : 128x128 INT8 layer 0 ch_out=0 (legacy)
+  - golden_layer{0..N}_uram.mem    : URAM-packed 128-bit words per layer
 
 The reference pipeline matches the hardware exactly:
-  1. Zero-pad input with zp_in (padding=1)
+  1. Zero-pad input with zp_in (padding = k//2)
   2. For each output pixel: sum K*K*C_IN weighted products (no zp subtraction)
   3. Accumulate: acc = sum + bias
   4. Requantize: output = ((acc * m0) >> nshift) + zp_out, clamp to int8
   5. SiLU activation: output = silu_lut[layer_idx * 256 + (output + 128)]
+     (bypassed for CONV1_LIN layers)
   6. Max pool 2x2 stride 2 (CONV3_POOL layers only)
+
+Detection head branching: layers 11-13 (cv2) and 14-16 (cv3) both read
+from layer 10's output.
 
 Usage
 -----
@@ -26,7 +29,8 @@ Usage
         --model software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite \\
         --image software/inference/data/input_image.jpg \\
         --golden hardware/weights/hdl/weight_rom_golden.npz \\
-        --out hardware/testbench/inference_hdl/
+        --out hardware/testbench/inference_hdl/ \\
+        --num-layers 10
 """
 
 from __future__ import annotations
@@ -36,6 +40,35 @@ import os
 
 import numpy as np
 from PIL import Image
+
+# ---------------------------------------------------------------------------
+# Layer configuration table (mirrors layer_config.svh)
+# ---------------------------------------------------------------------------
+# (type_name, h_in, w_in, cin, cout, has_pool, kernel_size, has_silu)
+LAYER_CFG = [
+    ("CONV3_POOL", 256, 256,   3,  16, True,  3, True),   #  0
+    ("CONV3",      128, 128,  16,  16, False, 3, True),   #  1
+    ("CONV3_POOL", 128, 128,  16,  16, True,  3, True),   #  2
+    ("CONV3",       64,  64,  16,  32, False, 3, True),   #  3
+    ("CONV3_POOL",  64,  64,  32,  32, True,  3, True),   #  4
+    ("CONV3",       32,  32,  32,  64, False, 3, True),   #  5
+    ("CONV3_POOL",  32,  32,  64,  64, True,  3, True),   #  6
+    ("CONV3",       16,  16,  64,  64, False, 3, True),   #  7
+    ("CONV3_POOL",  16,  16,  64, 128, True,  3, True),   #  8
+    ("CONV3",        8,   8, 128, 128, False, 3, True),   #  9
+    ("CONV1",        8,   8, 128,  24, False, 1, True),   # 10
+    ("CONV3",        8,   8,  24,  64, False, 3, True),   # 11
+    ("CONV3",        8,   8,  64,  64, False, 3, True),   # 12
+    ("CONV1_LIN",    8,   8,  64,  64, False, 1, False),  # 13
+    ("CONV3",        8,   8,  24,  24, False, 3, True),   # 14
+    ("CONV3",        8,   8,  24,  24, False, 3, True),   # 15
+    ("CONV1_LIN",    8,   8,  24,   3, False, 1, False),  # 16
+]
+NUM_LAYERS = len(LAYER_CFG)
+
+# Detection head branch point: layers 14-16 read from layer 10's output
+BRANCH_RESTORE_AT = 14
+BRANCH_SOURCE = 10
 
 
 def load_and_preprocess(image_path: str, size: int = 256) -> np.ndarray:
@@ -189,21 +222,18 @@ def process_layer(
     golden_npz: dict,              # loaded npz
     layer_idx: int,
     silu_lut: np.ndarray,          # [17, 256] int8
-    pool: bool = False,
 ) -> np.ndarray:
-    """Run a full layer: conv3d + SiLU + optional pool for all output channels."""
+    """Run a full layer: conv + activation + optional pool for all output channels."""
+    cfg = LAYER_CFG[layer_idx]
+    _, _, _, cin_cfg, cout, has_pool, k, has_silu = cfg
+
     h_in, w_in, cin = input_fmap.shape
+    assert cin == cin_cfg, f"Layer {layer_idx}: expected cin={cin_cfg}, got {cin}"
+
     layer_base = int(golden_npz["layer_bases"][layer_idx])
     qp_base = int(golden_npz["qp_bases"][layer_idx])
     zp_in = int(golden_npz["zp_in"][layer_idx])
     zp_out = int(golden_npz["zp_out"][layer_idx])
-
-    # Layer config (layers 0 and 1 only for this scope)
-    layer_cfgs = [
-        {"cin": 3, "cout": 16, "h_in": 256},   # layer 0
-        {"cin": 16, "cout": 16, "h_in": 128},   # layer 1
-    ]
-    cout = layer_cfgs[layer_idx]["cout"]
 
     outputs = []
     for ch in range(cout):
@@ -211,7 +241,10 @@ def process_layer(
         m0 = int(golden_npz["m0"][qp_base + ch])
         nshift = int(golden_npz["n_shift"][qp_base + ch])
 
-        print(f"  ch_out={ch}: bias={bias}, m0=0x{m0 & 0xFFFFFFFF:08x}, nshift={nshift}")
+        if ch < 2 or ch == cout - 1:
+            print(f"  ch_out={ch}: bias={bias}, m0=0x{m0 & 0xFFFFFFFF:08x}, nshift={nshift}")
+        elif ch == 2:
+            print(f"  ... ({cout - 3} more channels)")
 
         conv_out = reference_conv3d_ch(
             pixels_int8=input_fmap,
@@ -219,12 +252,15 @@ def process_layer(
             bias=bias, m0=m0, nshift=nshift,
             zp_in=zp_in, zp_out=zp_out,
             layer_base=layer_base,
-            ch_out=ch, cin=cin,
+            ch_out=ch, k=k, cin=cin,
         )
-        # SiLU activation
-        act_out = apply_silu_lut(conv_out, silu_lut, layer_idx)
+        # Activation: SiLU LUT or linear bypass
+        if has_silu:
+            act_out = apply_silu_lut(conv_out, silu_lut, layer_idx)
+        else:
+            act_out = conv_out
         # Pool if needed
-        if pool:
+        if has_pool:
             act_out = apply_max_pool_2x2(act_out)
         outputs.append(act_out)
 
@@ -276,8 +312,11 @@ def main():
     parser.add_argument("--golden", required=True, help="weight_rom_golden.npz path")
     parser.add_argument("--lut", required=True, help="silu_lut.mem path")
     parser.add_argument("--out", required=True, help="Output directory for .mem files")
+    parser.add_argument("--num-layers", type=int, default=NUM_LAYERS,
+                        help=f"Number of layers to process (default: all {NUM_LAYERS})")
     args = parser.parse_args()
 
+    num_layers = min(args.num_layers, NUM_LAYERS)
     os.makedirs(args.out, exist_ok=True)
 
     # Load golden reference data
@@ -298,15 +337,7 @@ def main():
     print(f"  LUT shape: {silu_lut.shape}")
 
     # Save pixels as .mem (channel-interleaved: C_IN values per spatial position)
-    # Conv3d reads MAX_PARALLEL channels at each pixel address.
-    # Layout: for each spatial position, channels 0..2 then zeros for 3..15
     print("Writing pixel .mem file...")
-
-    # Pixel mem: [channel][spatial] layout matching conv3d's addressing
-    # conv3d addr = (round * ACT_SIZE²) + (row * ACT_SIZE + col)
-    # For TOTAL_ROUNDS=1, addr = row * 256 + col
-    # pixel_bram_data[c*8 +: 8] = pixel for channel c at that address
-    # The testbench feeds this, so we save per-channel spatial arrays
     pixels_path = os.path.join(args.out, "pixels_layer0.mem")
     with open(pixels_path, "w") as f:
         for ch in range(3):
@@ -316,49 +347,54 @@ def main():
                     f.write(f"{val & 0xFF:02x}\n")
     print(f"  pixels: {pixels_path} ({3*256*256} entries, [ch][row][col])")
 
-    # Process Layer 0: CONV3_POOL 256x256x3 -> 128x128x16
-    print("\n=== Layer 0: CONV3_POOL 256x256x3 -> 128x128x16 ===")
-    layer0_out = process_layer(
-        input_fmap=pixels_int8,
-        weights_rom=rom_words,
-        golden_npz=g,
-        layer_idx=0,
-        silu_lut=silu_lut,
-        pool=True,
-    )
-    print(f"  Output shape: {layer0_out.shape}")
-    print(f"  Output range: [{layer0_out.min()}, {layer0_out.max()}]")
+    # Process layers sequentially, chaining outputs
+    print(f"\n{'='*60}")
+    print(f"Processing {num_layers} layers")
+    print(f"{'='*60}")
 
-    # Process Layer 1: CONV3 128x128x16 -> 128x128x16
-    print("\n=== Layer 1: CONV3 128x128x16 -> 128x128x16 ===")
-    layer1_out = process_layer(
-        input_fmap=layer0_out,
-        weights_rom=rom_words,
-        golden_npz=g,
-        layer_idx=1,
-        silu_lut=silu_lut,
-        pool=False,
-    )
-    print(f"  Output shape: {layer1_out.shape}")
-    print(f"  Output range: [{layer1_out.min()}, {layer1_out.max()}]")
+    fmap = pixels_int8
+    branch_save = None  # saved layer 10 output for cv3 branch
 
-    # Write golden output files
-    print("\nWriting golden .mem files...")
+    for layer_idx in range(num_layers):
+        cfg = LAYER_CFG[layer_idx]
+        type_name, h_in, w_in, cin, cout, has_pool, k, has_silu = cfg
 
-    # Layer 0 golden: single channel for backwards compat
-    golden_ch0 = layer0_out[:, :, 0]
-    golden_path = os.path.join(args.out, "golden_ch_out0.mem")
-    write_hex_mem(golden_path, golden_ch0, "golden_ch_out0")
+        # Detection head branching: restore layer 10's output for cv3
+        if layer_idx == BRANCH_RESTORE_AT and branch_save is not None:
+            print(f"\n--- Restoring layer {BRANCH_SOURCE} output for cv3 branch ---")
+            fmap = branch_save.copy()
 
-    # Layer 0 golden: full URAM packed (all 16 channels)
-    golden_l0_path = os.path.join(args.out, "golden_layer0_uram.mem")
-    write_uram_packed_mem(golden_l0_path, layer0_out)
+        h_out = h_in // 2 if has_pool else h_in
+        print(f"\n=== Layer {layer_idx}: {type_name} "
+              f"{h_in}x{w_in}x{cin} -> {h_out}x{h_out}x{cout} (k={k}) ===")
 
-    # Layer 1 golden: full URAM packed
-    golden_l1_path = os.path.join(args.out, "golden_layer1_uram.mem")
-    write_uram_packed_mem(golden_l1_path, layer1_out)
+        fmap = process_layer(
+            input_fmap=fmap,
+            weights_rom=rom_words,
+            golden_npz=g,
+            layer_idx=layer_idx,
+            silu_lut=silu_lut,
+        )
+        print(f"  Output shape: {fmap.shape}, range: [{fmap.min()}, {fmap.max()}]")
 
-    print("\nDone.")
+        # Save branch point for detection head
+        if layer_idx == BRANCH_SOURCE:
+            branch_save = fmap.copy()
+            print(f"  (saved for cv3 branch)")
+
+        # Write golden URAM file
+        golden_path = os.path.join(args.out, f"golden_layer{layer_idx}_uram.mem")
+        write_uram_packed_mem(golden_path, fmap)
+
+        # Legacy: layer 0 single-channel golden
+        if layer_idx == 0:
+            golden_ch0 = fmap[:, :, 0]
+            ch0_path = os.path.join(args.out, "golden_ch_out0.mem")
+            write_hex_mem(ch0_path, golden_ch0, "golden_ch_out0")
+
+    print(f"\n{'='*60}")
+    print(f"Done. Generated golden files for {num_layers} layers.")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

@@ -271,7 +271,7 @@ module inference_hdl #(
 
                 /* ──────────────────────────────────────── */
                 S_NEXT_LAYER: begin
-                    if (next_layer_idx < 5'd2) begin
+                    if (next_layer_idx < 5'd10) begin
                         /* XSim workaround: assign whole struct to a local
                            before extracting fields — see always_comb note. */
                         begin
@@ -350,7 +350,7 @@ module inference_hdl #(
             end
 
             S_NEXT_LAYER: begin
-                if (next_layer_idx < 5'd2) begin
+                if (next_layer_idx < 5'd10) begin
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
