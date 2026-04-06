@@ -33,7 +33,7 @@ module tb_inference_hdl;
     logic [DEPTH_BITS-1:0]              res_write_addr;
     logic signed [N_BITS-1:0]           res_write_data;
 
-    // AXI stubs (USE_FMAP_INPUT=0, all tied off internally by top.sv)
+    // AXI stubs (TB_MODE=1, all tied off internally by top.sv)
     logic [12:0] s_axi_lite_awaddr;
     logic        s_axi_lite_awvalid;
     logic        s_axi_lite_awready;
@@ -74,7 +74,7 @@ module tb_inference_hdl;
             cycle_count <= cycle_count + 1;
     end
 
-    // AXI tie-offs (USE_FMAP_INPUT=0: all unused)
+    // AXI tie-offs (TB_MODE=1: all unused)
     assign s_axi_lite_awaddr  = '0;
     assign s_axi_lite_awvalid = 1'b0;
     assign s_axi_lite_wdata   = '0;
@@ -90,13 +90,13 @@ module tb_inference_hdl;
     assign s_axis_tuser       = 1'b0;
 
     // =========================================================================
-    //  DUT (USE_FMAP_INPUT=0: testbench mode, direct start/done/pixel_bram)
+    //  DUT (TB_MODE=1: testbench mode, direct start/done/pixel_bram)
     // =========================================================================
     top #(
         .MAX_PARALLEL  (MAX_PARALLEL),
         .N_BITS        (N_BITS),
         .DEPTH_BITS    (DEPTH_BITS),
-        .USE_FMAP_INPUT(0)
+        .TB_MODE(1)
     ) dut (
         .aclk                (clk),
         .aresetn             (aresetn),

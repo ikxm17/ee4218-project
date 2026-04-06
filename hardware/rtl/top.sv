@@ -6,13 +6,13 @@ module top #(
     parameter MAX_PARALLEL   = C_PAR,
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
-    parameter USE_FMAP_INPUT = 1,  // 0 = ext pixel BRAM (testbench), 1 = AXI IP mode
+    parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
     parameter AXI_ADDR_W     = 13
 )(
     input  logic aclk,
     input  logic aresetn,
 
-    /* --- Direct control (testbench, active when USE_FMAP_INPUT=0) --- */
+    /* --- Direct control (testbench, active when TB_MODE=1) --- */
     input  logic                             start,
     output logic                             done,
     output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
@@ -22,7 +22,7 @@ module top #(
     output logic [DEPTH_BITS-1:0]            res_write_addr,
     output logic signed [N_BITS-1:0]         res_write_data,
 
-    /* --- AXI4-Lite slave (active when USE_FMAP_INPUT=1) --- */
+    /* --- AXI4-Lite slave (active when TB_MODE=0) --- */
     input  logic [AXI_ADDR_W-1:0]           s_axi_lite_awaddr,
     input  logic                             s_axi_lite_awvalid,
     output logic                             s_axi_lite_awready,
@@ -41,14 +41,14 @@ module top #(
     output logic                             s_axi_lite_rvalid,
     input  logic                             s_axi_lite_rready,
 
-    /* --- AXI4-Stream slave — camera pixels (active when USE_FMAP_INPUT=1) --- */
+    /* --- AXI4-Stream slave — camera pixels (active when TB_MODE=0) --- */
     input  logic [31:0]                      s_axis_tdata,
     input  logic                             s_axis_tvalid,
     input  logic                             s_axis_tlast,
     input  logic [0:0]                       s_axis_tuser,
     output logic                             s_axis_tready,
 
-    /* --- Interrupt (active when USE_FMAP_INPUT=1) --- */
+    /* --- Interrupt (active when TB_MODE=0) --- */
     output logic                             irq_done
 );
 
@@ -201,7 +201,7 @@ module top #(
     assign {act_mem_en_a, act_mem_we_a, act_mem_addr_a, act_mem_din_a} = '0;
 
     /* ================================================================
-     *  AXI Integration (USE_FMAP_INPUT=1 only)
+     *  AXI Integration (TB_MODE=0 only)
      *
      *  Phase FSM:  S_IDLE → S_PRELOAD → S_RUN → S_DONE → S_IDLE
      *  AXI-Lite:   control registers, pixel FIFO, result readout
@@ -219,7 +219,7 @@ module top #(
     logic inference_start;
     logic inference_done;
 
-    generate if (USE_FMAP_INPUT) begin : gen_axi_integration
+    generate if (!TB_MODE) begin : gen_axi_integration
         /* ---- Phase FSM ---- */
         typedef enum logic [2:0] {
             PH_IDLE    = 3'd0,
@@ -417,7 +417,7 @@ module top #(
     logic input_rd_en;
     logic [FMAP_ADDR_W-1:0] input_rd_addr;
 
-    generate if (USE_FMAP_INPUT) begin : gen_fmap_input_rd
+    generate if (!TB_MODE) begin : gen_fmap_input_rd
         assign input_rd_en = pixel_en_int;
         assign input_rd_addr = (curr_layer_idx == 0)
             ? pixel_addr_int[FMAP_ADDR_W+1:2]
@@ -523,7 +523,7 @@ module top #(
     logic [FMAP_DATA_W-1:0] uram_input_rd_data;
     assign uram_input_rd_data = buf_sel ? fmap_a_dout_b : fmap_b_dout_b;
 
-    generate if (USE_FMAP_INPUT) begin : gen_fmap_pixel_mux
+    generate if (!TB_MODE) begin : gen_fmap_pixel_mux
         logic [1:0] pixel_sel_r;
         always_ff @(posedge aclk) pixel_sel_r <= pixel_addr_int[1:0];
 

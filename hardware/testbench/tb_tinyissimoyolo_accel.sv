@@ -3,7 +3,7 @@
 /*
  * tb_tinyissimoyolo_accel — AXI integration testbench
  *
- * Tests the USE_FMAP_INPUT=1 path:
+ * Tests the TB_MODE=0 path (AXI IP mode):
  *   1. Preload packed pixels into fmap_b via AXI-Lite FIFO writes
  *   2. Run full 17-layer inference
  *   3. Read detection results via AXI-Lite
@@ -73,7 +73,7 @@ module tb_tinyissimoyolo_accel;
     assign s_axis_tlast  = 1'b0;
     assign s_axis_tuser  = 1'b0;
 
-    // Testbench ports (unused in USE_FMAP_INPUT=1, but must be connected)
+    // Testbench ports (unused in TB_MODE=0, but must be connected)
     logic                             tb_done;
     logic [DEPTH_BITS-1:0]            tb_pixel_bram_addr;
     logic                             tb_pixel_bram_en;
@@ -86,13 +86,13 @@ module tb_tinyissimoyolo_accel;
     assign tb_pixel_bram_data = '0;
 
     // =========================================================================
-    //  DUT (USE_FMAP_INPUT=1: AXI IP mode)
+    //  DUT (TB_MODE=0: AXI IP mode)
     // =========================================================================
     top #(
         .MAX_PARALLEL   (MAX_PARALLEL),
         .N_BITS         (N_BITS),
         .DEPTH_BITS     (DEPTH_BITS),
-        .USE_FMAP_INPUT (1),
+        .TB_MODE (0),
         .AXI_ADDR_W     (AXI_ADDR_W)
     ) dut (
         .aclk                (clk),
