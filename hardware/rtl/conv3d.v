@@ -123,6 +123,7 @@ module conv3d #(
     reg signed [ACC_BITS-1:0]      pix_acc;
     reg signed [ACC_BITS-1:0]      r_pix_acc; // latched version of pix_acc
     reg signed [64-1:0]            scaled_pix_acc; // final acc * m0 BEFORE n_shift
+    reg signed [ACC_BITS-1:0]      q_pix_wide;    // pre-clamp requantised value (wider)
     reg signed [N_BITS-1:0]        q_pix;     // final quantised pixel value to write to RES
 
     // padding logic
@@ -372,7 +373,14 @@ module conv3d #(
     // ------------------------------------------------------------------
     always @(*) begin
         scaled_pix_acc = ACC_write_data_in * r_m0;
-        q_pix = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
+        q_pix_wide = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
+        // Saturate to int8 [-128, 127]
+        if (q_pix_wide > 127)
+            q_pix = 127;
+        else if (q_pix_wide < -128)
+            q_pix = -128;
+        else
+            q_pix = q_pix_wide[N_BITS-1:0];
     end
 
     // ------------------------------------------------------------------
