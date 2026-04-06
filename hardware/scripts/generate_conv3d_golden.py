@@ -4,11 +4,13 @@ generate_conv3d_golden.py
 =========================
 Generates golden reference data for RTL verification of inference_hdl.sv.
 
-Takes the test image and model weights, performs a reference 3x3 convolution
-for output channel 0 of layer 0, applies SiLU activation via the precomputed
-LUT, applies 2x2 max pooling (layer 0 is CONV3_POOL), and saves:
-  - pixels_layer0.mem   : 256x256x3 INT8 input pixels (hex, for $readmemh)
-  - golden_kout0.mem    : 128x128 INT8 expected output after pool (hex)
+Takes the test image and model weights, performs reference 3x3 convolutions
+for all output channels of layers 0 and 1, applies SiLU activation via the
+precomputed LUT, applies 2x2 max pooling where needed, and saves:
+  - pixels_layer0.mem       : 256x256x3 INT8 input pixels (hex, for $readmemh)
+  - golden_ch_out0.mem      : 128x128 INT8 layer 0 ch_out=0 (backwards compat)
+  - golden_layer0_uram.mem  : 128x128x16 URAM-packed 128-bit words (layer 0)
+  - golden_layer1_uram.mem  : 128x128x16 URAM-packed 128-bit words (layer 1)
 
 The reference pipeline matches the hardware exactly:
   1. Zero-pad input with zp_in (padding=1)
@@ -16,7 +18,7 @@ The reference pipeline matches the hardware exactly:
   3. Accumulate: acc = sum + bias
   4. Requantize: output = ((acc * m0) >> nshift) + zp_out, clamp to int8
   5. SiLU activation: output = silu_lut[layer_idx * 256 + (output + 128)]
-  6. Max pool 2x2 stride 2: output = max(2x2 window) → 128x128
+  6. Max pool 2x2 stride 2 (CONV3_POOL layers only)
 
 Usage
 -----
@@ -52,7 +54,7 @@ def uint8_to_int8(pixels: np.ndarray) -> np.ndarray:
     return (pixels.astype(np.int16) - 128).astype(np.int8)
 
 
-def reference_conv3d_kout0(
+def reference_conv3d_ch(
     pixels_int8: np.ndarray,
     weights_rom: np.ndarray,
     bias: int,
@@ -61,11 +63,12 @@ def reference_conv3d_kout0(
     zp_in: int,
     zp_out: int,
     layer_base: int,
+    ch_out: int = 0,
     k: int = 3,
     cin: int = 3,
     c_par: int = 16,
 ) -> np.ndarray:
-    """Run reference 3x3 convolution for output channel 0.
+    """Run reference 3x3 convolution for a given output channel.
 
     Matches conv3d.v arithmetic exactly:
     - Padding pixels use zp_in as activation value
@@ -77,23 +80,23 @@ def reference_conv3d_kout0(
     Args:
         pixels_int8: [H, W, C_IN] int8 input image
         weights_rom: [N, 16] int8 ROM words (from golden npz)
-        bias: int32 bias for kout=0
-        m0: int32 multiplier for kout=0
-        nshift: int32 shift amount for kout=0
+        bias: int32 bias for this ch_out
+        m0: int32 multiplier for this ch_out
+        nshift: int32 shift amount for this ch_out
         zp_in: int8 input zero-point
         zp_out: int8 output zero-point
-        layer_base: ROM word offset for layer 0
+        layer_base: ROM word offset for this layer
+        ch_out: output channel index
     """
     h, w, c = pixels_int8.shape
     assert c == cin
     pad = k // 2  # 1 for k=3
 
-    # Extract weights for kout=0 from ROM
-    # ROM layout for kout=0: K*K words starting at layer_base
+    # Extract weights for ch_out from ROM
     # Each word: 16 int8 values, only cin channels are meaningful
     cin_groups = (cin + c_par - 1) // c_par
-    words_per_kout = k * k * cin_groups
-    wt_start = layer_base
+    words_per_ch_out = k * k * cin_groups
+    wt_start = layer_base + ch_out * words_per_ch_out
 
     # Build [kh, kw, cin] weight array from ROM
     weight = np.zeros((k, k, cin), dtype=np.int8)
@@ -180,6 +183,82 @@ def apply_max_pool_2x2(data: np.ndarray) -> np.ndarray:
     return data.reshape(h // 2, 2, w // 2, 2).max(axis=(1, 3))
 
 
+def process_layer(
+    input_fmap: np.ndarray,        # [H, W, Cin] int8
+    weights_rom: np.ndarray,       # [N, 16] int8
+    golden_npz: dict,              # loaded npz
+    layer_idx: int,
+    silu_lut: np.ndarray,          # [17, 256] int8
+    pool: bool = False,
+) -> np.ndarray:
+    """Run a full layer: conv3d + SiLU + optional pool for all output channels."""
+    h_in, w_in, cin = input_fmap.shape
+    layer_base = int(golden_npz["layer_bases"][layer_idx])
+    qp_base = int(golden_npz["qp_bases"][layer_idx])
+    zp_in = int(golden_npz["zp_in"][layer_idx])
+    zp_out = int(golden_npz["zp_out"][layer_idx])
+
+    # Layer config (layers 0 and 1 only for this scope)
+    layer_cfgs = [
+        {"cin": 3, "cout": 16, "h_in": 256},   # layer 0
+        {"cin": 16, "cout": 16, "h_in": 128},   # layer 1
+    ]
+    cout = layer_cfgs[layer_idx]["cout"]
+
+    outputs = []
+    for ch in range(cout):
+        bias = int(golden_npz["biases"][qp_base + ch])
+        m0 = int(golden_npz["m0"][qp_base + ch])
+        nshift = int(golden_npz["n_shift"][qp_base + ch])
+
+        print(f"  ch_out={ch}: bias={bias}, m0=0x{m0 & 0xFFFFFFFF:08x}, nshift={nshift}")
+
+        conv_out = reference_conv3d_ch(
+            pixels_int8=input_fmap,
+            weights_rom=weights_rom,
+            bias=bias, m0=m0, nshift=nshift,
+            zp_in=zp_in, zp_out=zp_out,
+            layer_base=layer_base,
+            ch_out=ch, cin=cin,
+        )
+        # SiLU activation
+        act_out = apply_silu_lut(conv_out, silu_lut, layer_idx)
+        # Pool if needed
+        if pool:
+            act_out = apply_max_pool_2x2(act_out)
+        outputs.append(act_out)
+
+    # Stack into [H_out, W_out, Cout]
+    return np.stack(outputs, axis=-1)
+
+
+def write_uram_packed_mem(path: str, fmap: np.ndarray, c_par: int = 16):
+    """Write feature map [H, W, C] as 128-bit URAM-packed .mem file.
+
+    Channel-group-major layout:
+      For group g (channels g*16 .. g*16+15):
+        For row r, col c:
+          One 128-bit word: ch[g*16+0] in bits[7:0], ch[g*16+1] in bits[15:8], ...
+    """
+    h, w, c = fmap.shape
+    c_groups = (c + c_par - 1) // c_par
+    with open(path, "w") as f:
+        for g in range(c_groups):
+            for r in range(h):
+                for col in range(w):
+                    word = 0
+                    for ci in range(c_par):
+                        global_c = g * c_par + ci
+                        if global_c < c:
+                            byte_val = int(fmap[r, col, global_c]) & 0xFF
+                        else:
+                            byte_val = 0
+                        word |= byte_val << (ci * 8)
+                    f.write(f"{word:032x}\n")
+    total = c_groups * h * w
+    print(f"  URAM packed: {path} ({total} x 128-bit words)")
+
+
 def write_hex_mem(path: str, data: np.ndarray, desc: str):
     """Write 1D or 2D array as hex .mem file (one value per line)."""
     flat = data.flatten()
@@ -205,29 +284,6 @@ def main():
     print("Loading golden NPZ...")
     g = np.load(args.golden)
     rom_words = g["rom_words"]       # [25654, 16] int8
-    layer_bases = g["layer_bases"]   # [17] int32
-    qp_bases = g["qp_bases"]         # [17] int32
-    biases = g["biases"]             # [827] int32
-    m0_arr = g["m0"]                 # [827] int32
-    nshift_arr = g["n_shift"]        # [827] int32
-    zp_in_arr = g["zp_in"]           # [17] int8
-    zp_out_arr = g["zp_out"]         # [17] int8
-
-    # Layer 0, kout=0 parameters
-    layer_idx = 0
-    kout = 0
-    layer_base = int(layer_bases[layer_idx])
-    qp_base = int(qp_bases[layer_idx])
-    bias = int(biases[qp_base + kout])
-    m0 = int(m0_arr[qp_base + kout])
-    nshift = int(nshift_arr[qp_base + kout])
-    zp_in = int(zp_in_arr[layer_idx])
-    zp_out = int(zp_out_arr[layer_idx])
-
-    print(f"Layer {layer_idx}, kout {kout}:")
-    print(f"  wt_base={layer_base}, qp_base={qp_base}")
-    print(f"  bias={bias}, m0={m0}, nshift={nshift}")
-    print(f"  zp_in={zp_in}, zp_out={zp_out}")
 
     # Load and preprocess image
     print(f"Loading image: {args.image}")
@@ -236,41 +292,15 @@ def main():
     print(f"  Image shape: {pixels_int8.shape}, dtype: {pixels_int8.dtype}")
     print(f"  Range: [{pixels_int8.min()}, {pixels_int8.max()}]")
 
-    # Run reference convolution
-    print("Running reference convolution (kout=0)...")
-    golden_output = reference_conv3d_kout0(
-        pixels_int8=pixels_int8,
-        weights_rom=rom_words,
-        bias=bias,
-        m0=m0,
-        nshift=nshift,
-        zp_in=zp_in,
-        zp_out=zp_out,
-        layer_base=layer_base,
-        k=3,
-        cin=3,
-        c_par=16,
-    )
-    print(f"  Conv output shape: {golden_output.shape}")
-    print(f"  Conv output range: [{golden_output.min()}, {golden_output.max()}]")
-
-    # Apply SiLU activation via precomputed LUT
+    # Load SiLU LUT
     print(f"Loading SiLU LUT: {args.lut}")
     silu_lut = load_silu_lut(args.lut)
     print(f"  LUT shape: {silu_lut.shape}")
-    golden_output = apply_silu_lut(golden_output, silu_lut, layer_idx=0)
-    print(f"  Activated output range: [{golden_output.min()}, {golden_output.max()}]")
-
-    # Apply 2x2 max pooling (layer 0 is CONV3_POOL)
-    print("Applying 2x2 max pooling...")
-    golden_output = apply_max_pool_2x2(golden_output)
-    print(f"  Pooled output shape: {golden_output.shape}")
-    print(f"  Pooled output range: [{golden_output.min()}, {golden_output.max()}]")
 
     # Save pixels as .mem (channel-interleaved: C_IN values per spatial position)
     # Conv3d reads MAX_PARALLEL channels at each pixel address.
     # Layout: for each spatial position, channels 0..2 then zeros for 3..15
-    print("Writing .mem files...")
+    print("Writing pixel .mem file...")
 
     # Pixel mem: [channel][spatial] layout matching conv3d's addressing
     # conv3d addr = (round * ACT_SIZE²) + (row * ACT_SIZE + col)
@@ -286,19 +316,47 @@ def main():
                     f.write(f"{val & 0xFF:02x}\n")
     print(f"  pixels: {pixels_path} ({3*256*256} entries, [ch][row][col])")
 
-    # Golden output: flat spatial
-    golden_path = os.path.join(args.out, "golden_kout0.mem")
-    write_hex_mem(golden_path, golden_output, "golden_kout0")
+    # Process Layer 0: CONV3_POOL 256x256x3 -> 128x128x16
+    print("\n=== Layer 0: CONV3_POOL 256x256x3 -> 128x128x16 ===")
+    layer0_out = process_layer(
+        input_fmap=pixels_int8,
+        weights_rom=rom_words,
+        golden_npz=g,
+        layer_idx=0,
+        silu_lut=silu_lut,
+        pool=True,
+    )
+    print(f"  Output shape: {layer0_out.shape}")
+    print(f"  Output range: [{layer0_out.min()}, {layer0_out.max()}]")
 
-    # Also dump the first 9 weight ROM words for debug verification
-    print("\nFirst 9 weight ROM words (kout=0, cin_grp=0):")
-    for i in range(9):
-        word = rom_words[layer_base + i]
-        hex_str = " ".join(f"{int(b) & 0xFF:02x}" for b in word)
-        print(f"  word[{i}]: {hex_str}")
+    # Process Layer 1: CONV3 128x128x16 -> 128x128x16
+    print("\n=== Layer 1: CONV3 128x128x16 -> 128x128x16 ===")
+    layer1_out = process_layer(
+        input_fmap=layer0_out,
+        weights_rom=rom_words,
+        golden_npz=g,
+        layer_idx=1,
+        silu_lut=silu_lut,
+        pool=False,
+    )
+    print(f"  Output shape: {layer1_out.shape}")
+    print(f"  Output range: [{layer1_out.min()}, {layer1_out.max()}]")
 
-    print(f"\nQP packed ROM entry 0: bias=0x{bias & 0xFFFFFFFF:08x}"
-          f" m0=0x{m0 & 0xFFFFFFFF:08x} nshift={nshift}")
+    # Write golden output files
+    print("\nWriting golden .mem files...")
+
+    # Layer 0 golden: single channel for backwards compat
+    golden_ch0 = layer0_out[:, :, 0]
+    golden_path = os.path.join(args.out, "golden_ch_out0.mem")
+    write_hex_mem(golden_path, golden_ch0, "golden_ch_out0")
+
+    # Layer 0 golden: full URAM packed (all 16 channels)
+    golden_l0_path = os.path.join(args.out, "golden_layer0_uram.mem")
+    write_uram_packed_mem(golden_l0_path, layer0_out)
+
+    # Layer 1 golden: full URAM packed
+    golden_l1_path = os.path.join(args.out, "golden_layer1_uram.mem")
+    write_uram_packed_mem(golden_l1_path, layer1_out)
 
     print("\nDone.")
 
