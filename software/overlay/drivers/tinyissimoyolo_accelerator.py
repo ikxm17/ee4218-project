@@ -247,6 +247,11 @@ class TinyissimoYoloAcceleratorDriver:
             nms_thresh: float = 0.45) -> dict:
         """End-to-end inference: write image → run → read → post-process.
 
+        Calls `configure()` first so back-to-back invocations always start
+        from a clean FSM state. Without the soft reset, stale URAM
+        contents from a prior run leak into the next inference and the
+        result becomes non-deterministic between calls.
+
         Args:
             image_rgb: (256, 256, 3) uint8 RGB image.
             conf_thresh: Confidence threshold for detections.
@@ -255,7 +260,7 @@ class TinyissimoYoloAcceleratorDriver:
         Returns:
             dict with keys: boxes, scores, class_ids, class_names, cycle_count
         """
-        self.set_mode(0)
+        self.configure(mode=0)
         self.start()
         self.write_pixels(image_rgb)
 
