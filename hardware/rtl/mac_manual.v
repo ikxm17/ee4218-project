@@ -5,25 +5,25 @@
 `timescale 1ns / 1ps
 
 module mac_manual #(
-    parameter N = 8, 
+    parameter N = 8,
     parameter ACC = 32
-    )(
-    input clk,sclr,ce,
-    input signed [N-1:0] a,
-    input signed [N-1:0] b,
-    input signed [ACC-1:0] c,
+)(
+    input clk,
+    input sclr,
+    input ce,
+    input  signed [N-1:0]   a,
+    input  signed [N-1:0]   b,
+    input  signed [ACC-1:0] c,
     output reg signed [ACC-1:0] p
-    );
+);
 
-always@(posedge clk,posedge sclr)
- begin
-    if(sclr)
-    begin
-        p<=0;
+    (* use_dsp = "yes" *)
+    wire signed [2*N-1:0] product = a * b;
+
+    always @(posedge clk, posedge sclr) begin
+        if (sclr)
+            p <= 0;
+        else if (ce)
+            p <= product + c;
     end
-    else if(ce)
-    begin
-        p <= (a*b+c);                   //performs the multiply accumulate operation
-    end
- end
 endmodule

@@ -146,11 +146,11 @@ module top #(
         .dout_b (qp_mem_dout_b)
     );
 
-    /* Activation LUT Memory — Distributed RAM, 8-bit x 4352 */
+    /* Activation LUT Memory — Block RAM, 8-bit x 4352 */
     sdp_ram #(
         .DATA_WIDTH (ACT_MEM_DATA_W),
         .DEPTH      (ACT_MEM_DEPTH),
-        .RAM_STYLE  ("distributed"),
+        .RAM_STYLE  ("block"),
         .MEM_FILE   ("silu_lut.mem")
     ) u_silu_mem (
         .clk    (aclk),
