@@ -264,6 +264,9 @@ module conv3d #(
                 end
                 if (slot_end[0]) begin
                     // use timing from first convolver as reference
+                    // explicitly clear write strobe so it cannot bleed into
+                    // S_WAIT_ROUND and let ACC_write_data_in default safely
+                    ACC_write_en   <= 0;
                     state <= S_WAIT_ROUND;
                     rst_convolvers <= 1;
                     conv_running <= 0;
@@ -319,6 +322,10 @@ module conv3d #(
 
     // accumulator data to BRAM
     always @(*) begin
+        // default to 0 so every code path drives the signal — prevents
+        // 32-bit latch inference (Synth 8-327). Safe because ACC_write_en
+        // is gated to 0 outside S_RUNNING by the FSM block above.
+        ACC_write_data_in = '0;
         if (state == S_RUNNING) begin
             // TODO: my slot_valid does not align with the q_out value, is one cycle earlier
             // currently removed slot_valid[0] condition, but see if i rlly needed it?
