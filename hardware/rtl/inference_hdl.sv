@@ -131,6 +131,17 @@ module inference_hdl #(
     logic [4:0]  layer_idx;
     wire  [4:0]  next_layer_idx  = layer_idx + 5'd1;
 
+    /* Combinational lookahead into LAYER_CFG.
+     * Hoisted out of always_ff blocks so Vivado does not infer phantom
+     * sequential elements for a local _next struct (one phantom FF per
+     * packed field × two always_ff blocks = 26 spurious 8-6014 warnings).
+     * The whole-struct assignment form sidesteps the XSim variable-indexed
+     * struct field extraction bug (commits b799984, b271749) — that bug
+     * only fires on LAYER_CFG[var].field; copying the whole element to a
+     * local first and then field-selecting from the local is safe. */
+    layer_cfg_t next_layer_cfg;
+    always_comb next_layer_cfg = LAYER_CFG[next_layer_idx];
+
     wire  [8:0]  rt_act_size     = r_cfg.h_in;
     wire  [7:0]  rt_cin          = r_cfg.cin;
     wire  [7:0]  rt_cout         = r_cfg.cout;
@@ -318,9 +329,7 @@ module inference_hdl #(
 
                 S_NEXT_LAYER: begin
                     if (next_layer_idx < NUM_LAYERS) begin
-                        layer_cfg_t _next;
-                        _next = LAYER_CFG[next_layer_idx];
-                        wt_addr_reg    <= _next.wt_base + 1;
+                        wt_addr_reg    <= next_layer_cfg.wt_base + 1;
                         layer_idx      <= next_layer_idx;
                         r_layer_idx    <= next_layer_idx;
                         ch_out         <= 8'd0;
@@ -401,9 +410,7 @@ module inference_hdl #(
 
             S_NEXT_LAYER: begin
                 if (next_layer_idx < NUM_LAYERS) begin
-                    layer_cfg_t _next;
-                    _next = LAYER_CFG[next_layer_idx];
-                    r_cfg <= _next;
+                    r_cfg <= next_layer_cfg;
                 end
             end
 
