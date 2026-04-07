@@ -96,8 +96,10 @@ module conv3d #(
     localparam S_IDLE           = 2'd0;
     localparam S_RUNNING        = 2'd1;
     localparam S_WAIT_ROUND     = 2'd2;
+    localparam S_DRAIN          = 2'd3;     // Cone A pipeline flush (post requantize fix)
 
     reg [1:0]                              state;
+    reg [1:0]                              drain_count;        // counts to 2 in S_DRAIN
     reg [3:0]                              round;
     reg                                    conv_running;        // needed as condition to enable convolver
     reg                                    rst_convolvers;      // set after every round of convolutions
@@ -223,7 +225,7 @@ module conv3d #(
     // FSM
     // ------------------------------------------------------------------
     always @(posedge clk) begin
-        if (rst) 
+        if (rst)
         begin
             state          <= S_IDLE;
             done           <= 0;
@@ -236,6 +238,7 @@ module conv3d #(
             r_m0           <= 0;
             r_n_shift      <= 0;
             req_weights    <= 0;
+            drain_count    <= 0;
         end
         else 
         begin
@@ -263,14 +266,14 @@ module conv3d #(
                     conv_running <= 1;
                 end
                 if (slot_end[0]) begin
-                    // use timing from first convolver as reference
-                    // (write-strobe clearing is handled in the accumulator
-                    // always block below — see slot_end[0] priority branch)
-                    state <= S_WAIT_ROUND;
-                    rst_convolvers <= 1;
-                    conv_running <= 0;
-                    // request new weights for next round if not last round
-                    if (round != total_rounds - 1)   req_weights <= 1;
+                    // Enter S_DRAIN to let the new pipeline stages
+                    // (r_scaled_pix_acc + RES_write_data_in_reg + control delay)
+                    // flush the last accumulated value before we reset the
+                    // convolvers and fire done. r_pix_acc holds across
+                    // S_DRAIN because the "r_pix_acc <= pix_acc" assignment
+                    // lives in the S_RUNNING case of the ACC always_ff.
+                    state       <= S_DRAIN;
+                    drain_count <= 0;
                 end
             end
 
@@ -289,6 +292,26 @@ module conv3d #(
                     state <= S_RUNNING;
                 end else begin
                     // wait in this state until weights for next round are loaded
+                end
+            end
+
+            S_DRAIN: begin
+                // Wait for r_scaled_pix_acc, RES_write_data_in_reg, and the
+                // control-path delay flops to flush the last accumulated
+                // value through the new pipeline. drain_count==2 gives 3
+                // cycles in S_DRAIN, which is 1 cycle of margin past the
+                // last RES BRAM write. r_pix_acc is not reassigned here
+                // (no S_DRAIN case in the ACC always_ff), so the last
+                // valid pix_acc holds and feeds the requantize chain
+                // through the drain.
+                if (drain_count == 2'd2) begin
+                    state          <= S_WAIT_ROUND;
+                    rst_convolvers <= 1;
+                    conv_running   <= 0;
+                    if (round != total_rounds - 1)
+                        req_weights <= 1;
+                end else begin
+                    drain_count <= drain_count + 1;
                 end
             end
 
@@ -382,10 +405,16 @@ module conv3d #(
     end
 
     // ------------------------------------------------------------------
-    // re-scaling (comb, done pixel by pixel)
+    // re-scaling — scaled_pix_acc registered to break Cone A at DSP output
     // ------------------------------------------------------------------
+    always @(posedge clk) begin
+        if (rst)
+            scaled_pix_acc <= 0;
+        else
+            scaled_pix_acc <= ACC_write_data_in * r_m0;
+    end
+
     always @(*) begin
-        scaled_pix_acc = ACC_write_data_in * r_m0;
         q_pix_wide = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
         // Saturate to int8 [-128, 127]
         if (q_pix_wide > 127)
@@ -397,19 +426,42 @@ module conv3d #(
     end
 
     // ------------------------------------------------------------------
-    // write outputs
+    // Control-path delay: 1-cycle pipeline of address/enable to align with
+    // the new scaled_pix_acc data flop. Without this, q_pix would lag the
+    // address by 1 cycle and writes would land at the wrong address.
     // ------------------------------------------------------------------
-    
+    reg [DEPTH_BITS-1:0]   ACC_write_address_d;
+    reg                    ACC_write_en_d;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            ACC_write_address_d <= 0;
+            ACC_write_en_d      <= 0;
+        end else begin
+            ACC_write_address_d <= ACC_write_address;
+            ACC_write_en_d      <= ACC_write_en;
+        end
+    end
+
+    // ------------------------------------------------------------------
+    // write outputs — registered to break Cone A tail
+    // ------------------------------------------------------------------
+
     // in LAST ROUND can write to RES_RAM after every conv_valid output
 
-    always @(*) begin
-        RES_write_data_in = q_pix;
-        RES_write_address = ACC_write_address;
-        if (round == total_rounds - 1) begin
-            // only write to RES in last round after each pixel's valid convolution outputs
-            RES_write_en = ACC_write_en; 
+    always @(posedge clk) begin
+        if (rst) begin
+            RES_write_en      <= 1'b0;
+            RES_write_address <= 0;
+            RES_write_data_in <= 0;
+        end else begin
+            RES_write_data_in <= q_pix;
+            RES_write_address <= ACC_write_address_d;
+            if (round == total_rounds - 1)
+                RES_write_en <= ACC_write_en_d;
+            else
+                RES_write_en <= 1'b0;
         end
-        else RES_write_en = 0;
     end
 
 
