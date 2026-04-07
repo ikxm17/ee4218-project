@@ -207,13 +207,21 @@ class TinyissimoYoloAcceleratorDriver:
         self._ip.write(self._RESULT_BUF_REG, buf & 0x1)
 
     def read_window(self, base_addr: int, buf: int, num_words: int) -> np.ndarray:
-        """Convenience: slide the window then read `num_words` URAM words.
+        """Read `num_words` URAM words starting at `base_addr` from `buf`.
 
-        Returns the same shape as `read_results_raw()` truncated to
-        `num_words` rows: a (num_words, 16) int8 array.
+        The AXI-Lite result region only exposes `_RESULT_WORDS` (320) URAM
+        words at a time, so for larger reads this method slides the
+        window forward and concatenates the chunks. Returns a
+        `(num_words, 16)` int8 array.
         """
-        self.set_result_window(base_addr, buf)
-        return self.read_results_raw()[:num_words]
+        out = np.zeros((num_words, 16), dtype=np.int8)
+        pos = 0
+        while pos < num_words:
+            chunk = min(self._RESULT_WORDS, num_words - pos)
+            self.set_result_window(base_addr + pos, buf)
+            out[pos:pos + chunk] = self.read_results_raw()[:chunk]
+            pos += chunk
+        return out
 
     def read_results_raw(self) -> np.ndarray:
         """Read raw int8 detection results from URAM in a single bulk copy.
