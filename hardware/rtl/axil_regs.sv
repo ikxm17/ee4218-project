@@ -3,16 +3,21 @@
  * AXI4-Lite Slave — TinyissimoYOLO Accelerator Registers
  *
  * Register map:
- *   0x000  CTRL       R/W  [0]=start, [1]=pixel_fifo_rst, [7]=soft_reset
- *   0x004  STATUS     R    [0]=busy, [1]=done, [2]=idle, [3]=preload_done
- *   0x008  MODE       R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine_sel
+ *   0x000  CTRL         R/W  [0]=start, [1]=pixel_fifo_rst, [7]=soft_reset
+ *   0x004  STATUS       R    [0]=busy, [1]=done, [2]=idle, [3]=preload_done
+ *   0x008  MODE         R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine_sel
  *                              0=HDL inference engine, 1=HLS inference engine
- *   0x00C  CYCLE_CNT  R    inference cycle counter
- *   0x010  LAYER_IDX  R    [4:0]=current layer during inference
- *   0x020  PIXEL_FIFO W    sequential pixel write (65536 × 32-bit)
- *   0x024  PIXEL_CNT  R    number of 32-bit words written to FIFO
- *   0x100  RESULT     R    detection results (320 × 128-bit = 1280 × 32-bit)
- *         ...0x14FF
+ *   0x00C  CYCLE_CNT    R    inference cycle counter
+ *   0x010  LAYER_IDX    R    [4:0]=current layer during inference
+ *   0x014  RESULT_BASE  R/W  [13:0]=URAM base address the result region reads from
+ *                            (default 14'd256). Lets the host slide the read window
+ *                            over fmap_a/fmap_b for layer-by-layer bisection.
+ *   0x018  RESULT_BUF   R/W  [0]=buffer select for the result region (0=fmap_a,
+ *                            1=fmap_b, default 1).
+ *   0x020  PIXEL_FIFO   W    sequential pixel write (65536 × 32-bit)
+ *   0x024  PIXEL_CNT    R    number of 32-bit words written to FIFO
+ *   0x100  RESULT       R    detection results (320 × 128-bit = 1280 × 32-bit)
+ *         ...0x14FF       reads from {RESULT_BUF, RESULT_BASE + offset}
  */
 module axil_regs #(
     parameter DATA_W     = 32,
@@ -62,27 +67,33 @@ module axil_regs #(
     /* Result read */
     output logic                      o_result_rd_en,
     output logic [FMAP_ADDR_W-1:0]    o_result_rd_addr,
+    output logic [FMAP_ADDR_W-1:0]    o_result_base_addr,
+    output logic                      o_result_buf_sel,
     input  logic [FMAP_DATA_W-1:0]    i_result_rd_data
 );
 
     /* ================================================================
      *  Address decode
      * ================================================================ */
-    localparam [ADDR_W-1:0] ADDR_CTRL        = 13'h000,
-                            ADDR_STATUS      = 13'h004,
-                            ADDR_MODE        = 13'h008,
-                            ADDR_CYCLE_CNT   = 13'h00C,
-                            ADDR_LAYER_IDX   = 13'h010,
-                            ADDR_PIXEL_FIFO  = 13'h020,
-                            ADDR_PIXEL_CNT   = 13'h024,
-                            ADDR_RESULT_BASE = 13'h100,
-                            ADDR_RESULT_END  = 13'h14FF;
+    localparam [ADDR_W-1:0] ADDR_CTRL          = 13'h000,
+                            ADDR_STATUS        = 13'h004,
+                            ADDR_MODE          = 13'h008,
+                            ADDR_CYCLE_CNT     = 13'h00C,
+                            ADDR_LAYER_IDX     = 13'h010,
+                            ADDR_RESULT_BASE_R = 13'h014,
+                            ADDR_RESULT_BUF_R  = 13'h018,
+                            ADDR_PIXEL_FIFO    = 13'h020,
+                            ADDR_PIXEL_CNT     = 13'h024,
+                            ADDR_RESULT_BASE   = 13'h100,
+                            ADDR_RESULT_END    = 13'h14FF;
 
     /* ================================================================
      *  Internal registers
      * ================================================================ */
     logic [31:0] reg_ctrl;
     logic [31:0] reg_mode;
+    logic [FMAP_ADDR_W-1:0] reg_result_base;  // URAM base for result read window
+    logic                   reg_result_buf;   // 0=fmap_a, 1=fmap_b
 
     logic [FMAP_DATA_W-1:0]  pixel_accum;
     logic [1:0]              pixel_lane;
@@ -138,16 +149,24 @@ module axil_regs #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            reg_ctrl <= '0;
-            reg_mode <= '0;
+            reg_ctrl        <= '0;
+            reg_mode        <= '0;
+            // Defaults preserve the original cv2/cv3 result-region behaviour
+            // (window starts at fmap_b[256], length 320 URAM words covers
+            // fmap_b[256..575]). The host can override either register at
+            // any time to slide the window over a different layer's output.
+            reg_result_base <= FMAP_ADDR_W'(256);
+            reg_result_buf  <= 1'b1;
         end else begin
             if (reg_ctrl[0]) reg_ctrl[0] <= 1'b0;
             if (reg_ctrl[1]) reg_ctrl[1] <= 1'b0;
 
             if (wr_fire) begin
                 case (wr_addr_mux)
-                    ADDR_CTRL: reg_ctrl <= s_axi_wdata;
-                    ADDR_MODE: reg_mode <= s_axi_wdata;
+                    ADDR_CTRL:          reg_ctrl        <= s_axi_wdata;
+                    ADDR_MODE:          reg_mode        <= s_axi_wdata;
+                    ADDR_RESULT_BASE_R: reg_result_base <= s_axi_wdata[FMAP_ADDR_W-1:0];
+                    ADDR_RESULT_BUF_R:  reg_result_buf  <= s_axi_wdata[0];
                     default: ;
                 endcase
             end
@@ -262,13 +281,15 @@ module axil_regs #(
             rd_data_mux = result_data_slice;
         else begin
             case (rd_addr)
-                ADDR_CTRL:      rd_data_mux = reg_ctrl;
-                ADDR_STATUS:    rd_data_mux = {28'd0, preload_done_r, ~i_busy, i_done, i_busy};
-                ADDR_MODE:      rd_data_mux = reg_mode;
-                ADDR_CYCLE_CNT: rd_data_mux = i_cycle_count;
-                ADDR_LAYER_IDX: rd_data_mux = {27'd0, i_layer_idx};
-                ADDR_PIXEL_CNT: rd_data_mux = {15'd0, pixel_count};
-                default:        rd_data_mux = 32'hDEAD_BEEF;
+                ADDR_CTRL:          rd_data_mux = reg_ctrl;
+                ADDR_STATUS:        rd_data_mux = {28'd0, preload_done_r, ~i_busy, i_done, i_busy};
+                ADDR_MODE:          rd_data_mux = reg_mode;
+                ADDR_CYCLE_CNT:     rd_data_mux = i_cycle_count;
+                ADDR_LAYER_IDX:     rd_data_mux = {27'd0, i_layer_idx};
+                ADDR_RESULT_BASE_R: rd_data_mux = {{(32-FMAP_ADDR_W){1'b0}}, reg_result_base};
+                ADDR_RESULT_BUF_R:  rd_data_mux = {31'd0, reg_result_buf};
+                ADDR_PIXEL_CNT:     rd_data_mux = {15'd0, pixel_count};
+                default:            rd_data_mux = 32'hDEAD_BEEF;
             endcase
         end
     end
@@ -276,8 +297,10 @@ module axil_regs #(
     /* ================================================================
      *  Control outputs
      * ================================================================ */
-    assign o_start      = reg_ctrl[0];
-    assign o_mode       = reg_mode[1:0];
+    assign o_start                 = reg_ctrl[0];
+    assign o_mode                  = reg_mode[1:0];
+    assign o_result_base_addr = reg_result_base;
+    assign o_result_buf_sel   = reg_result_buf;
     assign o_engine_sel = reg_mode[4];   // 0 = HDL engine, 1 = HLS engine
 
 endmodule

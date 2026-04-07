@@ -211,6 +211,8 @@ module inference_top #(
     logic                    result_rd_en;
     logic [FMAP_ADDR_W-1:0] result_rd_addr;
     logic [FMAP_DATA_W-1:0] result_rd_data;
+    logic [FMAP_ADDR_W-1:0] result_base_addr;   // programmable URAM base from axil_regs
+    logic                    result_buf_sel;    // 0=fmap_a, 1=fmap_b — selected by axil_regs
 
     /* Inference start/done — muxed between testbench and phase FSM */
     logic inference_start;
@@ -402,22 +404,26 @@ module inference_top #(
             .o_preload_done    (axil_preload_done),
             .o_result_rd_en    (result_rd_en),
             .o_result_rd_addr  (result_rd_addr),
+            .o_result_base_addr(result_base_addr),
+            .o_result_buf_sel  (result_buf_sel),
             .i_result_rd_data  (result_rd_data)
         );
 
     end else begin : gen_tb_mode
         /* Testbench mode: no AXI, direct start/done */
-        assign inference_start    = start;
+        assign inference_start       = start;
         assign engine_sel         = 1'b0;  // TB always runs HDL engine
         assign engine_sel_latched = 1'b0;
-        assign preload_wr_en   = 1'b0;
-        assign preload_wr_addr = '0;
-        assign preload_wr_data = '0;
-        assign preload_active  = 1'b0;
-        assign result_rd_en    = 1'b0;
-        assign result_rd_addr  = '0;
-        assign irq_done        = 1'b0;
-        assign s_axis_tready   = 1'b0;
+        assign preload_wr_en      = 1'b0;
+        assign preload_wr_addr    = '0;
+        assign preload_wr_data    = '0;
+        assign preload_active     = 1'b0;
+        assign result_rd_en       = 1'b0;
+        assign result_rd_addr     = '0;
+        assign result_base_addr   = FMAP_ADDR_W'(256);
+        assign result_buf_sel     = 1'b1;
+        assign irq_done           = 1'b0;
+        assign s_axis_tready      = 1'b0;
 
         /* Tie off AXI-Lite outputs */
         assign s_axi_lite_awready = 1'b0;
@@ -530,6 +536,15 @@ module inference_top #(
     // --- Output buffer read-back data mux (back to inference engine) ---
     assign out_buf_rd_data_int = buf_sel ? fmap_b_dout_b : fmap_a_dout_b;
 
+    /* result_rd_en routes to fmap_a or fmap_b depending on the host's
+     * RESULT_BUF register selection (axil_regs reg_result_buf). The base
+     * address (RESULT_BASE register) is added to result_rd_addr to slide
+     * the read window over arbitrary URAM regions for layer-by-layer
+     * silicon bisection. Defaults (base=256, buf=1) preserve the original
+     * cv2/cv3 readout behaviour exactly. */
+    wire result_rd_a = result_rd_en && !result_buf_sel;
+    wire result_rd_b = result_rd_en &&  result_buf_sel;
+
     // --- fmap_a port allocation ---
     //
     // engine_sel_latched == 1 (HLS): the HLS wrapper drives both ports
@@ -545,9 +560,9 @@ module inference_top #(
     assign fmap_a_din_a  = engine_sel_latched ? hls_fmap_a_din_a
                          : (!buf_sel ? out_buf_wr_data_int : '0);
     assign fmap_a_en_b   = engine_sel_latched ? hls_fmap_a_en_b
-                         : (!buf_sel ? out_buf_rd_en_int   : input_rd_en);
+                         : (result_rd_a ? 1'b1                                : (!buf_sel ? out_buf_rd_en_int   : input_rd_en));
     assign fmap_a_addr_b = engine_sel_latched ? hls_fmap_a_addr_b
-                         : (!buf_sel ? out_buf_rd_addr_int : input_rd_addr);
+                         : (result_rd_a ? (result_base_addr + result_rd_addr) : (!buf_sel ? out_buf_rd_addr_int : input_rd_addr));
 
     // --- fmap_b port allocation (preload + result muxes) ---
     //
@@ -567,13 +582,13 @@ module inference_top #(
                          : (engine_sel_latched ? hls_fmap_b_din_a
                                                : (buf_sel ? out_buf_wr_data_int : '0));
 
-    assign fmap_b_en_b   = result_rd_en ? 1'b1
+    assign fmap_b_en_b   = result_rd_b ? 1'b1
                          : (engine_sel_latched ? hls_fmap_b_en_b
                                                : (buf_sel ? out_buf_rd_en_int   : input_rd_en));
-    assign fmap_b_addr_b = result_rd_en ? (FMAP_ADDR_W'(256) + result_rd_addr)
+    assign fmap_b_addr_b = result_rd_b ? (result_base_addr + result_rd_addr)
                          : (engine_sel_latched ? hls_fmap_b_addr_b
                                                : (buf_sel ? out_buf_rd_addr_int : input_rd_addr));
-    assign result_rd_data = fmap_b_dout_b;
+    assign result_rd_data = result_buf_sel ? fmap_b_dout_b : fmap_a_dout_b;
 
     /* ================================================================
      *  Inference Controller — HDL / HLS dual engines
