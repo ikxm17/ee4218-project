@@ -1,18 +1,18 @@
 """PYNQ driver for the TinyissimoYOLO hardware accelerator.
 
-Supports both HDL and HLS inference engines (selected via MODE register).
-Handles pixel write (via AXI-Lite FIFO), inference control, result readout,
-and post-processing (DFL decode, sigmoid, NMS).
+Wraps the user.org:user:tinyissimoyolo_accelerator:1.0 IP. Handles
+mode select, pixel preload via the AXI-Lite FIFO, inference control,
+result readout, and post-processing (DFL decode, sigmoid, NMS).
 
 Usage:
-    from pynq import MMIO
-    accel = TinyissimoYoloAccelerator(MMIO(0xA00C_0000, 0x2000))
+    from pynq import Overlay
+    from software.overlay.drivers import TinyissimoYoloAcceleratorDriver
 
-    # Load and run
-    image = cv2.imread("test.jpg")
-    image = cv2.resize(image, (256, 256))
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    detections = accel.run(image)
+    ov = Overlay("tinyissimoyolo.bit")
+    accel = TinyissimoYoloAcceleratorDriver(ov.tinyissimoyolo_accel_0)
+
+    image = Image.open("test.jpg").convert("RGB").resize((256, 256))
+    detections = accel.run(np.array(image))
 """
 
 from __future__ import annotations
@@ -25,15 +25,23 @@ import numpy as np
 CLASS_NAMES = {0: "chair", 1: "bowl", 2: "cup"}
 CLASS_COLORS = {0: (255, 0, 0), 1: (0, 255, 0), 2: (0, 0, 255)}
 
-# Output quantization (layers 13 and 16 share the same params)
+# Output quantization (layers 13 and 16 share the same params,
+# from hardware/weights/hdl/rom_summary.json)
 OUTPUT_SCALE = 0.10655
 OUTPUT_ZP = 10
 
 
-class TinyissimoYoloAccelerator:
-    """Driver for the tinyissimoyolo_accelerator_v1_0 IP."""
+class TinyissimoYoloAcceleratorDriver:
+    """Driver for the TinyissimoYOLO HDL accelerator IP.
 
-    # Register offsets
+    Register map matches hardware/ip_repo/src/axil_regs.sv. Handshake
+    matches hardware/testbench/tb_tinyissimoyolo_accel.sv.
+    """
+
+    IP_VLNV = "user.org:user:tinyissimoyolo_accelerator:1.0"
+    IP_NAME = "tinyissimoyolo_accel_0"
+
+    # Register offsets (axil_regs.sv:69-77)
     _CTRL       = 0x000
     _STATUS     = 0x004
     _MODE       = 0x008
@@ -43,12 +51,12 @@ class TinyissimoYoloAccelerator:
     _PIXEL_CNT  = 0x024
     _RESULT_BASE = 0x100
 
-    # CTRL bits
+    # CTRL bits (auto-clearing one-shots in axil_regs.sv:142-143)
     _CTRL_START     = 1 << 0
     _CTRL_FIFO_RST  = 1 << 1
     _CTRL_SOFT_RST  = 1 << 7
 
-    # STATUS bits
+    # STATUS bits (axil_regs.sv:264)
     _STATUS_BUSY    = 1 << 0
     _STATUS_DONE    = 1 << 1
     _STATUS_IDLE    = 1 << 2
@@ -59,31 +67,69 @@ class TinyissimoYoloAccelerator:
     _CV3_WORDS = 64    # fmap_b[512..575]: 1 group × 64 spatial
     _RESULT_WORDS = _CV2_WORDS + _CV3_WORDS  # 320 URAM words = 1280 32-bit reads
 
-    def __init__(self, mmio):
-        self._mmio = mmio
+    def __init__(self, ip):
+        """Wrap a PYNQ IP/MMIO handle exposing read(offset)/write(offset, value).
+
+        For PYNQ DefaultIP / MMIO handles the wrapper also exposes a
+        numpy uint32 view via `.array`, which `read_results_raw()` uses
+        for a single bulk readout instead of 1280 individual MMIO reads.
+        """
+        self._ip = ip
 
     @property
     def status(self) -> int:
-        return self._mmio.read(self._STATUS)
+        return self._ip.read(self._STATUS)
 
     @property
     def cycle_count(self) -> int:
-        return self._mmio.read(self._CYCLE_CNT)
+        return self._ip.read(self._CYCLE_CNT)
 
     @property
     def layer_idx(self) -> int:
-        return self._mmio.read(self._LAYER_IDX) & 0x1F
+        return self._ip.read(self._LAYER_IDX) & 0x1F
 
     @property
     def pixel_count(self) -> int:
-        return self._mmio.read(self._PIXEL_CNT)
+        return self._ip.read(self._PIXEL_CNT)
 
     def set_mode(self, mode: int):
         """Set input mode: 0 = AXI-Lite FIFO, 1 = S_AXIS camera."""
-        self._mmio.write(self._MODE, mode & 0x1F)
+        if mode not in (0, 1):
+            raise ValueError(f"mode must be 0 (FIFO) or 1 (S_AXIS), got {mode}")
+        self._ip.write(self._MODE, mode)
 
     def soft_reset(self):
-        self._mmio.write(self._CTRL, self._CTRL_SOFT_RST)
+        """Pulse CTRL[7] (soft_reset, auto-clearing). Restores phase FSM to IDLE."""
+        self._ip.write(self._CTRL, self._CTRL_SOFT_RST)
+
+    def configure(self, mode: int = 0):
+        """Bring the accelerator into a clean configured state.
+
+        Issues a soft reset (clears phase FSM, FIFO accumulator, pixel
+        counter) before latching the mode select. Soft reset must come
+        first so MODE writes land into a freshly-reset register file.
+
+        Args:
+            mode: 0 = AXI-Lite FIFO preload (default for offline test),
+                  1 = S_AXIS camera streaming.
+        """
+        self.soft_reset()
+        self.set_mode(mode)
+
+    def read_status(self) -> dict:
+        """Decode the STATUS register into a dict.
+
+        Mirrors the convention of VdmaDriver.read_status(). Bit layout
+        from axil_regs.sv:264.
+        """
+        raw = self._ip.read(self._STATUS)
+        return {
+            "busy":         bool(raw & self._STATUS_BUSY),
+            "done":         bool(raw & self._STATUS_DONE),
+            "idle":         bool(raw & self._STATUS_IDLE),
+            "preload_done": bool(raw & self._STATUS_PRELOAD),
+            "raw":          raw,
+        }
 
     def start(self):
         """Enter PRELOAD phase and reset pixel FIFO.
@@ -91,31 +137,46 @@ class TinyissimoYoloAccelerator:
         In FIFO mode: call this BEFORE write_pixels().
         In S_AXIS mode: not needed (auto-preloads on SOF).
         """
-        self._mmio.write(self._CTRL, self._CTRL_START | self._CTRL_FIFO_RST)
+        self._ip.write(self._CTRL, self._CTRL_START | self._CTRL_FIFO_RST)
 
     def write_pixels(self, image_rgb: np.ndarray):
         """Write a 256x256 RGB8 image to the accelerator via FIFO.
 
         Converts uint8 (0-255) to int8 (-128..127) per model convention.
-        Packs as 4 bytes per pixel: [R, G, B, pad].
+        Packs each pixel as a 32-bit word `[R, G, B, pad=0]` (little-
+        endian → on-the-wire `{0x00, B, G, R}`), matching the testbench
+        at hardware/testbench/tb_tinyissimoyolo_accel.sv:317-322.
+
+        Every word targets the SAME register offset (PIXEL_FIFO = 0x020),
+        so PYNQ's `.array` slice trick — which writes to consecutive
+        offsets — does not apply. The Python loop is the floor for the
+        AXI-Lite-FIFO ingress path; ~150 ms wall time for 65 536 writes
+        on Kria. An AXI-Full burst ingress would be the architectural
+        fix; out of scope for the smoke test.
 
         Args:
             image_rgb: (256, 256, 3) uint8 array, RGB channel order.
+
+        Raises:
+            ValueError: if shape or dtype do not match the accelerator's
+                input contract.
         """
-        assert image_rgb.shape == (256, 256, 3), f"Expected (256,256,3), got {image_rgb.shape}"
-        assert image_rgb.dtype == np.uint8, f"Expected uint8, got {image_rgb.dtype}"
+        if image_rgb.shape != (256, 256, 3):
+            raise ValueError(
+                f"image_rgb must be (256,256,3), got {image_rgb.shape}")
+        if image_rgb.dtype != np.uint8:
+            raise ValueError(
+                f"image_rgb must be uint8, got {image_rgb.dtype}")
 
-        # uint8 → int8: subtract 128
         pixels_int8 = (image_rgb.astype(np.int16) - 128).astype(np.int8)
-
-        # Pack as 4 bytes per pixel: [R, G, B, pad=0]
         packed = np.zeros((256 * 256, 4), dtype=np.int8)
         packed[:, :3] = pixels_int8.reshape(-1, 3)
 
-        # Write to FIFO as 32-bit words (65536 writes)
-        words = packed.view(np.uint32).flatten()
+        # Materialise as a Python list once so the hot loop avoids
+        # per-iteration np.uint32 → int conversion.
+        words = packed.view(np.uint32).flatten().tolist()
         for w in words:
-            self._mmio.write(self._PIXEL_FIFO, int(w))
+            self._ip.write(self._PIXEL_FIFO, w)
 
     def wait_done(self, timeout_s: float = 1.0) -> bool:
         """Poll STATUS until inference completes."""
@@ -126,16 +187,32 @@ class TinyissimoYoloAccelerator:
         return False
 
     def read_results_raw(self) -> np.ndarray:
-        """Read raw int8 detection results from URAM.
+        """Read raw int8 detection results from URAM in a single bulk copy.
+
+        The result region (`_RESULT_BASE` .. `_RESULT_BASE + 0x14FF`) is
+        addressed at consecutive 32-bit offsets, so we can use PYNQ's
+        `.array` view (a numpy uint32 over the mmap) to copy 1280 words
+        in one memcpy instead of 1280 individual MMIO syscalls. Falls
+        back to the per-word loop if the handle does not expose `.array`
+        (e.g. a custom mock that only implements `read`/`write`).
 
         Returns:
             (320, 16) int8 array — 320 URAM words, 16 bytes each.
-            Rows 0-255: cv2 bbox logits (4 ch-groups × 64 spatial positions)
-            Rows 256-319: cv3 class logits (1 ch-group × 64 spatial, only bytes 0-2 valid)
+            Rows 0-255:   cv2 bbox logits (4 groups × 64 spatial)
+            Rows 256-319: cv3 class logits (1 group × 64 spatial,
+                          only lanes 0..2 valid)
         """
-        raw = np.zeros(self._RESULT_WORDS * 4, dtype=np.uint32)
-        for i in range(self._RESULT_WORDS * 4):
-            raw[i] = self._mmio.read(self._RESULT_BASE + i * 4)
+        n_words32 = self._RESULT_WORDS * 4
+        array_view = getattr(self._ip, "array", None)
+        if array_view is not None:
+            start = self._RESULT_BASE // 4
+            raw = np.asarray(
+                array_view[start:start + n_words32], dtype=np.uint32
+            ).copy()
+        else:
+            raw = np.zeros(n_words32, dtype=np.uint32)
+            for i in range(n_words32):
+                raw[i] = self._ip.read(self._RESULT_BASE + i * 4)
         return raw.view(np.int8).reshape(self._RESULT_WORDS, 16)
 
     def unpack_detections(self, raw: np.ndarray) -> np.ndarray:
@@ -186,18 +263,22 @@ class TinyissimoYoloAccelerator:
             raise TimeoutError("Inference did not complete within 1 second")
 
         cycles = self.cycle_count
-        raw = self.read_results_raw()
-        data = self.unpack_detections(raw)
+        raw_table = self.read_results_raw()
+        raw_tensor = self.unpack_detections(raw_table)
 
-        boxes, scores, class_ids = post_process(data, conf_thresh)
+        boxes, scores, class_ids = post_process(raw_tensor, conf_thresh)
         boxes, scores, class_ids = nms(boxes, scores, class_ids, nms_thresh)
 
         return {
-            "boxes": boxes,
-            "scores": scores,
-            "class_ids": class_ids,
+            "boxes":       boxes,
+            "scores":      scores,
+            "class_ids":   class_ids,
             "class_names": [CLASS_NAMES.get(c, f"cls{c}") for c in class_ids],
             "cycle_count": cycles,
+            # Raw outputs exposed so callers (smoke runner, golden
+            # comparison) don't need to re-read MMIO.
+            "raw_table":   raw_table,
+            "raw_tensor":  raw_tensor,
         }
 
 
