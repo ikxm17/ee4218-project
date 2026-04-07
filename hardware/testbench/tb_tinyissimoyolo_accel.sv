@@ -329,6 +329,30 @@ module tb_tinyissimoyolo_accel;
         $display("  PIXEL_CNT = %0d (expected 65536)", read_val);
 
         // -----------------------------------------------------------------
+        //  Step 3.5: Verify layer 0 output via hierarchical fmap_a snapshot
+        //
+        //  Closes the coverage gap that hid the +1 URAM-word silicon shift:
+        //  the original Step 5 verifies only "surviving" layers (10/12/13/15/16)
+        //  because by the time inference is fully done, layer 0's output in
+        //  fmap_a[0..16383] has been overwritten by layers 2/4/6/8.
+        //
+        //  Insertion point: wait for the FSM to advance into layer 1 (i.e.
+        //  layer_idx==1). At that moment layer 0 has committed its full 16384
+        //  words to fmap_a, and layer 1 writes to fmap_b (PP_BUF_SEL[1]=1) so
+        //  fmap_a remains undisturbed until layer 2 begins. We snapshot here.
+        // -----------------------------------------------------------------
+        $display("[STEP 3.5] Waiting for FSM to advance past layer 0...");
+        wait(dut.u_inference_hdl.layer_idx == 1);
+        @(posedge clk);
+        $display("[STEP 3.5] Layer 0 complete (cycle=%0d). Verifying fmap_a[0..16383] vs golden_layer0...",
+                 cycle_count);
+        load_golden(0);
+        if (PP_BUF_SEL[0] == 0)
+            verify_uram_at_offset("fmap_a", URAM_WORDS[0], WR_OFFSET[0]);
+        else
+            verify_uram_at_offset("fmap_b", URAM_WORDS[0], WR_OFFSET[0]);
+
+        // -----------------------------------------------------------------
         //  Step 4: Wait for inference to complete
         // -----------------------------------------------------------------
         $display("[STEP 4] Waiting for inference (done)...");
