@@ -88,7 +88,7 @@ module tb_tinyissimoyolo_accel;
     // =========================================================================
     //  DUT (TB_MODE=0: AXI IP mode)
     // =========================================================================
-    top #(
+    inference_top #(
         .MAX_PARALLEL   (MAX_PARALLEL),
         .N_BITS         (N_BITS),
         .DEPTH_BITS     (DEPTH_BITS),

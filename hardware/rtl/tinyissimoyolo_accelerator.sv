@@ -36,7 +36,7 @@ module tinyissimoyolo_accelerator #(
     output logic                   irq_done
 );
 
-    top #(
+    inference_top #(
         .TB_MODE    (0),
         .AXI_ADDR_W (AXI_ADDR_W)
     ) u_core (

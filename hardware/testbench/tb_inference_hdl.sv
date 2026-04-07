@@ -33,7 +33,7 @@ module tb_inference_hdl;
     logic [DEPTH_BITS-1:0]              res_write_addr;
     logic signed [N_BITS-1:0]           res_write_data;
 
-    // AXI stubs (TB_MODE=1, all tied off internally by top.sv)
+    // AXI stubs (TB_MODE=1, all tied off internally by inference_top.sv)
     logic [12:0] s_axi_lite_awaddr;
     logic        s_axi_lite_awvalid;
     logic        s_axi_lite_awready;
@@ -92,7 +92,7 @@ module tb_inference_hdl;
     // =========================================================================
     //  DUT (TB_MODE=1: testbench mode, direct start/done/pixel_bram)
     // =========================================================================
-    top #(
+    inference_top #(
         .MAX_PARALLEL  (MAX_PARALLEL),
         .N_BITS        (N_BITS),
         .DEPTH_BITS    (DEPTH_BITS),

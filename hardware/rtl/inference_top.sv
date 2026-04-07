@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `include "layer_config.svh"
 
-module top #(
+module inference_top #(
     parameter AXI_DATA_WIDTH = 24,
     parameter MAX_PARALLEL   = 16,  // must match C_PARALLEL in layer_config.svh
     parameter N_BITS         = 8,
