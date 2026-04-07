@@ -7,7 +7,8 @@ module inference_top #(
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
     parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
-    parameter AXI_ADDR_W     = 13
+    parameter AXI_ADDR_W     = 13,
+    parameter USE_HLS        = 0   // 0 = inference_hdl, 1 = inference_hls (Vitis HLS-generated)
 )(
     input  logic aclk,
     input  logic aresetn,
@@ -480,43 +481,89 @@ module inference_top #(
 
     /* ================================================================
      *  Inference Controller
+     *
+     *  USE_HLS == 0  →  hand-written inference_hdl  (default)
+     *  USE_HLS == 1  →  Vitis HLS-generated inference_hls (stub today)
+     *
+     *  Both branches share the generate label `gen_inference` so the
+     *  hierarchical path to the engine is `gen_inference.u_inference.*`
+     *  regardless of which one is elaborated.
      * ================================================================ */
-    inference_hdl #(
-        .MAX_PARALLEL (MAX_PARALLEL),
-        .K            (3),
-        .N_BITS       (N_BITS),
-        .ACC_BITS     (32),
-        .DEPTH_BITS   (DEPTH_BITS),
-        .FMAP_DATA_W  (FMAP_DATA_W),
-        .FMAP_ADDR_W  (FMAP_ADDR_W),
-        .LUT_ADDR_W   (ACT_MEM_ADDR_W)
-    ) u_inference (
-        .aclk              (aclk),
-        .aresetn           (aresetn),
-        .start             (inference_start),
-        .done              (inference_done),
-        .wt_mem_en_b       (wt_mem_en_b),
-        .wt_mem_addr_b     (wt_mem_addr_b),
-        .wt_mem_dout_b     (wt_mem_dout_b),
-        .qp_mem_en_b       (qp_mem_en_b),
-        .qp_mem_addr_b     (qp_mem_addr_b),
-        .qp_mem_dout_b     (qp_mem_dout_b),
-        .silu_mem_en_b     (act_mem_en_b),
-        .silu_mem_addr_b   (act_mem_addr_b),
-        .silu_mem_dout_b   (act_mem_dout_b),
-        .in_buf_rd_addr    (pixel_addr_int),
-        .in_buf_rd_en      (pixel_en_int),
-        .in_buf_rd_data    (pixel_data_int),
-        .out_buf_rd_en     (out_buf_rd_en_int),
-        .out_buf_rd_addr   (out_buf_rd_addr_int),
-        .out_buf_rd_data   (out_buf_rd_data_int),
-        .out_buf_wr_en     (out_buf_wr_en_int),
-        .out_buf_wr_addr   (out_buf_wr_addr_int),
-        .out_buf_wr_data   (out_buf_wr_data_int),
-        .curr_layer_idx    (curr_layer_idx),
-        .curr_pp_buf_sel   (curr_pp_buf_sel),
-        .curr_pp_rd_offset (curr_pp_rd_offset)
-    );
+    generate if (USE_HLS == 0) begin : gen_inference
+        inference_hdl #(
+            .MAX_PARALLEL (MAX_PARALLEL),
+            .K            (3),
+            .N_BITS       (N_BITS),
+            .ACC_BITS     (32),
+            .DEPTH_BITS   (DEPTH_BITS),
+            .FMAP_DATA_W  (FMAP_DATA_W),
+            .FMAP_ADDR_W  (FMAP_ADDR_W),
+            .LUT_ADDR_W   (ACT_MEM_ADDR_W)
+        ) u_inference (
+            .aclk              (aclk),
+            .aresetn           (aresetn),
+            .start             (inference_start),
+            .done              (inference_done),
+            .wt_mem_en_b       (wt_mem_en_b),
+            .wt_mem_addr_b     (wt_mem_addr_b),
+            .wt_mem_dout_b     (wt_mem_dout_b),
+            .qp_mem_en_b       (qp_mem_en_b),
+            .qp_mem_addr_b     (qp_mem_addr_b),
+            .qp_mem_dout_b     (qp_mem_dout_b),
+            .silu_mem_en_b     (act_mem_en_b),
+            .silu_mem_addr_b   (act_mem_addr_b),
+            .silu_mem_dout_b   (act_mem_dout_b),
+            .in_buf_rd_addr    (pixel_addr_int),
+            .in_buf_rd_en      (pixel_en_int),
+            .in_buf_rd_data    (pixel_data_int),
+            .out_buf_rd_en     (out_buf_rd_en_int),
+            .out_buf_rd_addr   (out_buf_rd_addr_int),
+            .out_buf_rd_data   (out_buf_rd_data_int),
+            .out_buf_wr_en     (out_buf_wr_en_int),
+            .out_buf_wr_addr   (out_buf_wr_addr_int),
+            .out_buf_wr_data   (out_buf_wr_data_int),
+            .curr_layer_idx    (curr_layer_idx),
+            .curr_pp_buf_sel   (curr_pp_buf_sel),
+            .curr_pp_rd_offset (curr_pp_rd_offset)
+        );
+    end else begin : gen_inference
+        inference_hls #(
+            .MAX_PARALLEL (MAX_PARALLEL),
+            .K            (3),
+            .N_BITS       (N_BITS),
+            .ACC_BITS     (32),
+            .DEPTH_BITS   (DEPTH_BITS),
+            .FMAP_DATA_W  (FMAP_DATA_W),
+            .FMAP_ADDR_W  (FMAP_ADDR_W),
+            .LUT_ADDR_W   (ACT_MEM_ADDR_W)
+        ) u_inference (
+            .aclk              (aclk),
+            .aresetn           (aresetn),
+            .start             (inference_start),
+            .done              (inference_done),
+            .wt_mem_en_b       (wt_mem_en_b),
+            .wt_mem_addr_b     (wt_mem_addr_b),
+            .wt_mem_dout_b     (wt_mem_dout_b),
+            .qp_mem_en_b       (qp_mem_en_b),
+            .qp_mem_addr_b     (qp_mem_addr_b),
+            .qp_mem_dout_b     (qp_mem_dout_b),
+            .silu_mem_en_b     (act_mem_en_b),
+            .silu_mem_addr_b   (act_mem_addr_b),
+            .silu_mem_dout_b   (act_mem_dout_b),
+            .in_buf_rd_addr    (pixel_addr_int),
+            .in_buf_rd_en      (pixel_en_int),
+            .in_buf_rd_data    (pixel_data_int),
+            .out_buf_rd_en     (out_buf_rd_en_int),
+            .out_buf_rd_addr   (out_buf_rd_addr_int),
+            .out_buf_rd_data   (out_buf_rd_data_int),
+            .out_buf_wr_en     (out_buf_wr_en_int),
+            .out_buf_wr_addr   (out_buf_wr_addr_int),
+            .out_buf_wr_data   (out_buf_wr_data_int),
+            .curr_layer_idx    (curr_layer_idx),
+            .curr_pp_buf_sel   (curr_pp_buf_sel),
+            .curr_pp_rd_offset (curr_pp_rd_offset)
+        );
+    end endgenerate
 
     /* Forward done to output port (testbench mode) */
     assign done = inference_done;
