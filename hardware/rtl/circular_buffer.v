@@ -19,16 +19,20 @@ module circular_buffer #(
     reg [$clog2(MAX_DEPTH+2)-1:0] wr_ptr;
 
     always @(posedge clk or posedge rst) begin
-        if (rst) begin
+        if (rst)
             wr_ptr <= 0;
-        end else if (ce) begin
-            mem[wr_ptr] <= data_in;
+        else if (ce) begin
             if (wr_ptr == depth)
                 wr_ptr <= 0;
             else
                 wr_ptr <= wr_ptr + 1;
         end
     end
+
+    // Separate always block without reset — allows LUTRAM inference
+    always @(posedge clk)
+        if (ce)
+            mem[wr_ptr] <= data_in;
 
     // Combinational read: oldest entry = next slot after write pointer
     wire [$clog2(MAX_DEPTH+2)-1:0] rd_ptr = (wr_ptr == depth) ? {$clog2(MAX_DEPTH+2){1'b0}} : wr_ptr + 1;

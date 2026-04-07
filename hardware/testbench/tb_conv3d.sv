@@ -21,9 +21,15 @@ module tb_conv3d;
     logic rst;
     logic start;
     wire  done;
-    
+
     logic req_weights;
     logic weights_ready;
+
+    // Runtime layer dimensions (conv3d takes these as input ports now,
+    // not compile-time parameters).  Lowercase names match the conv3d
+    // port names so the .* implicit connection picks them up.
+    wire [8:0] act_size = ACT_SIZE[8:0];
+    wire [7:0] cin      = C_IN[7:0];
 
     // Quantization Scalars
     logic signed [N_BITS-1:0]   zp_in, zp_out;
@@ -39,7 +45,9 @@ module tb_conv3d;
     logic        [SHIFT_BITS-1:0]   n_shift_file [0:0];
 
     // BRAM Interfaces
-    wire [((C_IN + MAX_PARALLEL - 1) / MAX_PARALLEL)*DEPTH_BITS-1:0]              pixel_bram_addr;
+    // Note: conv3d's pixel_bram_addr is a flat DEPTH_BITS-wide port now
+    // (was previously scaled by C_IN/MAX_PARALLEL when conv3d was per-layer).
+    wire [DEPTH_BITS-1:0]              pixel_bram_addr;
     wire                               pixel_bram_en;
     logic signed [MAX_PARALLEL*N_BITS-1:0]    pixel_bram_data;
 
@@ -65,8 +73,10 @@ module tb_conv3d;
     logic signed [ACC_BITS-1:0] ref_acc [(ACT_SIZE*ACT_SIZE)-1:0];
 
     // Instantiate DUT
+    // ACT_SIZE and C_IN are no longer parameters of conv3d — they're driven
+    // by runtime input ports (act_size, cin) that .* picks up by name.
     conv3d #(
-        .ACT_SIZE(ACT_SIZE), .K(K), .STRIDE(STRIDE), .C_IN(C_IN),
+        .K(K), .STRIDE(STRIDE),
         .MAX_PARALLEL(MAX_PARALLEL), .N_BITS(N_BITS), .ACC_BITS(ACC_BITS),
         .M0_BITS(M0_BITS), .SHIFT_BITS(SHIFT_BITS), .DEPTH_BITS(DEPTH_BITS)
     ) dut (.*);

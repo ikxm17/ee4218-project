@@ -55,7 +55,6 @@ genvar i;
     begin
       if(i==k*k-1)                        //end of convolver
       begin
-      (* use_dsp = "yes" *)               //this line is optional depending on tool behaviour
       mac_manual #(.N(N)) mac(        //implements a*b+c
         .clk(clk),                        // input clk
         .ce(ce),                          // input ce
@@ -70,8 +69,7 @@ genvar i;
       begin
       wire signed [ACC_BITS-1:0] tmp2;
       //make a mac unit
-      (* use_dsp = "yes" *)               //this line is optional depending on tool behaviour
-      mac_manual #(.N(N),.ACC(ACC_BITS)) mac(                   
+      mac_manual #(.N(N),.ACC(ACC_BITS)) mac(
         .clk(clk), 
         .ce(ce), 
         .sclr(global_rst), 
@@ -96,8 +94,7 @@ genvar i;
     end
     else
     begin
-    (* use_dsp = "yes" *)               //this line is optional depending on tool behaviour
-    mac_manual #(.N(N)) mac2(                    
+    mac_manual #(.N(N)) mac2(
       .clk(clk), 
       .ce(ce),
       .sclr(global_rst),

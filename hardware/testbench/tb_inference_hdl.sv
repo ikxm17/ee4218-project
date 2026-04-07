@@ -28,15 +28,30 @@ module tb_inference_hdl;
     logic                               pixel_bram_en;
     logic [MAX_PARALLEL*N_BITS-1:0]     pixel_bram_data;
 
-    // RES output interface
-    logic                               res_write_en;
-    logic [DEPTH_BITS-1:0]              res_write_addr;
-    logic signed [N_BITS-1:0]           res_write_data;
-
-    // AXI-Stream stubs
-    logic s_axis_tvalid, s_axis_tlast, s_axis_tready;
-    logic m_axis_tready, m_axis_tvalid, m_axis_tlast;
-    logic [23:0] s_axis_tdata, m_axis_tdata;
+    // AXI stubs (TB_MODE=1, all tied off internally by inference_top.sv)
+    logic [12:0] s_axi_lite_awaddr;
+    logic        s_axi_lite_awvalid;
+    logic        s_axi_lite_awready;
+    logic [31:0] s_axi_lite_wdata;
+    logic [3:0]  s_axi_lite_wstrb;
+    logic        s_axi_lite_wvalid;
+    logic        s_axi_lite_wready;
+    logic [1:0]  s_axi_lite_bresp;
+    logic        s_axi_lite_bvalid;
+    logic        s_axi_lite_bready;
+    logic [12:0] s_axi_lite_araddr;
+    logic        s_axi_lite_arvalid;
+    logic        s_axi_lite_arready;
+    logic [31:0] s_axi_lite_rdata;
+    logic [1:0]  s_axi_lite_rresp;
+    logic        s_axi_lite_rvalid;
+    logic        s_axi_lite_rready;
+    logic [31:0] s_axis_tdata;
+    logic        s_axis_tvalid;
+    logic        s_axis_tlast;
+    logic [0:0]  s_axis_tuser;
+    logic        s_axis_tready;
+    logic        irq_done;
 
     // =========================================================================
     //  Clock & Cycle Counter
@@ -54,38 +69,60 @@ module tb_inference_hdl;
             cycle_count <= cycle_count + 1;
     end
 
-    // AXI-Stream tie-offs
-    assign s_axis_tvalid = 1'b0;
-    assign s_axis_tlast  = 1'b0;
-    assign s_axis_tdata  = '0;
-    assign m_axis_tready = 1'b0;
+    // AXI tie-offs (TB_MODE=1: all unused)
+    assign s_axi_lite_awaddr  = '0;
+    assign s_axi_lite_awvalid = 1'b0;
+    assign s_axi_lite_wdata   = '0;
+    assign s_axi_lite_wstrb   = '0;
+    assign s_axi_lite_wvalid  = 1'b0;
+    assign s_axi_lite_bready  = 1'b0;
+    assign s_axi_lite_araddr  = '0;
+    assign s_axi_lite_arvalid = 1'b0;
+    assign s_axi_lite_rready  = 1'b0;
+    assign s_axis_tdata       = '0;
+    assign s_axis_tvalid      = 1'b0;
+    assign s_axis_tlast       = 1'b0;
+    assign s_axis_tuser       = 1'b0;
 
     // =========================================================================
-    //  DUT
+    //  DUT (TB_MODE=1: testbench mode, direct start/done/pixel_bram)
     // =========================================================================
-    top #(
-        .MAX_PARALLEL (MAX_PARALLEL),
-        .N_BITS       (N_BITS),
-        .DEPTH_BITS   (DEPTH_BITS)
+    inference_top #(
+        .MAX_PARALLEL  (MAX_PARALLEL),
+        .N_BITS        (N_BITS),
+        .DEPTH_BITS    (DEPTH_BITS),
+        .TB_MODE(1)
     ) dut (
-        .aclk            (clk),
-        .aresetn         (aresetn),
-        .start           (start),
-        .done            (done),
-        .s_axis_tvalid   (s_axis_tvalid),
-        .s_axis_tlast    (s_axis_tlast),
-        .s_axis_tdata    (s_axis_tdata),
-        .s_axis_tready   (s_axis_tready),
-        .m_axis_tready   (m_axis_tready),
-        .m_axis_tvalid   (m_axis_tvalid),
-        .m_axis_tlast    (m_axis_tlast),
-        .m_axis_tdata    (m_axis_tdata),
-        .pixel_bram_addr (pixel_bram_addr),
-        .pixel_bram_en   (pixel_bram_en),
-        .pixel_bram_data (pixel_bram_data),
-        .res_write_en    (res_write_en),
-        .res_write_addr  (res_write_addr),
-        .res_write_data  (res_write_data)
+        .aclk                (clk),
+        .aresetn             (aresetn),
+        .start               (start),
+        .done                (done),
+        .pixel_bram_addr     (pixel_bram_addr),
+        .pixel_bram_en       (pixel_bram_en),
+        .pixel_bram_data     (pixel_bram_data),
+        .s_axi_lite_awaddr   (s_axi_lite_awaddr),
+        .s_axi_lite_awvalid  (s_axi_lite_awvalid),
+        .s_axi_lite_awready  (s_axi_lite_awready),
+        .s_axi_lite_wdata    (s_axi_lite_wdata),
+        .s_axi_lite_wstrb    (s_axi_lite_wstrb),
+        .s_axi_lite_wvalid   (s_axi_lite_wvalid),
+        .s_axi_lite_wready   (s_axi_lite_wready),
+        .s_axi_lite_bresp    (s_axi_lite_bresp),
+        .s_axi_lite_bvalid   (s_axi_lite_bvalid),
+        .s_axi_lite_bready   (s_axi_lite_bready),
+        .s_axi_lite_araddr   (s_axi_lite_araddr),
+        .s_axi_lite_arvalid  (s_axi_lite_arvalid),
+        .s_axi_lite_arready  (s_axi_lite_arready),
+        .s_axi_lite_rdata    (s_axi_lite_rdata),
+        .s_axi_lite_rresp    (s_axi_lite_rresp),
+        .s_axi_lite_rvalid   (s_axi_lite_rvalid),
+        .s_axi_lite_rready   (s_axi_lite_rready),
+        .s_axis_tdata        (s_axis_tdata),
+        .s_axis_tvalid       (s_axis_tvalid),
+        .s_axis_tlast        (s_axis_tlast),
+        .s_axis_tuser        (s_axis_tuser),
+        .s_axis_tready       (s_axis_tready),
+        .irq_done            (irq_done)
     );
 
     // =========================================================================
@@ -249,11 +286,11 @@ module tb_inference_hdl;
     // =========================================================================
 `ifdef DEBUG_TRACE
     always_ff @(posedge clk) begin
-        if (dut.u_inference.state == 3'd4) begin // S_NEXT_LAYER
+        if (dut.u_inference_hdl.state == 3'd4) begin // S_NEXT_LAYER
             $display("[DBG cycle %0d] S_NEXT_LAYER: layer_idx=%0d -> %0d",
                      cycle_count,
-                     dut.u_inference.layer_idx,
-                     dut.u_inference.layer_idx + 1);
+                     dut.u_inference_hdl.layer_idx,
+                     dut.u_inference_hdl.layer_idx + 1);
         end
     end
 `endif
@@ -295,7 +332,7 @@ module tb_inference_hdl;
         for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
             if (li < NUM_TEST_LAYERS - 1) begin
                 // Wait for FSM to advance to next layer
-                wait(dut.u_inference.layer_idx == li + 1);
+                wait(dut.u_inference_hdl.layer_idx == li + 1);
                 @(posedge clk);
             end else begin
                 // Last layer: wait for done

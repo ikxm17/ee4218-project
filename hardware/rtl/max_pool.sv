@@ -113,7 +113,11 @@ module max_pool #(
                         max_reg <= in_data;
                     end
                     2'b01: begin
-                        sr_buf[col_cnt >> 1] <= smax(in_data, max_reg);
+                        /* sr_buf write moved to separate reset-free always_ff
+                         * block below to enable distributed-RAM inference
+                         * (UG901 p.117-130: async reset in the writing process
+                         * disqualifies LUTRAM).  Same fix pattern as the afdd92c
+                         * commit applied to circular_buffer.v. */
                     end
                     2'b10: begin
                         max_reg <= smax(in_data, sr_buf[col_cnt >> 1]);
@@ -140,6 +144,25 @@ module max_pool #(
                 end
             end
         end
+    end
+
+    /* ================================================================
+     *  sr_buf Write — Separate Reset-Free always_ff Block
+     *
+     *  Vivado requires the RAM-writing process to have no async reset
+     *  in its sensitivity list for distributed-RAM inference (UG901
+     *  p.117-130).  The main state-machine always_ff has negedge rst_n
+     *  in its sensitivity list even though the reset branch doesn't
+     *  touch sr_buf, which disqualifies LUTRAM inference and forces a
+     *  ~1K-FF fallback.  Splitting the write out here is semantics-
+     *  preserving: during !rst_n, upstream gating drives in_valid=0
+     *  and pool_en=0, so the write never fires during reset anyway.
+     *
+     *  This mirrors the afdd92c fix applied to circular_buffer.v.
+     * ================================================================ */
+    always_ff @(posedge clk) begin
+        if (pool_en && in_valid && ({row_cnt[0], col_cnt[0]} == 2'b01))
+            sr_buf[col_cnt >> 1] <= smax(in_data, max_reg);
     end
 
     /* ================================================================
