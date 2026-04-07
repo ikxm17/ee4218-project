@@ -477,16 +477,37 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
         "    logic [9:0]        qp_base;",
         "    logic signed [7:0] zp_in;",
         "    logic signed [7:0] zp_out;",
+        "    logic              pp_buf_sel;    // ping-pong buffer select override",
+        "    logic [13:0]       pp_rd_offset;  // URAM read address offset",
+        "    logic [13:0]       pp_wr_offset;  // URAM write address offset",
         "} layer_cfg_t;",
         "",
         "localparam layer_cfg_t LAYER_CFG [0:NUM_LAYERS-1] = '{",
-        "    /* layer_idx | type | h_in | w_in | cin | cout | grp | wt_base | qp_base | zp_in | zp_out */",
     ]
+
+    # Sub-pingpong configuration for detection head branching.
+    # Backbone layers (0-10): standard ping-pong with buf_sel = layer_idx[0].
+    # cv2 branch (11-13): write offset 256 to preserve layer 10's output.
+    # cv3 branch (14-16): write offset 512 so final outputs are contiguous
+    #   in fmap_b[256..575] for efficient PS readout.
+    PP_CFG = {}
+    for li in range(NUM_LAYERS):
+        if li <= 10:
+            PP_CFG[li] = (li & 1, 0, 0)
+        elif li == 11:
+            PP_CFG[li] = (1, 0, 256)
+        elif li in (12, 13):
+            PP_CFG[li] = (li - 10) & 1, 256, 256
+        elif li == 14:
+            PP_CFG[li] = (1, 0, 512)
+        elif li in (15, 16):
+            PP_CFG[li] = ((li - 13) & 1, 512, 512)
 
     # One struct initialiser per layer
     for i, hdl in enumerate(HDL_LAYERS):
         zp_in  = extracted[i].zp_in  if extracted else 0
         zp_out = extracted[i].zp_out if extracted else 0
+        pp_sel, pp_rd, pp_wr = PP_CFG[i]
         sep = "," if i < NUM_LAYERS - 1 else ""
         lines.append(
             f"    /* {i:2d} */ "
@@ -496,7 +517,8 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
             f" {hdl.cin_groups:2d},"
             f" 15'h{hdl.wt_base_addr:04x},"
             f" 10'h{hdl.qp_base_addr:03x},"
-            f" {zp_in:5d}, {zp_out:5d}"
+            f" {zp_in:5d}, {zp_out:5d},"
+            f" 1'b{pp_sel}, 14'd{pp_rd:>3d}, 14'd{pp_wr:>3d}"
             f" }}{sep}"
         )
     lines.append("};")

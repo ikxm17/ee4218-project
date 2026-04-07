@@ -224,7 +224,7 @@ module top #(
     logic input_rd_en;
     logic [FMAP_ADDR_W-1:0] input_rd_addr;
     assign input_rd_en   = (curr_layer_idx != 0) && pixel_en_int;
-    assign input_rd_addr = pixel_addr_int[FMAP_ADDR_W-1:0];
+    assign input_rd_addr = pixel_addr_int[FMAP_ADDR_W-1:0] + curr_pp_rd_offset;
 
     // --- RMW output write signals (computed in RMW pipeline below) ---
     logic                    rmw_wr_en;
@@ -265,6 +265,9 @@ module top #(
     logic [4:0]                  curr_layer_idx;
     logic [8:0]                  curr_act_size;
     logic [7:0]                  curr_ch_out;
+    logic                        curr_pp_buf_sel;
+    logic [13:0]                 curr_pp_rd_offset;
+    logic [13:0]                 curr_pp_wr_offset;
 
     /* Internal pixel interface (between inference_hdl and mux) */
     logic [DEPTH_BITS-1:0]            pixel_addr_int;
@@ -299,10 +302,13 @@ module top #(
         .res_write_en     (conv_res_en),
         .res_write_addr   (conv_res_addr),
         .res_write_data   (conv_res_data),
-        .curr_layer_type  (curr_layer_type),
-        .curr_layer_idx   (curr_layer_idx),
-        .curr_act_size    (curr_act_size),
-        .curr_ch_out      (curr_ch_out)
+        .curr_layer_type    (curr_layer_type),
+        .curr_layer_idx     (curr_layer_idx),
+        .curr_act_size      (curr_act_size),
+        .curr_ch_out        (curr_ch_out),
+        .curr_pp_buf_sel    (curr_pp_buf_sel),
+        .curr_pp_rd_offset  (curr_pp_rd_offset),
+        .curr_pp_wr_offset  (curr_pp_wr_offset)
     );
 
     /* ================================================================
@@ -311,12 +317,14 @@ module top #(
      *  Layer 0: reads from external pixel BRAM (testbench)
      *  Layer 1+: reads from URAM input buffer (ping-pong)
      *
-     *  Ping-pong: buf_sel = layer_idx[0]
-     *    Even layers -> write fmap_a, read fmap_b
-     *    Odd layers  -> write fmap_b, read fmap_a
+     *  Sub-pingpong: buf_sel from per-layer config (not layer_idx[0])
+     *    buf_sel=0 -> write fmap_a, read fmap_b
+     *    buf_sel=1 -> write fmap_b, read fmap_a
+     *  Detection head branches use address offsets to avoid overwriting
+     *  layer 10's output (see plan for correctness trace).
      * ================================================================ */
     logic buf_sel;
-    assign buf_sel = curr_layer_idx[0];
+    assign buf_sel = curr_pp_buf_sel;
 
     // Forward address/enable to top-level for layer 0 (testbench)
     assign pixel_bram_addr = pixel_addr_int;
@@ -387,7 +395,7 @@ module top #(
 
     // Compute output spatial size (after pool: act_size/2, else: act_size)
     wire [8:0] h_out = (curr_layer_type == CONV3_POOL) ? (curr_act_size >> 1) : curr_act_size;
-    wire [FMAP_ADDR_W-1:0] rmw_base_addr = (curr_ch_out >> 4) * h_out * h_out;
+    wire [FMAP_ADDR_W-1:0] rmw_base_addr = curr_pp_wr_offset + (curr_ch_out >> 4) * h_out * h_out;
 
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
@@ -405,9 +413,11 @@ module top #(
     assign rmw_rd_addr = rmw_base_addr + res_write_addr[FMAP_ADDR_W-1:0];
 
     // Pipeline stage 1: splice byte and write
+    // When byte_pos == 0 (first channel of a group), start from a zeroed
+    // word to clear stale data from previous layers in unused channels.
     logic [FMAP_DATA_W-1:0] spliced_word;
     always_comb begin
-        spliced_word = rmw_rd_data;
+        spliced_word = (rmw_s0_byte_pos == 4'd0) ? {FMAP_DATA_W{1'b0}} : rmw_rd_data;
         spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
     end
 
