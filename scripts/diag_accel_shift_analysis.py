@@ -103,6 +103,56 @@ elif np.array_equal(edge_below[0], np.zeros(16, dtype=np.int8)):
 else:
     print("  VERDICT: silicon[4095] is neither interp-A nor zero; novel value — needs inspection")
 
+# Wraparound experiment: if silicon writes at addr-1 uniformly with
+# 14-bit FMAP_ADDR_W wraparound, then d_0 (which should land at 0)
+# would wrap to 16383. Test: is silicon[16383] == golden[0]?
+print("\n=== wraparound experiment ===")
+print(f"  silicon[16383] = {edge_above[0].tolist()}")
+print(f"  golden[0]      = {golden[0].tolist()}  (wraparound predicts silicon[16383] == this)")
+if np.array_equal(edge_above[0], golden[0]):
+    print("  VERDICT: wraparound matches — silicon uniformly writes at addr-1 with 14-bit wrap")
+else:
+    print("  VERDICT: silicon[16383] != golden[0]; not a simple wraparound")
+
+# Per-layer shift hypothesis sweep: run H1 and H2 on every layer's
+# surviving URAM fragment. If the +1 shift is layer-0-specific, only
+# layer 0 will show H2 near 100% while others fall at H1.
+#
+# Layer fragments from diag_accel_layer_bisect.py:
+LAYER_FRAGMENTS = [
+    # (layer_idx, buf_name, start, length, golden_file)
+    (0,  "fmap_a", 4096, 12288, "golden_layer0_uram.mem"),
+    (2,  "fmap_a", 2048,  2048, "golden_layer2_uram.mem"),
+    (4,  "fmap_a", 1024,  1024, "golden_layer4_uram.mem"),
+    (6,  "fmap_a",  640,   384, "golden_layer6_uram.mem"),
+    (8,  "fmap_a",  128,   128, "golden_layer8_uram.mem"),
+    (10, "fmap_a",    0,   128, "golden_layer10_uram.mem"),
+    (12, "fmap_a",  256,   256, "golden_layer12_uram.mem"),
+    (15, "fmap_a",  512,   128, "golden_layer15_uram.mem"),
+]
+
+print("\n=== per-layer H1/H2 shift sweep ===")
+print(f"  layer | buf    | region              | H1 words   | H2 words   | verdict")
+print(f"  ----- | ------ | ------------------- | ---------- | ---------- | -------")
+for lyr, buf_name, start, length, gfile in LAYER_FRAGMENTS:
+    try:
+        buf = 0 if buf_name == "fmap_a" else 1
+        sil = drv.read_window(start, buf, length)
+        gld = load_golden_uram_mem(str(GOLDEN_DIR / gfile), num_words=start + length)
+        gld_aligned = gld[start:start + length]
+        gld_shifted = gld[start + 1:start + length] if start + length <= gld.shape[0] else gld_aligned[:-1]
+        h1 = int((sil == gld_aligned).all(axis=1).sum())
+        if sil.shape[0] > 1 and gld_shifted.shape[0] > 0:
+            h2 = int((sil[:-1] == gld_shifted).all(axis=1).sum())
+            h2_denom = sil.shape[0] - 1
+        else:
+            h2, h2_denom = 0, 1
+        verdict = "+1 shift" if h2 > 0.9 * h2_denom else ("no shift" if h1 > 0.9 * length else "other")
+        print(f"  {lyr:>5} | {buf_name:<6} | [{start:>5}..{start+length-1:>5}] "
+              f"| {h1:>5}/{length:<4} | {h2:>5}/{h2_denom:<4} | {verdict}")
+    except Exception as e:
+        print(f"  {lyr:>5} | {buf_name:<6} | [{start:>5}..{start+length-1:>5}] | ERROR: {e}")
+
 golden_aligned     = golden[SIL_START:SIL_START + N_WORDS]
 silicon_for_shift  = silicon[:N_WORDS - 1]
 golden_shifted_fwd  = golden[SIL_START + 1:SIL_START + N_WORDS]
