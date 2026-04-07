@@ -14,8 +14,12 @@ module tb_inference_hdl;
     parameter ACC_BITS     = 32;
     parameter DEPTH_BITS   = 16;
 
-    // Number of layers to test
-    localparam NUM_TEST_LAYERS = 17;
+    // Maximum supported test layers (sizes the const tables below).
+    localparam int MAX_LAYERS = 17;
+
+    // Number of layers to actually verify in the loop. Override from a
+    // parent module (e.g. tb_conv3d sets this to 1) to run a subset.
+    parameter int NUM_TEST_LAYERS = MAX_LAYERS;
 
     // Clock and Reset
     logic clk;
@@ -132,7 +136,7 @@ module tb_inference_hdl;
     //  buf_sel: 0 = verify fmap_a, 1 = verify fmap_b
     //  wr_offset: URAM address offset for sub-pingpong branches
     // =========================================================================
-    localparam int URAM_WORDS [0:NUM_TEST_LAYERS-1] = '{
+    localparam int URAM_WORDS [0:MAX_LAYERS-1] = '{
         16384,  // L0:  128x128x16
         16384,  // L1:  128x128x16
          4096,  // L2:  64x64x16
@@ -153,7 +157,7 @@ module tb_inference_hdl;
     };
 
     // pp_buf_sel per layer (0=fmap_a, 1=fmap_b)
-    localparam bit PP_BUF_SEL [0:NUM_TEST_LAYERS-1] = '{
+    localparam bit PP_BUF_SEL [0:MAX_LAYERS-1] = '{
         0, 1, 0, 1, 0, 1, 0, 1, 0, 1,  // backbone
         0,     // L10
         1, 0, 1,  // cv2: L11-L13
@@ -161,7 +165,7 @@ module tb_inference_hdl;
     };
 
     // Write offset per layer
-    localparam int WR_OFFSET [0:NUM_TEST_LAYERS-1] = '{
+    localparam int WR_OFFSET [0:MAX_LAYERS-1] = '{
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // backbone
         0,         // L10
         256, 256, 256,  // cv2
@@ -176,9 +180,6 @@ module tb_inference_hdl;
 
     // Golden URAM data — one buffer, reloaded per layer
     logic [127:0] golden_buf [0:16383];
-
-    // Keep single-channel golden for backwards compat
-    logic signed [N_BITS-1:0] golden_mem [0:POOL_OUT*POOL_OUT-1];
 
     // =========================================================================
     //  Pixel BRAM Feeding (1-cycle latency)
@@ -310,7 +311,6 @@ module tb_inference_hdl;
         // 1. Load test data
         $display("[INIT] Loading test data...");
         $readmemh({MEM_PATH, "pixels_layer0.mem"}, pixel_mem);
-        $readmemh({MEM_PATH, "golden_ch_out0.mem"}, golden_mem);
         $display("[INIT] Pixel mem: %0d channels x %0d pixels", C_IN, ACT_SIZE*ACT_SIZE);
         #1;
         verify_rom_contents();
@@ -330,12 +330,21 @@ module tb_inference_hdl;
 
         // 4. Run and verify each layer as it completes
         for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
-            if (li < NUM_TEST_LAYERS - 1) begin
-                // Wait for FSM to advance to next layer
+            // Use MAX_LAYERS (network size), not NUM_TEST_LAYERS, to decide
+            // the wait condition. Otherwise, when running a subset of layers
+            // (e.g. NUM_TEST_LAYERS=1 from tb_conv3d), we'd hit the else
+            // branch on the last test layer and `wait(done)` would block
+            // until ALL 17 network layers complete — by which time the
+            // ping-pong fmap buffer for the layer we're verifying has been
+            // overwritten by later layers writing to the same buffer.
+            if (li < MAX_LAYERS - 1) begin
+                // Not the network's last layer: wait for FSM to advance
+                // past layer li (so li's output is committed but li+1
+                // hasn't yet stomped on the buffer via ping-pong reuse).
                 wait(dut.u_inference_hdl.layer_idx == li + 1);
                 @(posedge clk);
             end else begin
-                // Last layer: wait for done
+                // Network's last layer: wait for done
                 wait(done);
                 #20;
             end
