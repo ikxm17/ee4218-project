@@ -81,8 +81,9 @@ module conv1d #(
     reg [17:0] pixel_count;
     wire       reading_done = (pixel_count >= act_size_sq);
 
-    // Pipeline drain: after last pixel read, MAC pipeline needs 3 cycles
-    reg [1:0] drain;
+    // Pipeline drain: after last pixel read, MAC pipeline needs 5 cycles
+    // (3 original + 1 from r_pixel_data flop + 1 from RES_write_data_in flop)
+    reg [2:0] drain;
 
     // Active channel count
     wire [$clog2(MAX_PARALLEL+1)-1:0] active_slots;
@@ -93,8 +94,9 @@ module conv1d #(
     // ------------------------------------------------------------------
     // MAC array: combinational 16-wide multiply-accumulate
     // ------------------------------------------------------------------
-    reg signed [ACC_BITS-1:0] pix_acc;
-    reg signed [ACC_BITS-1:0] r_pix_acc;
+    reg signed [ACC_BITS-1:0]            pix_acc;
+    reg signed [ACC_BITS-1:0]            r_pix_acc;
+    reg signed [MAX_PARALLEL*N_BITS-1:0] r_pixel_data;     // pipelined URAM read (Cone B fix)
     integer vi;
 
     always @(*) begin
@@ -102,13 +104,14 @@ module conv1d #(
         for (vi = 0; vi < MAX_PARALLEL; vi = vi + 1) begin
             if (vi < active_slots)
                 pix_acc = pix_acc
-                    + $signed(pixel_bram_data[vi*N_BITS +: N_BITS])
+                    + $signed(r_pixel_data[vi*N_BITS +: N_BITS])
                     * $signed(weights_all_channels[vi*N_BITS +: N_BITS]);
         end
     end
 
-    // mac_valid: 1 cycle after pixel_bram_en (BRAM read latency)
+    // mac_valid: 2 cycles after pixel_bram_en (BRAM read latency + r_pixel_data flop)
     reg mac_valid;
+    reg pixel_data_valid;     // intermediate stage in the mac_valid chain (Cone B fix)
 
     // ------------------------------------------------------------------
     // Pixel read addressing (combinational)
@@ -127,21 +130,25 @@ module conv1d #(
     // ------------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
-            state       <= S_IDLE;
-            done        <= 0;
-            round       <= 0;
-            r_zp_out    <= 0;
-            r_bias      <= 0;
-            r_m0        <= 0;
-            r_n_shift   <= 0;
-            req_weights <= 0;
-            mac_valid   <= 0;
-            pixel_count <= 0;
-            drain       <= 0;
-            act_size_sq <= 0;
+            state            <= S_IDLE;
+            done             <= 0;
+            round            <= 0;
+            r_zp_out         <= 0;
+            r_bias           <= 0;
+            r_m0             <= 0;
+            r_n_shift        <= 0;
+            req_weights      <= 0;
+            mac_valid        <= 0;
+            pixel_data_valid <= 0;
+            r_pixel_data     <= 0;
+            pixel_count      <= 0;
+            drain            <= 0;
+            act_size_sq      <= 0;
         end else begin
-            done        <= 0;
-            mac_valid   <= 0;
+            done             <= 0;
+            mac_valid        <= 0;
+            pixel_data_valid <= 0;
+            r_pixel_data     <= pixel_bram_data;     // capture every cycle (Cone B fix)
 
             case (state)
             S_IDLE: begin
@@ -165,8 +172,11 @@ module conv1d #(
                     pixel_count <= pixel_count + 1;
                 end
 
-                // MAC valid follows pixel_bram_en by 1 cycle
-                mac_valid <= pixel_bram_en;
+                // MAC valid follows pixel_bram_en by 2 cycles:
+                //   pixel_bram_en (T) -> pixel_data_valid (T+1) -> mac_valid (T+2)
+                // matches the new r_pixel_data flop (Cone B fix).
+                pixel_data_valid <= pixel_bram_en;
+                mac_valid        <= pixel_data_valid;
 
                 // Pipeline drain after all pixels read
                 if (reading_done) begin
@@ -174,8 +184,8 @@ module conv1d #(
                 end
 
                 // Transition when pipeline fully drained
-                // drain=3: mac_valid done, ACC_write_en done, last write committed
-                if (drain == 2'd3) begin
+                // drain=5: 3 original + 1 r_pixel_data flop + 1 RES_write flop
+                if (drain == 3'd5) begin
                     state <= S_WAIT_ROUND;
                     if (round != total_rounds - 1)
                         req_weights <= 1;
@@ -265,15 +275,21 @@ module conv1d #(
     end
 
     // ------------------------------------------------------------------
-    // RES output (only on last round)
+    // RES output (only on last round) -- registered to break Cone A
     // ------------------------------------------------------------------
-    always @(*) begin
-        RES_write_data_in = q_pix;
-        RES_write_address = ACC_write_address;
-        if (round == total_rounds - 1)
-            RES_write_en = ACC_write_en;
-        else
-            RES_write_en = 0;
+    always @(posedge clk) begin
+        if (rst) begin
+            RES_write_en      <= 1'b0;
+            RES_write_address <= 0;
+            RES_write_data_in <= 0;
+        end else begin
+            RES_write_data_in <= q_pix;
+            RES_write_address <= ACC_write_address;
+            if (round == total_rounds - 1)
+                RES_write_en <= ACC_write_en;
+            else
+                RES_write_en <= 1'b0;
+        end
     end
 
 endmodule
