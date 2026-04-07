@@ -3,6 +3,12 @@
 Used by both off-board and on-board tests, and by /pipeline-debug scripts.
 """
 
+import pathlib
+
+import numpy as np
+
+from software.overlay.drivers import TinyissimoYoloAcceleratorDriver
+
 
 def check_register_readback(ip, offset: int, value: int) -> int:
     """Write a value to a register and read it back.
@@ -66,3 +72,74 @@ def check_register_constants_sane(
                 f"{name} and {seen[off]} share offset 0x{off:X}"
             )
         seen[off] = name
+
+
+def find_accel_bitstream(hw_dir: str) -> str | None:
+    """Find a .bit in `hw_dir` whose sibling .hwh references the accelerator.
+
+    Reuses the same .hwh XML parser the audit system uses
+    (`software.overlay.drivers._parse_hwh`) so a stale comment or a
+    parameter-value string referencing the VLNV doesn't produce a
+    false positive. Returns None if no match, so callers can
+    `pytest.skip` cleanly.
+
+    Args:
+        hw_dir: Directory containing .bit and .hwh pairs (e.g.
+            `hardware/output/`).
+
+    Returns:
+        Absolute path to the matching .bit, or None.
+    """
+    from software.overlay.drivers import _parse_hwh
+
+    target_vlnv = TinyissimoYoloAcceleratorDriver.IP_VLNV
+    hw_path = pathlib.Path(hw_dir)
+    for bit in sorted(hw_path.glob("*.bit")):
+        hwh = bit.with_suffix(".hwh")
+        if not hwh.exists():
+            continue
+        try:
+            modules = _parse_hwh(str(hwh))
+        except Exception:
+            continue
+        if any(info["vlnv"] == target_vlnv for info in modules.values()):
+            return str(bit)
+    return None
+
+
+def load_golden_uram_mem(path: str, num_words: int) -> np.ndarray:
+    """Parse a golden_layer*_uram.mem file into a (num_words, 16) int8 array.
+
+    The .mem files used by the inference_hdl testbench are 128-bit
+    URAM-packed words, one 32-hex-character word per line. The on-wire
+    byte order is LSB-first per axil_regs.sv:255 (lane = `rd_addr[3:2]`),
+    so we extract lane `i` as bits `[i*8 +: 8]` of each line.
+
+    Each lane byte is interpreted as signed int8 (two's complement),
+    matching how the HDL accelerator stores int8 activations and how
+    `TinyissimoYoloAcceleratorDriver.read_results_raw()` reconstructs
+    them on the PS side.
+
+    Args:
+        path: Path to the .mem file (e.g.
+            `hardware/testbench/inference_hdl/golden_layer16_uram.mem`).
+        num_words: Number of 128-bit words to read. Files may be longer
+            than `num_words`; surplus lines are ignored. Layer 13 stores
+            256 cv2 words, layer 16 stores 64 cv3 words.
+
+    Returns:
+        np.int8 array of shape (num_words, 16).
+    """
+    out = np.zeros((num_words, 16), dtype=np.int8)
+    with open(path) as f:
+        for i, line in enumerate(f):
+            if i >= num_words:
+                break
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            word = int(line, 16)
+            for lane in range(16):
+                byte = (word >> (lane * 8)) & 0xFF
+                out[i, lane] = np.int8(byte if byte < 128 else byte - 256)
+    return out
