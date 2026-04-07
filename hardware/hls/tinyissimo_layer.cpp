@@ -106,15 +106,21 @@ void tinyissimo_layer(
 #pragma HLS ARRAY_PARTITION variable=m0_buf     complete dim=1
 #pragma HLS ARRAY_PARTITION variable=nshift_buf complete dim=1
 
-    // ── Accumulator and activation registers ────────────────────────────
-    ap_int<32> acc     [TILE_OC];
-    ap_int<8>  act_tile[TILE_OC];
-#pragma HLS ARRAY_PARTITION variable=acc      complete dim=1
-#pragma HLS ARRAY_PARTITION variable=act_tile complete dim=1
+    // ── Accumulator registers (Phase A working set) ─────────────────────
+    ap_int<32> acc[TILE_OC];
+#pragma HLS ARRAY_PARTITION variable=acc complete dim=1
 
     // ── MaxPool row buffer: 2 rows x MAX_W x TILE_OC ───────────────────
     ap_int<8> pool_buf[2][MAX_W][TILE_OC];
 #pragma HLS ARRAY_PARTITION variable=pool_buf complete dim=3
+
+    // ── Per-row accumulator buffer (Phase A → Phase B) ─────────────────
+    // Phase A (OUT_COL_CONV) stashes one row of CONV results here so
+    // Phase B (OUT_COL_STORE) can pull them in a pipelined region. This
+    // breaks the long combinational cone from rescale → SiLU → byte-pack
+    // → fmap_out write merge that dominated the post-route critical path.
+    ap_int<32> acc_row[MAX_W][TILE_OC];
+#pragma HLS ARRAY_PARTITION variable=acc_row complete dim=2
 
     // ════════════════════════════════════════════════════════════════════
     // Main processing: iterate over OC tiles
@@ -183,7 +189,12 @@ void tinyissimo_layer(
         OUT_ROW_LOOP:
         for (int oh = 0; oh < out_h; oh++) {
 #pragma HLS LOOP_TRIPCOUNT min=1 max=256
-        OUT_COL_LOOP:
+
+        // ── Phase A: CONV → acc_row (one row of accumulators) ─────────
+        // CONV_LOOP keeps its existing II=1 pipeline; the surrounding
+        // OUT_COL_CONV stays unpipelined because CONV_LOOP has a runtime
+        // trip count and cannot be flattened into an outer pipeline.
+        OUT_COL_CONV:
         for (int ow = 0; ow < out_w; ow++) {
 #pragma HLS LOOP_TRIPCOUNT min=1 max=256
 
@@ -291,14 +302,44 @@ void tinyissimo_layer(
                 }
             } // CONV_LOOP
 
+            // Stash this column's accumulators into the row buffer so
+            // Phase B can stream through them in a pipelined region.
+            STASH_ACC:
+            for (int t = 0; t < TILE_OC; t++) {
+#pragma HLS UNROLL
+                acc_row[ow][t] = acc[t];
+            }
+        } // OUT_COL_CONV
+
+        // ── Phase B: rescale + SiLU + (maxpool) + pack + store ────────
+        // Pipelined II=1. This is the region that gives HLS room to
+        // insert pipeline registers into the rescale → SiLU → byte-pack
+        // chain that used to dominate the post-route critical path, and
+        // also lets BIND_OP latency=2 on the rescale multiply take effect.
+        OUT_COL_STORE:
+        for (int ow = 0; ow < out_w; ow++) {
+#pragma HLS PIPELINE II=1
+#pragma HLS LOOP_TRIPCOUNT min=1 max=256
+
+            // Pull this column's accumulators out of the row buffer.
+            ap_int<32> acc_local[TILE_OC];
+#pragma HLS ARRAY_PARTITION variable=acc_local complete dim=1
+            LOAD_ACC:
+            for (int t = 0; t < TILE_OC; t++) {
+#pragma HLS UNROLL
+                acc_local[t] = acc_row[ow][t];
+            }
+
             // ── Step 2: Post-processing (rescale, zp_out, SiLU) ────────
+            ap_int<8> act_local[TILE_OC];
+#pragma HLS ARRAY_PARTITION variable=act_local complete dim=1
             POST_PROC:
             for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                 if (t < oc_valid) {
                     // Rescale to full int32 (no clip), add zp_out, then
                     // clip once.  Matches HDL conv3d.v:375-376 exactly.
-                    ap_int<32> shifted = rescale(acc[t], m0_buf[t],
+                    ap_int<32> shifted = rescale(acc_local[t], m0_buf[t],
                                                  nshift_buf[t]);
                     ap_int<32> with_zp = shifted + (ap_int<32>)zp_out;
                     ap_int<8>  clamped = clip_int8(with_zp);
@@ -309,12 +350,12 @@ void tinyissimo_layer(
                     if (use_silu) {
                         int lut_idx = (int)((ap_uint<8>)clamped
                                           ^ (ap_uint<8>)0x80);
-                        act_tile[t] = local_silu[lut_idx];
+                        act_local[t] = local_silu[lut_idx];
                     } else {
-                        act_tile[t] = clamped;
+                        act_local[t] = clamped;
                     }
                 } else {
-                    act_tile[t] = 0;
+                    act_local[t] = 0;
                 }
             }
 
@@ -325,13 +366,15 @@ void tinyissimo_layer(
                 POOL_STORE:
                 for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
-                    pool_buf[buf_row][ow][t] = act_tile[t];
+                    pool_buf[buf_row][ow][t] = act_local[t];
                 }
 
                 if ((oh & 1) && (ow & 1)) {
                     int pool_oh = oh >> 1;
                     int pool_ow = ow >> 1;
 
+                    ap_int<8> pooled[TILE_OC];
+#pragma HLS ARRAY_PARTITION variable=pooled complete dim=1
                     POOL_MAX:
                     for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
@@ -344,7 +387,7 @@ void tinyissimo_layer(
                         if (v01 > mx) mx = v01;
                         if (v10 > mx) mx = v10;
                         if (v11 > mx) mx = v11;
-                        act_tile[t] = mx;
+                        pooled[t] = mx;
                     }
 
                     // Pack TILE_OC=16 lanes into a full 128-bit word and
@@ -358,7 +401,7 @@ void tinyissimo_layer(
                     for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                         if (t < oc_valid)
-                            packed.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
+                            packed.range(t*8+7, t*8) = (ap_uint<8>)pooled[t];
                     }
                     fmap_out[out_idx] = packed;
                 }
@@ -375,12 +418,12 @@ void tinyissimo_layer(
                 for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                     if (t < oc_valid)
-                        packed.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
+                        packed.range(t*8+7, t*8) = (ap_uint<8>)act_local[t];
                 }
                 fmap_out[out_idx] = packed;
             }
 
-        } // OUT_COL_LOOP
+        } // OUT_COL_STORE
         } // OUT_ROW_LOOP
     } // OC_TILE_LOOP
 }
