@@ -37,6 +37,7 @@ static ap_int<8> clip_int8(ap_int<32> x) {
 static ap_int<32> rescale(ap_int<32> acc, ap_uint<32> m0, ap_uint<8> n_shift) {
 #pragma HLS INLINE
     ap_int<64> product = (ap_int<64>)acc * (ap_int<64>)m0;
+#pragma HLS BIND_OP variable=product op=mul impl=dsp latency=2
     ap_int<64> shifted = product >> n_shift;
     return (ap_int<32>)shifted;
 }
