@@ -67,7 +67,13 @@ void tinyissimo_layer(
     const ap_uint<8>   silu_mem [SILU_LUT_DEPTH]
 )
 {
-#pragma HLS INLINE
+    // INLINE was here before. Removed to let HLS dedupe the two ping-pong
+    // call sites in tinyissimo_layer_top.cpp:54,72 — without dedup, the
+    // function-scope acc_row array (which bridges Pipeline_OUT_COL_CONV
+    // and Pipeline_OUT_COL_STORE) caused HLS to emit two distinct copies
+    // of every Pipeline_ region. With INLINE off, tinyissimo_layer becomes
+    // a real sub-module called from both branches → exactly one copy of
+    // each Pipeline_ region in the bitstream.
 
     // ── Derived runtime constants ───────────────────────────────────────
     const int ic_tiles    = (in_c + TILE_IC - 1) / TILE_IC;
