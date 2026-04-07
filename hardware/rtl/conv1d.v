@@ -81,8 +81,8 @@ module conv1d #(
     reg [17:0] pixel_count;
     wire       reading_done = (pixel_count >= act_size_sq);
 
-    // Pipeline drain: after last pixel read, MAC pipeline needs 5 cycles
-    // (3 original + 1 from r_pixel_data flop + 1 from RES_write_data_in flop)
+    // Pipeline drain: after last pixel read, MAC pipeline needs 6 cycles
+    // (3 original + 1 r_pixel_data flop + 1 r_scaled_pix_acc flop + 1 RES_write_data_in flop)
     reg [2:0] drain;
 
     // Active channel count
@@ -184,8 +184,8 @@ module conv1d #(
                 end
 
                 // Transition when pipeline fully drained
-                // drain=5: 3 original + 1 r_pixel_data flop + 1 RES_write flop
-                if (drain == 3'd5) begin
+                // drain=6: 3 original + 1 r_pixel_data flop + 1 r_scaled_pix_acc flop + 1 RES_write flop
+                if (drain == 3'd6) begin
                     state <= S_WAIT_ROUND;
                     if (round != total_rounds - 1)
                         req_weights <= 1;
@@ -257,14 +257,20 @@ module conv1d #(
     end
 
     // ------------------------------------------------------------------
-    // Requantization (combinational, identical to conv3d)
+    // Requantization (scaled_pix_acc registered to break Cone A at DSP output)
     // ------------------------------------------------------------------
     reg signed [64-1:0]        scaled_pix_acc;
     reg signed [ACC_BITS-1:0]  q_pix_wide;
     reg signed [N_BITS-1:0]    q_pix;
 
+    always @(posedge clk) begin
+        if (rst)
+            scaled_pix_acc <= 0;
+        else
+            scaled_pix_acc <= ACC_write_data_in * r_m0;
+    end
+
     always @(*) begin
-        scaled_pix_acc = ACC_write_data_in * r_m0;
         q_pix_wide = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
         if (q_pix_wide > 127)
             q_pix = 127;
@@ -272,6 +278,24 @@ module conv1d #(
             q_pix = -128;
         else
             q_pix = q_pix_wide[N_BITS-1:0];
+    end
+
+    // ------------------------------------------------------------------
+    // Control-path delay: 1-cycle pipeline of address/enable to align with
+    // the new scaled_pix_acc data flop. Without this, q_pix would lag the
+    // address by 1 cycle and writes would land at the wrong address.
+    // ------------------------------------------------------------------
+    reg [DEPTH_BITS-1:0]   ACC_write_address_d;
+    reg                    ACC_write_en_d;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            ACC_write_address_d <= 0;
+            ACC_write_en_d      <= 0;
+        end else begin
+            ACC_write_address_d <= ACC_write_address;
+            ACC_write_en_d      <= ACC_write_en;
+        end
     end
 
     // ------------------------------------------------------------------
@@ -284,9 +308,9 @@ module conv1d #(
             RES_write_data_in <= 0;
         end else begin
             RES_write_data_in <= q_pix;
-            RES_write_address <= ACC_write_address;
+            RES_write_address <= ACC_write_address_d;
             if (round == total_rounds - 1)
-                RES_write_en <= ACC_write_en;
+                RES_write_en <= ACC_write_en_d;
             else
                 RES_write_en <= 1'b0;
         end
