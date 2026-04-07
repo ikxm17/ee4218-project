@@ -64,7 +64,7 @@ module conv1d #(
     reg [17:0] act_size_sq;
 
     // Registered scalars
-    reg signed [N_BITS-1:0]     r_zp_in, r_zp_out;
+    reg signed [N_BITS-1:0]     r_zp_out;
     reg signed [ACC_BITS-1:0]   r_bias;
     reg signed [M0_BITS-1:0]    r_m0;
     reg        [SHIFT_BITS-1:0] r_n_shift;
@@ -130,7 +130,6 @@ module conv1d #(
             state       <= S_IDLE;
             done        <= 0;
             round       <= 0;
-            r_zp_in     <= 0;
             r_zp_out    <= 0;
             r_bias      <= 0;
             r_m0        <= 0;
@@ -147,7 +146,6 @@ module conv1d #(
             case (state)
             S_IDLE: begin
                 if (start) begin
-                    r_zp_in     <= zp_in;
                     r_zp_out    <= zp_out;
                     r_bias      <= bias;
                     r_m0        <= m0;
