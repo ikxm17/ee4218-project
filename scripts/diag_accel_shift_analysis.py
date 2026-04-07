@@ -70,6 +70,39 @@ golden = load_golden_uram_mem(
 )
 print(f"  golden shape (full): {golden.shape}")
 
+# Edge-word experiment: distinguish "write addresses are -1"
+# from "first data item is skipped". Read the word just BELOW
+# the layer 0 region (silicon[SIL_START - 1] == silicon[4095])
+# and the word at the END of the layer 0 region
+# (silicon[SIL_START + N_WORDS - 1] == silicon[16383]).
+#
+#   Interpretation A (write addresses are -1):
+#     silicon[4095]  == golden[4096]     (displaced d_0 landed here)
+#     silicon[16383] == stale / init     (never written)
+#
+#   Interpretation B (first data skipped):
+#     silicon[4095]  == stale / init     (nothing written below)
+#     silicon[16383] == stale / init     (last cycle never emitted)
+#
+# Both interpretations agree on silicon[16383]; they diverge on
+# silicon[4095]. One read of each, compared against interp-A and
+# interp-B predictions, is the cheapest discriminator.
+print("\n=== edge-word experiment (A vs B) ===")
+edge_below  = drv.read_window(SIL_START - 1, 0, 2)   # fmap_a[4095..4096]
+edge_above  = drv.read_window(SIL_START + N_WORDS - 1, 0, 1)  # fmap_a[16383]
+print(f"  silicon[4095]  = {edge_below[0].tolist()}")
+print(f"  silicon[4096]  = {edge_below[1].tolist()}  (sanity, should match H2 for k=4096)")
+print(f"  silicon[16383] = {edge_above[0].tolist()}")
+print(f"  golden[4096]   = {golden[4096].tolist()}  (interp-A predicts silicon[4095] == this)")
+print(f"  golden[4095]   = {golden[4095].tolist()}  (stale/init baseline, if any)")
+print(f"  golden[16383]  = {golden[16383].tolist()}  (H1 expected at silicon[16383] if writes aligned)")
+if np.array_equal(edge_below[0], golden[4096]):
+    print("  VERDICT: interp-A matches — silicon writes at -1 offset (d_0 landed at base-1)")
+elif np.array_equal(edge_below[0], np.zeros(16, dtype=np.int8)):
+    print("  VERDICT: silicon[4095] is all-zero — stale/init baseline (interp-B more likely)")
+else:
+    print("  VERDICT: silicon[4095] is neither interp-A nor zero; novel value — needs inspection")
+
 golden_aligned     = golden[SIL_START:SIL_START + N_WORDS]
 silicon_for_shift  = silicon[:N_WORDS - 1]
 golden_shifted_fwd  = golden[SIL_START + 1:SIL_START + N_WORDS]
