@@ -49,6 +49,7 @@ class TinyissimoYoloAcceleratorDriver:
     _LAYER_IDX       = 0x010
     _RESULT_BASE_REG = 0x014   # 14-bit URAM base for result window
     _RESULT_BUF_REG  = 0x018   # 0=fmap_a, 1=fmap_b
+    _MAX_LAYERS_REG  = 0x01C   # 5-bit inference loop bound, default 17
     _PIXEL_FIFO      = 0x020
     _PIXEL_CNT       = 0x024
     _RESULT_BASE     = 0x100   # AXI-Lite result region base
@@ -187,6 +188,29 @@ class TinyissimoYoloAcceleratorDriver:
             if self.status & self._STATUS_DONE:
                 return True
         return False
+
+    def set_max_layers(self, n: int):
+        """Stop inference after the first ``n`` layers (default 17 = full network).
+
+        When set, the FSM exits to S_IDLE after ``layer_idx == n - 1`` finishes,
+        without starting layer ``n`` or beyond. Use this for layer-by-layer
+        debugging: set ``n=1`` to capture layer 0's full fmap_a output before
+        layer 2 overwrites it; ``n=2`` to capture layer 1's full fmap_b output
+        before layer 3 overwrites it; etc. Pair with ``read_window`` to read
+        the entire URAM range without time pressure from later layers racing
+        ahead.
+
+        Default: 17 (run all layers, original behaviour). Reset by ``soft_reset()``
+        only via the global hardware reset path — write the desired value
+        explicitly each run if non-default.
+
+        Args:
+            n: 1..17 inclusive. Values > 17 are clipped to 17 by the 5-bit
+               register. n=0 would never run any layer.
+        """
+        if not 1 <= n <= 17:
+            raise ValueError(f"n must be in [1, 17], got {n}")
+        self._ip.write(self._MAX_LAYERS_REG, n & 0x1F)
 
     def set_result_window(self, base_addr: int, buf: int = 1):
         """Slide the AXI-Lite result region over a different URAM range.

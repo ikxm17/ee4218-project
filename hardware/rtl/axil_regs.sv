@@ -69,7 +69,14 @@ module axil_regs #(
     output logic [FMAP_ADDR_W-1:0]    o_result_rd_addr,
     output logic [FMAP_ADDR_W-1:0]    o_result_base_addr,
     output logic                      o_result_buf_sel,
-    input  logic [FMAP_DATA_W-1:0]    i_result_rd_data
+    input  logic [FMAP_DATA_W-1:0]    i_result_rd_data,
+
+    /* Inference loop bound — host can stop inference early to read
+     * intermediate fmap_a/b state for layer-by-layer debugging.
+     * Default 5'd17 = full network (NUM_LAYERS). Setting to N stops
+     * after layer N-1 completes; the FSM goes to S_IDLE without
+     * starting layer N or beyond. */
+    output logic [4:0]                o_max_layers
 );
 
     /* ================================================================
@@ -82,6 +89,7 @@ module axil_regs #(
                             ADDR_LAYER_IDX     = 13'h010,
                             ADDR_RESULT_BASE_R = 13'h014,
                             ADDR_RESULT_BUF_R  = 13'h018,
+                            ADDR_MAX_LAYERS_R  = 13'h01C,
                             ADDR_PIXEL_FIFO    = 13'h020,
                             ADDR_PIXEL_CNT     = 13'h024,
                             ADDR_RESULT_BASE   = 13'h100,
@@ -94,6 +102,7 @@ module axil_regs #(
     logic [31:0] reg_mode;
     logic [FMAP_ADDR_W-1:0] reg_result_base;  // URAM base for result read window
     logic                   reg_result_buf;   // 0=fmap_a, 1=fmap_b
+    logic [4:0]             reg_max_layers;   // inference loop bound (default = NUM_LAYERS)
 
     logic [FMAP_DATA_W-1:0]  pixel_accum;
     logic [1:0]              pixel_lane;
@@ -157,6 +166,7 @@ module axil_regs #(
             // any time to slide the window over a different layer's output.
             reg_result_base <= FMAP_ADDR_W'(256);
             reg_result_buf  <= 1'b1;
+            reg_max_layers  <= 5'd17;       // NUM_LAYERS — full network
         end else begin
             if (reg_ctrl[0]) reg_ctrl[0] <= 1'b0;
             if (reg_ctrl[1]) reg_ctrl[1] <= 1'b0;
@@ -167,6 +177,7 @@ module axil_regs #(
                     ADDR_MODE:          reg_mode        <= s_axi_wdata;
                     ADDR_RESULT_BASE_R: reg_result_base <= s_axi_wdata[FMAP_ADDR_W-1:0];
                     ADDR_RESULT_BUF_R:  reg_result_buf  <= s_axi_wdata[0];
+                    ADDR_MAX_LAYERS_R:  reg_max_layers  <= s_axi_wdata[4:0];
                     default: ;
                 endcase
             end
@@ -288,6 +299,7 @@ module axil_regs #(
                 ADDR_LAYER_IDX:     rd_data_mux = {27'd0, i_layer_idx};
                 ADDR_RESULT_BASE_R: rd_data_mux = {{(32-FMAP_ADDR_W){1'b0}}, reg_result_base};
                 ADDR_RESULT_BUF_R:  rd_data_mux = {31'd0, reg_result_buf};
+                ADDR_MAX_LAYERS_R:  rd_data_mux = {27'd0, reg_max_layers};
                 ADDR_PIXEL_CNT:     rd_data_mux = {15'd0, pixel_count};
                 default:            rd_data_mux = 32'hDEAD_BEEF;
             endcase
@@ -301,6 +313,7 @@ module axil_regs #(
     assign o_mode                  = reg_mode[1:0];
     assign o_result_base_addr = reg_result_base;
     assign o_result_buf_sel   = reg_result_buf;
+    assign o_max_layers       = reg_max_layers;
     assign o_engine_sel = reg_mode[4];   // 0 = HDL engine, 1 = HLS engine
 
 endmodule

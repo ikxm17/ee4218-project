@@ -213,6 +213,7 @@ module inference_top #(
     logic [FMAP_DATA_W-1:0] result_rd_data;
     logic [FMAP_ADDR_W-1:0] result_base_addr;   // programmable URAM base from axil_regs
     logic                    result_buf_sel;    // 0=fmap_a, 1=fmap_b — selected by axil_regs
+    logic [4:0]              max_layers_run;    // inference loop bound (default NUM_LAYERS)
 
     /* Inference start/done — muxed between testbench and phase FSM */
     logic inference_start;
@@ -406,7 +407,8 @@ module inference_top #(
             .o_result_rd_addr  (result_rd_addr),
             .o_result_base_addr(result_base_addr),
             .o_result_buf_sel  (result_buf_sel),
-            .i_result_rd_data  (result_rd_data)
+            .i_result_rd_data  (result_rd_data),
+            .o_max_layers      (max_layers_run)
         );
 
     end else begin : gen_tb_mode
@@ -422,6 +424,7 @@ module inference_top #(
         assign result_rd_addr     = '0;
         assign result_base_addr   = FMAP_ADDR_W'(256);
         assign result_buf_sel     = 1'b1;
+        assign max_layers_run     = NUM_LAYERS[4:0];  // run all layers in TB
         assign irq_done           = 1'b0;
         assign s_axis_tready      = 1'b0;
 
@@ -645,7 +648,8 @@ module inference_top #(
         .out_buf_wr_data   (out_buf_wr_data_int),
         .curr_layer_idx    (hdl_curr_layer_idx),
         .curr_pp_buf_sel   (curr_pp_buf_sel),
-        .curr_pp_rd_offset (curr_pp_rd_offset)
+        .curr_pp_rd_offset (curr_pp_rd_offset),
+        .max_layers_run    (max_layers_run)
     );
 
     /* HLS engine — black-box wrapper around the Vitis-HLS-generated

@@ -55,7 +55,13 @@ module inference_hdl #(
 
     /* Sub-pingpong config (for inference_top URAM routing) */
     output logic                             curr_pp_buf_sel,
-    output logic [13:0]                      curr_pp_rd_offset
+    output logic [13:0]                      curr_pp_rd_offset,
+
+    /* Inference loop bound — host can stop inference early to read
+     * intermediate fmap_a/b state for layer-by-layer debugging.
+     * Default 5'd17 = full network. Tied to 5'd17 in TB_MODE=1; driven
+     * by axil_regs reg_max_layers in TB_MODE=0. */
+    input  logic [4:0]                       max_layers_run
 );
 
     /* ================================================================
@@ -230,7 +236,7 @@ module inference_hdl #(
                 else
                     next_state = S_NEXT_LAYER;
             S_NEXT_LAYER:
-                if (next_layer_idx < NUM_LAYERS)
+                if (next_layer_idx < max_layers_run)
                     next_state = S_LOAD;
                 else
                     next_state = S_IDLE;
@@ -342,7 +348,7 @@ module inference_hdl #(
                 end
 
                 S_NEXT_LAYER: begin
-                    if (next_layer_idx < NUM_LAYERS) begin
+                    if (next_layer_idx < max_layers_run) begin
                         wt_addr_reg    <= next_layer_cfg.wt_base + 1;
                         layer_idx      <= next_layer_idx;
                         r_layer_idx    <= next_layer_idx;
@@ -431,7 +437,7 @@ module inference_hdl #(
             end
 
             S_NEXT_LAYER: begin
-                if (next_layer_idx < NUM_LAYERS) begin
+                if (next_layer_idx < max_layers_run) begin
                     r_cfg <= next_layer_cfg;
                 end
             end
@@ -479,7 +485,7 @@ module inference_hdl #(
                 end
 
                 S_NEXT_LAYER: begin
-                    if (!(next_layer_idx < NUM_LAYERS))
+                    if (!(next_layer_idx < max_layers_run))
                         done <= 1'b1;
                 end
 
@@ -539,7 +545,7 @@ module inference_hdl #(
             end
 
             S_NEXT_LAYER: begin
-                if (next_layer_idx < NUM_LAYERS) begin
+                if (next_layer_idx < max_layers_run) begin
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = next_layer_cfg.qp_base;
                     wt_mem_en_b   = 1'b1;
