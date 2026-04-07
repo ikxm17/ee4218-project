@@ -241,8 +241,14 @@ module inference_hdl #(
 
     /* ================================================================
      *  State Memory
+     *
+     *  Synchronous reset: see UG901 p. 85, UG949 pp. 50-55.
+     *  FDRE primitives support sync reset natively and avoid the
+     *  [Synth 8-7137] "Set and reset with same priority" warning
+     *  class that async-sensitivity-list blocks are prone to when
+     *  some registers are assigned outside the reset branch.
      * ================================================================ */
-    always_ff @(posedge aclk or negedge aresetn) begin : state_memory
+    always_ff @(posedge aclk) begin : state_memory
         if (!aresetn)
             state <= S_IDLE;
         else
@@ -251,8 +257,14 @@ module inference_hdl #(
 
     /* ================================================================
      *  Counters
+     *
+     *  Synchronous reset (see state_memory header). ch_out and
+     *  layer_idx are explicitly listed in the reset branch — without
+     *  them, [Synth 8-7137] fires because they are assigned only
+     *  inside case branches and Vivado cannot map the implicit hold
+     *  to a single FDRE/FDSE primitive.
      * ================================================================ */
-    always_ff @(posedge aclk or negedge aresetn) begin : counters
+    always_ff @(posedge aclk) begin : counters
         if (!aresetn) begin
             load_cnt       <= '0;
             preload_cnt    <= '0;
@@ -261,6 +273,8 @@ module inference_hdl #(
             r_layer_idx    <= '0;
             preload_active <= 1'b0;
             preload_done   <= 1'b0;
+            ch_out         <= 8'd0;
+            layer_idx      <= 5'd0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -347,8 +361,16 @@ module inference_hdl #(
 
     /* ================================================================
      *  Weight Banks
+     *
+     *  Synchronous reset (see state_memory header). wt_bank_a and
+     *  wt_bank_b are intentionally NOT reset here — they are
+     *  data-path registers initialized by GSR at bitstream load
+     *  (UG949 p. 50: "resets are generally less necessary on the
+     *  data path logic"). They are fully written in S_LOAD before
+     *  being read in S_COMPUTE, so their post-reset contents do
+     *  not matter.
      * ================================================================ */
-    always_ff @(posedge aclk or negedge aresetn) begin : weight_banks
+    always_ff @(posedge aclk) begin : weight_banks
         if (!aresetn) begin
             wt_sel <= 1'b0;
         end else begin
@@ -420,8 +442,10 @@ module inference_hdl #(
 
     /* ================================================================
      *  Output Registers (single-cycle pulses)
+     *
+     *  Synchronous reset (see state_memory header).
      * ================================================================ */
-    always_ff @(posedge aclk or negedge aresetn) begin : output_registers
+    always_ff @(posedge aclk) begin : output_registers
         if (!aresetn) begin
             conv3d_start         <= 1'b0;
             conv1_start          <= 1'b0;
@@ -721,7 +745,8 @@ module inference_hdl #(
     wire [8:0] h_out = (curr_layer_type == CONV3_POOL) ? (curr_act_size >> 1) : curr_act_size;
     wire [FMAP_ADDR_W-1:0] rmw_base_addr = curr_pp_wr_offset + (curr_ch_out >> 4) * h_out * h_out;
 
-    always_ff @(posedge aclk or negedge aresetn) begin
+    /* Synchronous reset (see state_memory header). */
+    always_ff @(posedge aclk) begin : rmw_s0_pipeline
         if (!aresetn) begin
             rmw_s0_valid <= 1'b0;
         end else begin
@@ -741,7 +766,8 @@ module inference_hdl #(
         spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
     end
 
-    always_ff @(posedge aclk or negedge aresetn) begin
+    /* Synchronous reset (see state_memory header). */
+    always_ff @(posedge aclk) begin : rmw_write_pipeline
         if (!aresetn) begin
             out_buf_wr_en <= 1'b0;
         end else begin
