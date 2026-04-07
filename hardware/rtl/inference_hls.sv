@@ -4,8 +4,13 @@
 /* ============================================================================
  *  inference_hls — placeholder for the HLS-generated inference engine.
  *
- *  Mirrors the port list of inference_hdl exactly so the two are drop-in
- *  swappable inside inference_top via the USE_HLS generate selector.
+ *  Mirrors the port list of inference_hdl exactly so that, when the Vitis
+ *  HLS source is ready, this stub can be replaced and instantiated as a
+ *  sibling of u_inference_hdl inside inference_top — no port re-wiring.
+ *
+ *  Not yet instantiated.  See inference_top.sv "Inference Controller"
+ *  comment block for the planned runtime A/B mux structure that will
+ *  feed both engines and select one via an AXI-Lite control register.
  *
  *  All outputs are tied to safe defaults; the engine never asserts done.
  *  Replace the body with the Vitis HLS-generated RTL when available.

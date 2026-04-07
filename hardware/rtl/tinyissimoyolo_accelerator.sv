@@ -1,8 +1,7 @@
 `timescale 1ns / 1ps
 
 module tinyissimoyolo_accelerator #(
-    parameter AXI_ADDR_W = 13,
-    parameter USE_HLS    = 0   // 0 = inference_hdl, 1 = inference_hls
+    parameter AXI_ADDR_W = 13
 )(
     input  logic aclk,
     input  logic aresetn,
@@ -39,8 +38,7 @@ module tinyissimoyolo_accelerator #(
 
     inference_top #(
         .TB_MODE    (0),
-        .AXI_ADDR_W (AXI_ADDR_W),
-        .USE_HLS    (USE_HLS)
+        .AXI_ADDR_W (AXI_ADDR_W)
     ) u_core (
         .aclk                (aclk),
         .aresetn             (aresetn),

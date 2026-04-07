@@ -286,11 +286,11 @@ module tb_inference_hdl;
     // =========================================================================
 `ifdef DEBUG_TRACE
     always_ff @(posedge clk) begin
-        if (dut.gen_inference.u_inference.state == 3'd4) begin // S_NEXT_LAYER
+        if (dut.u_inference_hdl.state == 3'd4) begin // S_NEXT_LAYER
             $display("[DBG cycle %0d] S_NEXT_LAYER: layer_idx=%0d -> %0d",
                      cycle_count,
-                     dut.gen_inference.u_inference.layer_idx,
-                     dut.gen_inference.u_inference.layer_idx + 1);
+                     dut.u_inference_hdl.layer_idx,
+                     dut.u_inference_hdl.layer_idx + 1);
         end
     end
 `endif
@@ -332,7 +332,7 @@ module tb_inference_hdl;
         for (int li = 0; li < NUM_TEST_LAYERS; li++) begin
             if (li < NUM_TEST_LAYERS - 1) begin
                 // Wait for FSM to advance to next layer
-                wait(dut.gen_inference.u_inference.layer_idx == li + 1);
+                wait(dut.u_inference_hdl.layer_idx == li + 1);
                 @(posedge clk);
             end else begin
                 // Last layer: wait for done
