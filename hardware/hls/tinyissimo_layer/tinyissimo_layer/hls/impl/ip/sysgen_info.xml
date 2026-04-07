@@ -2,73 +2,13 @@
 <AdditionalInfo>
   <CTypeInfo>
       <RtlPort>
-        <name>fmap_in_Addr_A</name>
-        <type>Unsigned</type>
+        <name>curr_layer_out</name>
+        <type>Signed</type>
         <fractionWidth>0</fractionWidth>
       </RtlPort>
       <RtlPort>
-        <name>fmap_in_Clk_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_in_Din_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_in_Dout_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_in_EN_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_in_Rst_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_in_WEN_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_Addr_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_Clk_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_Din_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_Dout_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_EN_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_Rst_A</name>
-        <type>Unsigned</type>
-        <fractionWidth>0</fractionWidth>
-      </RtlPort>
-      <RtlPort>
-        <name>fmap_out_WEN_A</name>
-        <type>Unsigned</type>
+        <name>curr_layer_out_ap_vld</name>
+        <type>bool</type>
         <fractionWidth>0</fractionWidth>
       </RtlPort>
       <RtlPort>
@@ -183,7 +123,7 @@
   <Machine>64</Machine>
   <modelParameters>
     <combinational>0</combinational>
-    <latency>37</latency>
-    <II>38 ~ 92304758</II>
+    <latency>16236</latency>
+    <II>16237 ~ 1551355113</II>
   </modelParameters>
 </AdditionalInfo>

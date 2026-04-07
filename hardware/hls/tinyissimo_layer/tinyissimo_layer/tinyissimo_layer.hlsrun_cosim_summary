@@ -9,10 +9,10 @@
 <ENTRY>
 {
  "type": "ET_CmdStep",
- "dateTimestamp": "Tue Apr  7 13:12:26 2026",
- "timestampMillis": "1775542346346",
+ "dateTimestamp": "Tue Apr  7 19:36:12 2026",
+ "timestampMillis": "1775565372000",
  "buildStep": {
-  "cmdId": "787bd72f-a338-46aa-887c-dc7dc5151283",
+  "cmdId": "1c33fe2f-48bd-4771-9620-6fdbfdb21754",
   "name": "vitis-run",
   "logFile": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/logs/tinyissimo_layer.steps.log",
   "commandLine": "/opt/Xilinx/2025.2/Vitis/bin/unwrapped/lnx64.o/vitis-run  --mode hls --cosim --config /home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/hls_config.cfg --work_dir tinyissimo_layer ",
@@ -33,10 +33,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Tue Apr  7 13:12:26 2026",
- "timestampMillis": "1775542346346",
+ "dateTimestamp": "Tue Apr  7 19:36:12 2026",
+ "timestampMillis": "1775565372000",
  "status": {
-  "cmdId": "787bd72f-a338-46aa-887c-dc7dc5151283",
+  "cmdId": "1c33fe2f-48bd-4771-9620-6fdbfdb21754",
   "state": "CS_RUNNING"
  }
 }
@@ -44,8 +44,8 @@
 <ENTRY>
 {
  "type": "ET_FlowMetaData",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348536",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374068",
  "buildSummary": {
   "hardwarePlatform": "",
   "hardwareDsa": "",
@@ -82,10 +82,10 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374069",
  "buildStep": {
-  "cmdId": "0f57143b-0b69-4c3a-a094-2466a4fbc68d",
+  "cmdId": "268e3ec8-8e03-4911-923d-30bcf7f7fbe7",
   "name": "",
   "logFile": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls/hls.log",
   "commandLine": "",
@@ -98,10 +98,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374069",
  "status": {
-  "cmdId": "0f57143b-0b69-4c3a-a094-2466a4fbc68d",
+  "cmdId": "268e3ec8-8e03-4911-923d-30bcf7f7fbe7",
   "state": "CS_RUNNING"
  }
 }
@@ -109,8 +109,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374069",
  "report": {
   "path": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls/sim/report/tinyissimo_layer_top_cosim.rpt",
   "name": "",
@@ -123,8 +123,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374069",
  "report": {
   "path": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls",
   "name": "",
@@ -137,8 +137,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374070",
  "report": {
   "path": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls",
   "name": "",
@@ -151,8 +151,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348537",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374070",
  "report": {
   "path": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls",
   "name": "",
@@ -165,8 +165,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:12:28 2026",
- "timestampMillis": "1775542348538",
+ "dateTimestamp": "Tue Apr  7 19:36:14 2026",
+ "timestampMillis": "1775565374070",
  "report": {
   "path": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls",
   "name": "",
@@ -179,10 +179,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Tue Apr  7 13:13:03 2026",
- "timestampMillis": "1775542383413",
+ "dateTimestamp": "Tue Apr  7 19:44:27 2026",
+ "timestampMillis": "1775565867370",
  "status": {
-  "cmdId": "0f57143b-0b69-4c3a-a094-2466a4fbc68d",
+  "cmdId": "268e3ec8-8e03-4911-923d-30bcf7f7fbe7",
   "state": "CS_PASSED"
  }
 }
@@ -190,10 +190,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Tue Apr  7 13:13:03 2026",
- "timestampMillis": "1775542383495",
+ "dateTimestamp": "Tue Apr  7 19:44:27 2026",
+ "timestampMillis": "1775565867449",
  "status": {
-  "cmdId": "787bd72f-a338-46aa-887c-dc7dc5151283",
+  "cmdId": "1c33fe2f-48bd-4771-9620-6fdbfdb21754",
   "state": "CS_PASSED"
  }
 }
@@ -201,8 +201,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:13:03 2026",
- "timestampMillis": "1775542383495",
+ "dateTimestamp": "Tue Apr  7 19:44:27 2026",
+ "timestampMillis": "1775565867450",
  "report": {
   "path": "",
   "name": "",
@@ -215,8 +215,8 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Tue Apr  7 13:13:03 2026",
- "timestampMillis": "1775542383496",
+ "dateTimestamp": "Tue Apr  7 19:44:27 2026",
+ "timestampMillis": "1775565867450",
  "report": {
   "path": "",
   "name": "",

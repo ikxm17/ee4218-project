@@ -36,11 +36,13 @@ static int8_t clip8(int32_t x) {
     return (int8_t)x;
 }
 
-static int8_t ref_rescale(int32_t acc, uint32_t m0, uint8_t n_shift) {
+// Truncating rescale — returns full int32, matches HLS rescale().
+// The caller adds zp_out and clips ONCE (single-clip) to match the
+// HDL conv3d.v requantization order exactly.
+static int32_t ref_rescale(int32_t acc, uint32_t m0, uint8_t n_shift) {
     int64_t product = (int64_t)acc * (int64_t)m0;
-    int64_t half    = (int64_t)1 << (n_shift - 1);
-    int64_t rounded = (product + half) >> n_shift;
-    return clip8((int32_t)rounded);
+    int64_t shifted = product >> n_shift;
+    return (int32_t)shifted;
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -121,11 +123,11 @@ static void pack_weights_rom(const int8_t* flat,
 static void pack_qp_rom(const int32_t* bias,
                          const uint32_t* m0,
                          const uint8_t* n_shift,
-                         ap_uint<72> qp_mem[],
+                         ap_uint<128> qp_mem[],
                          int qp_base, int out_c)
 {
     for (int oc = 0; oc < out_c; oc++) {
-        ap_uint<72> word = 0;
+        ap_uint<128> word = 0;
         word.range(31,  0) = (uint32_t)bias[oc];
         word.range(63, 32) = m0[oc];
         word.range(69, 64) = n_shift[oc];
@@ -209,8 +211,8 @@ static int8_t ref_pixel(const int8_t* ifmap,
             acc += (int32_t)pix * (int32_t)weights[wt_idx];
         }
     }
-    int8_t scaled   = ref_rescale(acc, m0[oc], n_shift[oc]);
-    int32_t with_zp = (int32_t)scaled + (int32_t)zp_out;
+    int32_t shifted = ref_rescale(acc, m0[oc], n_shift[oc]);
+    int32_t with_zp = shifted + (int32_t)zp_out;
     int8_t  clamped = clip8(with_zp);
     if (use_silu) {
         // XOR-0x80 addressing to match RTL
@@ -255,7 +257,7 @@ static void check(const char* tag, int8_t got, int8_t ref,
 static ap_uint<128> g_fmap_in [FMAP_DEPTH];
 static ap_uint<128> g_fmap_out[FMAP_DEPTH];
 static ap_uint<128> g_wt_mem  [WT_DEPTH];
-static ap_uint<72>  g_qp_mem  [QP_DEPTH];
+static ap_uint<128>  g_qp_mem  [QP_DEPTH];
 static ap_uint<8>   g_silu_mem[SILU_LUT_DEPTH];
 
 // ═══════════════════════════════════���═════════════════════════════════════
@@ -297,11 +299,12 @@ static void test1_no_pool() {
     fill_silu_mem(lut, g_silu_mem, LAYER_IDX);
 
     // Run DUT
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE, QP_BASE, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Unpack and compare
@@ -361,11 +364,12 @@ static void test2_maxpool() {
     pack_qp_rom(bias, m0, nshift, g_qp_mem, QP_BASE, OC);
     fill_silu_mem(lut, g_silu_mem, LAYER_IDX);
 
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, OC, KH, KW, PH, PW,
         true, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE, QP_BASE, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[PH2*PW2*OC];
@@ -435,11 +439,12 @@ static void test3_nonmultiple() {
     pack_qp_rom(bias, m0, nshift, g_qp_mem, QP_BASE, OC);
     fill_silu_mem(lut, g_silu_mem, LAYER_IDX);
 
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE, QP_BASE, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -515,11 +520,12 @@ static void test4_chained() {
     fill_silu_mem(lut, g_silu_mem, LI_2);
 
     // Run L1: fmap_in -> fmap_out
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, L1_IC, L1_OC, KH, KW, PH, PW,
         false, true, LI_1,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE_L1, QP_BASE_L1, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Run L2: fmap_out (from L1) -> fmap_in (reuse as output buffer)
@@ -527,11 +533,12 @@ static void test4_chained() {
     static ap_uint<128> g_fmap_final[FMAP_DEPTH];
     memset(g_fmap_final, 0, sizeof(g_fmap_final));
 
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, L1_OC, L2_OC, KH, KW, PH, PW,
         false, true, LI_2,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE_L2, QP_BASE_L2, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_out, g_fmap_final, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Reference: L1 then L2
@@ -607,11 +614,12 @@ static void test5_conv1() {
     pack_qp_rom(bias, m0, nshift, g_qp_mem, QP_BASE, OC);
     fill_silu_mem(lut, g_silu_mem, LAYER_IDX);
 
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE, QP_BASE, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -670,11 +678,12 @@ static void test6_conv1_lin() {
     fill_silu_mem(lut, g_silu_mem, LAYER_IDX);
 
     // use_silu = false for CONV1_LIN
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, false, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE, QP_BASE, 0, 0,
+        /*packed_rgb=*/ false,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -758,19 +767,21 @@ static void test7_branch_offsets() {
     fill_silu_mem(lut, g_silu_mem, LI_B);
 
     // Branch A: read from offset 0, write to WR_OFF_A
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, BR_A_OC, KH, KW, PH, PW,
         false, true, LI_A,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE_A, QP_BASE_A, RD_OFF, WR_OFF_A,
+        /*packed_rgb=*/ false,
         g_fmap_shared, g_fmap_shared, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Branch B: read from same offset 0, write to WR_OFF_B
-    tinyissimo_layer_top(
+    tinyissimo_layer(
         IH, IW, IC, BR_B_OC, KH, KW, PH, PW,
         false, true, LI_B,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
         WT_BASE_B, QP_BASE_B, RD_OFF, WR_OFF_B,
+        /*packed_rgb=*/ false,
         g_fmap_shared, g_fmap_shared, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Verify Branch A output at WR_OFF_A
@@ -820,9 +831,271 @@ static void test7_branch_offsets() {
     printf("  Input corruption: %d / %d\n\n", corrupted, IH*IW*IC);
 }
 
-// ���═══���═════════════════════════════════��══════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════
+// Test 8: Full 17-layer model end-to-end
+//
+// Loads the production ROMs (weight_rom.mem, qp_packed_rom.mem, silu_lut.mem)
+// and the camera frame (pixels_layer0.mem) from the project's weights/
+// directory, packs the frame into fmap_b in the 4-pixels-per-128-bit-word
+// format that the HDL AXI-Stream preload uses, then calls the new
+// tinyissimo_layer_top() once to walk all 17 layers.  The cv2 (layer 13)
+// and cv3 (layer 16) detection-head outputs are compared byte-for-byte
+// against golden_layer{13,16}_uram.mem produced by
+// hardware/scripts/generate_conv3d_golden.py — which itself matches the
+// HDL conv3d arithmetic exactly.  Both engines must therefore produce
+// byte-identical output for the runtime A/B mux to be useful.
+//
+// This test is what makes Vitis HLS cosim pass — without it, no call to
+// tinyissimo_layer_top() exists in the testbench and cosim aborts.
+// ═════════════════════════════════════════════════════════════════════════
+
+#ifndef TB_DATA_DIR
+// Absolute path to the project root.  csim, cosim, and any other Vitis
+// HLS tool flow run from different working directories deep inside the
+// solution tree, so a relative path is fragile.  If you move the project,
+// update this define or override at compile time:
+//   syn.cflags = -DTB_DATA_DIR=\"/your/path/to/ee4218-project/\"
+//   tb.cflags  = -DTB_DATA_DIR=\"/your/path/to/ee4218-project/\"
+#define TB_DATA_DIR "/home/leeey/Downloads/ee4218-project/"
+#endif
+
+#include <fstream>
+#include <string>
+#include <cstring>
+
+static int load_hex_mem(const char *path, ap_uint<128> *out, int max_words,
+                        int word_bits)
+{
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        printf("  ERROR: cannot open %s\n", path);
+        return -1;
+    }
+    int n = 0;
+    std::string line;
+    while (std::getline(f, line) && n < max_words) {
+        // Strip leading whitespace
+        size_t s = line.find_first_not_of(" \t");
+        if (s == std::string::npos) continue;
+        // Skip comment lines
+        if (line.compare(s, 2, "//") == 0) continue;
+        // Trim trailing whitespace / CR
+        size_t e = line.find_last_not_of(" \t\r\n");
+        std::string hex = line.substr(s, e - s + 1);
+        if (hex.empty()) continue;
+
+        ap_uint<128> word = 0;
+        // Parse hex string into 128-bit word, low-nibble last
+        // hex chars are big-endian (MSB first)
+        int nibbles = (int)hex.size();
+        for (int i = 0; i < nibbles; i++) {
+            char c = hex[i];
+            int v;
+            if      (c >= '0' && c <= '9') v = c - '0';
+            else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
+            else continue;
+            int bit = (nibbles - 1 - i) * 4;
+            if (bit + 3 < word_bits)
+                word.range(bit + 3, bit) = v;
+        }
+        out[n++] = word;
+    }
+    return n;
+}
+
+static int load_hex_mem_8(const char *path, ap_uint<8> *out, int max_words)
+{
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        printf("  ERROR: cannot open %s\n", path);
+        return -1;
+    }
+    int n = 0;
+    std::string line;
+    while (std::getline(f, line) && n < max_words) {
+        size_t s = line.find_first_not_of(" \t");
+        if (s == std::string::npos) continue;
+        if (line.compare(s, 2, "//") == 0) continue;
+        unsigned int v = 0;
+        if (sscanf(line.c_str() + s, "%x", &v) == 1)
+            out[n++] = (ap_uint<8>)(v & 0xFF);
+    }
+    return n;
+}
+
+// Read pixels_layer0.mem ([ch][row][col] one int8 byte per line, 196608 lines)
+// and pack into fmap as 4 RGB pixels per 128-bit word matching the HDL AXIS
+// preload accumulator format (inference_top.sv:324-336).
+static int load_packed_rgb(const char *path, ap_uint<128> *fmap)
+{
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        printf("  ERROR: cannot open %s\n", path);
+        return -1;
+    }
+    static int8_t pix[3][256][256];
+    int total = 0;
+    std::string line;
+    int ch = 0, row = 0, col = 0;
+    while (std::getline(f, line) && total < 3 * 256 * 256) {
+        size_t s = line.find_first_not_of(" \t");
+        if (s == std::string::npos) continue;
+        if (line.compare(s, 2, "//") == 0) continue;
+        unsigned int v = 0;
+        if (sscanf(line.c_str() + s, "%x", &v) != 1) continue;
+        pix[ch][row][col] = (int8_t)(v & 0xFF);
+        total++;
+        if (++col == 256) {
+            col = 0;
+            if (++row == 256) {
+                row = 0;
+                ch++;
+            }
+        }
+    }
+    if (total != 3 * 256 * 256) {
+        printf("  ERROR: expected %d pixel bytes, got %d\n",
+               3 * 256 * 256, total);
+        return -1;
+    }
+    // Pack: linear pixel index N -> word N/4, lane N%4
+    for (int r = 0; r < 256; r++) {
+        for (int c = 0; c < 256; c++) {
+            int linear = r * 256 + c;
+            int word_addr = linear >> 2;
+            int lane     = linear & 3;
+            uint32_t w32 =
+                  ((uint32_t)(uint8_t)pix[2][r][c] << 16)
+                | ((uint32_t)(uint8_t)pix[1][r][c] <<  8)
+                | ((uint32_t)(uint8_t)pix[0][r][c] <<  0);
+            ap_uint<128> w = fmap[word_addr];
+            w.range(lane * 32 + 31, lane * 32) = w32;
+            fmap[word_addr] = w;
+        }
+    }
+    return total;
+}
+
+// Compare a slice of an fmap buffer against a golden .mem file.
+//
+// valid_channels: how many of the 16 channels in each 128-bit word
+//   actually carry meaningful output for this layer.  Channels above
+//   this index hold residual data from earlier layers (which is fine
+//   — host code reads only the first cout bytes per word).  Set to 16
+//   when all channels are valid; for layer 16 (cv3, cout=3) set to 3.
+static int compare_uram_region(const ap_uint<128> *got, const char *golden_path,
+                                int base_addr, int n_words, int valid_channels)
+{
+    static ap_uint<128> golden[16384];
+    int loaded = load_hex_mem(golden_path, golden, n_words, 128);
+    if (loaded != n_words) {
+        printf("  WARN: %s loaded %d / %d words\n",
+               golden_path, loaded, n_words);
+    }
+    // Build a mask covering only the valid_channels low bytes of each word.
+    ap_uint<128> mask = 0;
+    int valid_bits = valid_channels * 8;
+    if (valid_bits > 0)
+        mask.range(valid_bits - 1, 0) = ((ap_uint<128>)1 << valid_bits) - 1;
+
+    int errors = 0;
+    for (int i = 0; i < n_words && i < loaded; i++) {
+        ap_uint<128> g = got[base_addr + i] & mask;
+        ap_uint<128> r = golden[i]          & mask;
+        if (g != r) {
+            if (errors < 4) {
+                printf("    [FAIL] @%d  got=%016lx%016lx  ref=%016lx%016lx\n",
+                       base_addr + i,
+                       (unsigned long)g.range(127, 64),
+                       (unsigned long)g.range(63, 0),
+                       (unsigned long)r.range(127, 64),
+                       (unsigned long)r.range(63, 0));
+            }
+            errors++;
+        }
+    }
+    return errors;
+}
+
+static void test8_full_model() {
+    printf("=== Test 8: full 17-layer model end-to-end ===\n");
+
+    // Persistent buffers (heap-sized to avoid blowing the stack)
+    static ap_uint<128> g_fmap_a   [FMAP_DEPTH];
+    static ap_uint<128> g_fmap_b   [FMAP_DEPTH];
+    static ap_uint<128> g_wt_full  [WT_DEPTH];
+    static ap_uint<128> g_qp_full  [QP_DEPTH];
+    static ap_uint<8>   g_silu_full[SILU_LUT_DEPTH];
+
+    memset(g_fmap_a,   0, sizeof(g_fmap_a));
+    memset(g_fmap_b,   0, sizeof(g_fmap_b));
+    memset(g_wt_full,  0, sizeof(g_wt_full));
+    memset(g_qp_full,  0, sizeof(g_qp_full));
+    memset(g_silu_full, 0, sizeof(g_silu_full));
+
+    // ── Load production ROMs and the camera frame ──
+    const char *wt_path  = TB_DATA_DIR "hardware/weights/hdl/weight_rom.mem";
+    const char *qp_path  = TB_DATA_DIR "hardware/weights/hdl/qp_packed_rom.mem";
+    const char *lut_path = TB_DATA_DIR "hardware/weights/hdl/silu_lut.mem";
+    const char *pix_path = TB_DATA_DIR "hardware/testbench/inference_hdl/pixels_layer0.mem";
+    const char *g13_path = TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer13_uram.mem";
+    const char *g16_path = TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer16_uram.mem";
+
+    int wt_n  = load_hex_mem (wt_path,  g_wt_full, WT_DEPTH, 128);
+    int qp_n  = load_hex_mem (qp_path,  g_qp_full, QP_DEPTH, 72);
+    int lut_n = load_hex_mem_8(lut_path, g_silu_full, SILU_LUT_DEPTH);
+    int pix_n = load_packed_rgb(pix_path, g_fmap_b);
+
+    if (wt_n <= 0 || qp_n <= 0 || lut_n <= 0 || pix_n <= 0) {
+        printf("  SKIP: data files not found (set TB_DATA_DIR or copy mem files)\n\n");
+        return;
+    }
+    printf("  Loaded: %d wt, %d qp, %d silu, %d pixels\n",
+           wt_n, qp_n, lut_n, pix_n);
+
+    // ── Run the full top function ──
+    volatile int curr_layer = -1;
+    tinyissimo_layer_top(g_fmap_a, g_fmap_b,
+                         g_wt_full, g_qp_full, g_silu_full,
+                         &curr_layer);
+    printf("  Top function returned, curr_layer=%d (expect 17)\n", curr_layer);
+
+    if (curr_layer != NUM_LAYERS) {
+        printf("  [FAIL] curr_layer != NUM_LAYERS (%d)\n", NUM_LAYERS);
+        g_fail++;
+        return;
+    }
+
+    // ── Compare detection-head outputs against golden ──
+    // Layer 13 (cv2): pp_buf_sel=1, pp_wr_offset=256, 64 channels x 8x8
+    //   = 4 channel groups x 64 spatial = 256 words at fmap_b[256..511]
+    // Layer 16 (cv3): pp_buf_sel=1, pp_wr_offset=512, 3 channels x 8x8
+    //   = 1 channel group x 64 spatial = 64 words at fmap_b[512..575]
+    // Layer 13 (cv2): cout=64 — full 16 channels per word, all valid.
+    printf("  Verifying layer 13 (cv2, fmap_b[256..511])...\n");
+    int e13 = compare_uram_region(g_fmap_b, g13_path, 256, 256, 16);
+
+    // Layer 16 (cv3): cout=3 — only the low 3 bytes per word carry data.
+    // The high bits hold residual data from layer 14 (which writes 24
+    // channels to fmap_b[512..639]) and are intentionally ignored, just
+    // like the host driver only reads the first cout valid bytes.
+    printf("  Verifying layer 16 (cv3, fmap_b[512..575])...\n");
+    int e16 = compare_uram_region(g_fmap_b, g16_path, 512, 64, 3);
+
+    int total = 256 + 64;
+    int errors = e13 + e16;
+    printf("  Layer 13 errors: %d / 256\n", e13);
+    printf("  Layer 16 errors: %d / 64\n", e16);
+    printf("  Total errors:    %d / %d\n\n", errors, total);
+
+    g_pass += (total - errors);
+    g_fail += errors;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // main
-// ══���══════════════��═══════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════
 
 int main() {
     printf("tinyissimo_layer testbench (runtime-parameterized)\n");
@@ -835,6 +1108,7 @@ int main() {
     test5_conv1();
     test6_conv1_lin();
     test7_branch_offsets();
+    test8_full_model();
 
     printf("==========================================\n");
     printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);

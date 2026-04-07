@@ -8,6 +8,7 @@
 // Memory interfaces match the RTL sdp_ram instances in top.sv.
 #pragma once
 #include <ap_int.h>
+#include "layer_config.h"
 
 // ── Tile parallelism (matching RTL C_PAR=16 for IC, 8 for OC) ───────────
 static const int TILE_IC = 16;
@@ -30,6 +31,13 @@ static const int SILU_LUT_DEPTH = 4352;   // 8-bit   x 4352   distributed
 static const int SILU_SLICE     = 256;    // entries per layer in SiLU LUT
 
 // ── Core compute function ───────────────────────────────────────────────
+//
+// Processes ONE layer.  fmap_in and fmap_out are non-overlapping URAM
+// regions; ping-pong selection happens in the caller (tinyissimo_layer_top).
+//
+// qp_mem is declared as ap_uint<128> because Vitis HLS pads odd-width BRAM
+// interfaces to a power-of-two byte width.  The packed bias/m0/n_shift
+// fields still live in the low 70 bits — see lines 123-126 in the .cpp.
 void tinyissimo_layer(
     // Runtime layer configuration
     int in_h, int in_w, int in_c,
@@ -48,32 +56,34 @@ void tinyissimo_layer(
     // read from layer 10's output at different URAM regions.
     int fmap_rd_offset,
     int fmap_wr_offset,
+    // When true, fmap_in is interpreted as 4 packed RGB pixels per
+    // 128-bit word (matching the HDL camera preload format).  Used
+    // ONLY by model layer 0; all other layers expect the standard
+    // 16-channel-packed layout (one word per (h,w) position).
+    bool packed_rgb_input,
     // External memories (ap_memory interfaces in synthesis)
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],
-    const ap_uint<72>  qp_mem   [QP_DEPTH],
+    const ap_uint<128> qp_mem   [QP_DEPTH],
     const ap_uint<8>   silu_mem [SILU_LUT_DEPTH]
 );
 
 // ── Synthesis top-level wrapper ─────────────────────────────────────────
+//
+// Walks all NUM_LAYERS layers in a single ap_start invocation, reading the
+// per-layer parameters from the compile-time LAYER_CFG[] array in
+// layer_config.h.  Both fmap_a and fmap_b are exposed as separate ap_memory
+// interfaces; the layer loop branches on LAYER_CFG[L].pp_buf_sel and calls
+// tinyissimo_layer() with the in/out arrays swapped accordingly.
+//
+// curr_layer_out is an ap_vld scalar output: the wrapper module latches
+// each pulse into a 5-bit status register read back via AXI-Lite.
 void tinyissimo_layer_top(
-    int in_h, int in_w, int in_c,
-    int out_c,
-    int kh, int kw,
-    int pad_h, int pad_w,
-    bool use_maxpool,
-    bool use_silu,
-    int layer_idx,
-    ap_int<8> zp_in,
-    ap_int<8> zp_out,
-    int wt_base,
-    int qp_base,
-    int fmap_rd_offset,
-    int fmap_wr_offset,
-    const ap_uint<128> fmap_in  [FMAP_DEPTH],
-    ap_uint<128>       fmap_out [FMAP_DEPTH],
+    ap_uint<128>       fmap_a   [FMAP_DEPTH],
+    ap_uint<128>       fmap_b   [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],
-    const ap_uint<72>  qp_mem   [QP_DEPTH],
-    const ap_uint<8>   silu_mem [SILU_LUT_DEPTH]
+    const ap_uint<128> qp_mem   [QP_DEPTH],
+    const ap_uint<8>   silu_mem [SILU_LUT_DEPTH],
+    volatile int      *curr_layer_out
 );

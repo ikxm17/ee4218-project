@@ -22,14 +22,23 @@ static ap_int<8> clip_int8(ap_int<32> x) {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helper: Fixed-point rescale  (matches RTL conv3d quantisation)
-//   round( acc * m0 / 2^n_shift )  then clip to int8
+//
+//   trunc( acc * m0 / 2^n_shift )  — RETURNS FULL 32-bit value, no clip
+//
+// NOTE: returns the full pre-clip int32 so the caller can add zp_out
+// BEFORE clipping.  An earlier version of this function clipped to
+// int8 here, then the caller added zp_out and clipped again — this
+// double-clip produced ±1 to ±3 LSB mismatches against the HDL engine
+// and Python golden, which both add zp_out first and clip once
+// (hardware/rtl/conv3d.v:375-376,
+//  hardware/scripts/generate_conv3d_golden.py:170-174).
+// Truncating shift, not rounding shift, also matches the HDL.
 // ─────────────────────────────────────────────────────────────────────────
-static ap_int<8> rescale(ap_int<32> acc, ap_uint<32> m0, ap_uint<8> n_shift) {
+static ap_int<32> rescale(ap_int<32> acc, ap_uint<32> m0, ap_uint<8> n_shift) {
 #pragma HLS INLINE
     ap_int<64> product = (ap_int<64>)acc * (ap_int<64>)m0;
-    ap_int<64> half    = (ap_int<64>)1 << (n_shift - 1);
-    ap_int<64> rounded = (product + half) >> n_shift;
-    return clip_int8((ap_int<32>)rounded);
+    ap_int<64> shifted = product >> n_shift;
+    return (ap_int<32>)shifted;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -49,10 +58,11 @@ void tinyissimo_layer(
     int qp_base,
     int fmap_rd_offset,
     int fmap_wr_offset,
+    bool packed_rgb_input,
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],
-    const ap_uint<72>  qp_mem   [QP_DEPTH],
+    const ap_uint<128> qp_mem   [QP_DEPTH],
     const ap_uint<8>   silu_mem [SILU_LUT_DEPTH]
 )
 {
@@ -120,7 +130,9 @@ void tinyissimo_layer(
         for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS PIPELINE II=1
             if (t < oc_valid) {
-                ap_uint<72> qp_word = qp_mem[qp_base + oc_base + t];
+                // qp_mem is 128-bit (HLS pads to power-of-two byte widths);
+                // the packed fields still live in the low 70 bits.
+                ap_uint<128> qp_word = qp_mem[qp_base + oc_base + t];
                 bias_buf[t]   = (ap_int<32>)  qp_word.range(31,  0);
                 m0_buf[t]     = (ap_uint<32>) qp_word.range(63, 32);
                 nshift_buf[t] = (ap_uint<8>)  qp_word.range(69, 64);
@@ -198,19 +210,57 @@ void tinyissimo_layer(
                 // Safe address for speculative reads when padding
                 int h_safe = (h < 0) ? 0 : ((h >= in_h) ? 0 : h);
                 int w_safe = (w < 0) ? 0 : ((w >= in_w) ? 0 : w);
-                ap_uint<128> raw = fmap_in[fmap_rd_offset
-                                           + c_ict * in_h * in_w
-                                           + h_safe * in_w + w_safe];
+
+                // ── Packed-RGB special case ─────────────────────────
+                // The HDL preload writes the camera frame to fmap_b as
+                // 4 packed RGB pixels per 128-bit word (16384 words =
+                // 65536 pixels = 256x256).  At 1 word/pixel the frame
+                // would need 65536 words and overflow FMAP_DEPTH=16384.
+                // When packed_rgb_input == true (model layer 0 only)
+                // we unpack the 4-pixels-per-word layout here; all
+                // other callers use the standard 16-channel-packed
+                // layout (one word per spatial position).
+                ap_uint<128> raw;
+                if (packed_rgb_input) {
+                    int linear = h_safe * in_w + w_safe;
+                    raw = fmap_in[fmap_rd_offset + (linear >> 2)];
+                } else {
+                    raw = fmap_in[fmap_rd_offset
+                                  + c_ict * in_h * in_w
+                                  + h_safe * in_w + w_safe];
+                }
 
                 // Unpack 16 int8 pixel values (pad channels use zp_in)
                 ap_int<8> pix[TILE_IC];
 #pragma HLS ARRAY_PARTITION variable=pix complete dim=1
 
-                UNPACK_PIX:
-                for (int i = 0; i < TILE_IC; i++) {
+                if (packed_rgb_input) {
+                    int linear = h_safe * in_w + w_safe;
+                    int lane   = linear & 3;
+                    ap_uint<32> px32 = raw.range(lane*32 + 31, lane*32);
+
+                    UNPACK_RGB:
+                    for (int i = 0; i < TILE_IC; i++) {
 #pragma HLS UNROLL
-                    pix[i] = is_pad ? zp_in
-                                    : (ap_int<8>)raw.range(i*8+7, i*8);
+                        if (is_pad) {
+                            pix[i] = zp_in;
+                        } else if (i == 0) {
+                            pix[i] = (ap_int<8>) px32.range( 7,  0);
+                        } else if (i == 1) {
+                            pix[i] = (ap_int<8>) px32.range(15,  8);
+                        } else if (i == 2) {
+                            pix[i] = (ap_int<8>) px32.range(23, 16);
+                        } else {
+                            pix[i] = zp_in;
+                        }
+                    }
+                } else {
+                    UNPACK_PIX:
+                    for (int i = 0; i < TILE_IC; i++) {
+#pragma HLS UNROLL
+                        pix[i] = is_pad ? zp_in
+                                        : (ap_int<8>)raw.range(i*8+7, i*8);
+                    }
                 }
 
                 // MAC across all TILE_OC output lanes
@@ -245,12 +295,11 @@ void tinyissimo_layer(
             for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                 if (t < oc_valid) {
-                    // Rescale 32-bit accumulator to int8
-                    ap_int<8> scaled = rescale(acc[t], m0_buf[t],
-                                               nshift_buf[t]);
-                    // Add output zero-point and clip
-                    ap_int<32> with_zp = (ap_int<32>)scaled
-                                       + (ap_int<32>)zp_out;
+                    // Rescale to full int32 (no clip), add zp_out, then
+                    // clip once.  Matches HDL conv3d.v:375-376 exactly.
+                    ap_int<32> shifted = rescale(acc[t], m0_buf[t],
+                                                 nshift_buf[t]);
+                    ap_int<32> with_zp = shifted + (ap_int<32>)zp_out;
                     ap_int<8>  clamped = clip_int8(with_zp);
 
                     // SiLU activation via LUT (or linear bypass)

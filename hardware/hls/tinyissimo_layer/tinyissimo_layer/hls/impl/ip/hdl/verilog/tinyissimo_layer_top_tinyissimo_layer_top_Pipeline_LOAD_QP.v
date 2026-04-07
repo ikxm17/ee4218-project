@@ -38,62 +38,62 @@ module tinyissimo_layer_top_tinyissimo_layer_top_Pipeline_LOAD_QP (
         bias_buf_2,
         bias_buf_1,
         bias_buf,
-        empty,
-        shl_ln,
+        cfg_qp_base,
+        zext_ln130_1,
         qp_mem_Addr_A,
         qp_mem_EN_A,
         qp_mem_WEN_A,
         qp_mem_Din_A,
         qp_mem_Dout_A,
         oc_valid,
-        nshift_buf_15_out,
-        nshift_buf_15_out_ap_vld,
-        nshift_buf_14_out,
-        nshift_buf_14_out_ap_vld,
-        nshift_buf_13_out,
-        nshift_buf_13_out_ap_vld,
-        nshift_buf_12_out,
-        nshift_buf_12_out_ap_vld,
-        nshift_buf_11_out,
-        nshift_buf_11_out_ap_vld,
-        nshift_buf_10_out,
-        nshift_buf_10_out_ap_vld,
-        nshift_buf_9_out,
-        nshift_buf_9_out_ap_vld,
-        nshift_buf_8_out,
-        nshift_buf_8_out_ap_vld,
-        m0_buf_15_out,
-        m0_buf_15_out_ap_vld,
-        m0_buf_14_out,
-        m0_buf_14_out_ap_vld,
-        m0_buf_13_out,
-        m0_buf_13_out_ap_vld,
-        m0_buf_12_out,
-        m0_buf_12_out_ap_vld,
-        m0_buf_11_out,
-        m0_buf_11_out_ap_vld,
-        m0_buf_10_out,
-        m0_buf_10_out_ap_vld,
-        m0_buf_9_out,
-        m0_buf_9_out_ap_vld,
-        m0_buf_8_out,
-        m0_buf_8_out_ap_vld,
-        bias_buf_15_out,
-        bias_buf_15_out_ap_vld,
-        bias_buf_14_out,
-        bias_buf_14_out_ap_vld,
-        bias_buf_13_out,
-        bias_buf_13_out_ap_vld,
-        bias_buf_12_out,
-        bias_buf_12_out_ap_vld,
-        bias_buf_11_out,
-        bias_buf_11_out_ap_vld,
-        bias_buf_10_out,
-        bias_buf_10_out_ap_vld,
-        bias_buf_9_out,
-        bias_buf_9_out_ap_vld,
-        bias_buf_8_out,
-        bias_buf_8_out_ap_vld
+        nshift_buf_23_out,
+        nshift_buf_23_out_ap_vld,
+        nshift_buf_22_out,
+        nshift_buf_22_out_ap_vld,
+        nshift_buf_21_out,
+        nshift_buf_21_out_ap_vld,
+        nshift_buf_20_out,
+        nshift_buf_20_out_ap_vld,
+        nshift_buf_19_out,
+        nshift_buf_19_out_ap_vld,
+        nshift_buf_18_out,
+        nshift_buf_18_out_ap_vld,
+        nshift_buf_17_out,
+        nshift_buf_17_out_ap_vld,
+        nshift_buf_16_out,
+        nshift_buf_16_out_ap_vld,
+        m0_buf_23_out,
+        m0_buf_23_out_ap_vld,
+        m0_buf_22_out,
+        m0_buf_22_out_ap_vld,
+        m0_buf_21_out,
+        m0_buf_21_out_ap_vld,
+        m0_buf_20_out,
+        m0_buf_20_out_ap_vld,
+        m0_buf_19_out,
+        m0_buf_19_out_ap_vld,
+        m0_buf_18_out,
+        m0_buf_18_out_ap_vld,
+        m0_buf_17_out,
+        m0_buf_17_out_ap_vld,
+        m0_buf_16_out,
+        m0_buf_16_out_ap_vld,
+        bias_buf_23_out,
+        bias_buf_23_out_ap_vld,
+        bias_buf_22_out,
+        bias_buf_22_out_ap_vld,
+        bias_buf_21_out,
+        bias_buf_21_out_ap_vld,
+        bias_buf_20_out,
+        bias_buf_20_out_ap_vld,
+        bias_buf_19_out,
+        bias_buf_19_out_ap_vld,
+        bias_buf_18_out,
+        bias_buf_18_out_ap_vld,
+        bias_buf_17_out,
+        bias_buf_17_out_ap_vld,
+        bias_buf_16_out,
+        bias_buf_16_out_ap_vld
 );
 
 parameter    ap_ST_fsm_pp0_stage0 = 1'd1;
@@ -128,88 +128,88 @@ input  [31:0] bias_buf_3;
 input  [31:0] bias_buf_2;
 input  [31:0] bias_buf_1;
 input  [31:0] bias_buf;
-input  [9:0] empty;
-input  [9:0] shl_ln;
+input  [9:0] cfg_qp_base;
+input  [6:0] zext_ln130_1;
 output  [31:0] qp_mem_Addr_A;
 output   qp_mem_EN_A;
 output  [15:0] qp_mem_WEN_A;
 output  [127:0] qp_mem_Din_A;
 input  [127:0] qp_mem_Dout_A;
-input  [4:0] oc_valid;
-output  [7:0] nshift_buf_15_out;
-output   nshift_buf_15_out_ap_vld;
-output  [7:0] nshift_buf_14_out;
-output   nshift_buf_14_out_ap_vld;
-output  [7:0] nshift_buf_13_out;
-output   nshift_buf_13_out_ap_vld;
-output  [7:0] nshift_buf_12_out;
-output   nshift_buf_12_out_ap_vld;
-output  [7:0] nshift_buf_11_out;
-output   nshift_buf_11_out_ap_vld;
-output  [7:0] nshift_buf_10_out;
-output   nshift_buf_10_out_ap_vld;
-output  [7:0] nshift_buf_9_out;
-output   nshift_buf_9_out_ap_vld;
-output  [7:0] nshift_buf_8_out;
-output   nshift_buf_8_out_ap_vld;
-output  [31:0] m0_buf_15_out;
-output   m0_buf_15_out_ap_vld;
-output  [31:0] m0_buf_14_out;
-output   m0_buf_14_out_ap_vld;
-output  [31:0] m0_buf_13_out;
-output   m0_buf_13_out_ap_vld;
-output  [31:0] m0_buf_12_out;
-output   m0_buf_12_out_ap_vld;
-output  [31:0] m0_buf_11_out;
-output   m0_buf_11_out_ap_vld;
-output  [31:0] m0_buf_10_out;
-output   m0_buf_10_out_ap_vld;
-output  [31:0] m0_buf_9_out;
-output   m0_buf_9_out_ap_vld;
-output  [31:0] m0_buf_8_out;
-output   m0_buf_8_out_ap_vld;
-output  [31:0] bias_buf_15_out;
-output   bias_buf_15_out_ap_vld;
-output  [31:0] bias_buf_14_out;
-output   bias_buf_14_out_ap_vld;
-output  [31:0] bias_buf_13_out;
-output   bias_buf_13_out_ap_vld;
-output  [31:0] bias_buf_12_out;
-output   bias_buf_12_out_ap_vld;
-output  [31:0] bias_buf_11_out;
-output   bias_buf_11_out_ap_vld;
-output  [31:0] bias_buf_10_out;
-output   bias_buf_10_out_ap_vld;
-output  [31:0] bias_buf_9_out;
-output   bias_buf_9_out_ap_vld;
-output  [31:0] bias_buf_8_out;
-output   bias_buf_8_out_ap_vld;
+input  [3:0] oc_valid;
+output  [7:0] nshift_buf_23_out;
+output   nshift_buf_23_out_ap_vld;
+output  [7:0] nshift_buf_22_out;
+output   nshift_buf_22_out_ap_vld;
+output  [7:0] nshift_buf_21_out;
+output   nshift_buf_21_out_ap_vld;
+output  [7:0] nshift_buf_20_out;
+output   nshift_buf_20_out_ap_vld;
+output  [7:0] nshift_buf_19_out;
+output   nshift_buf_19_out_ap_vld;
+output  [7:0] nshift_buf_18_out;
+output   nshift_buf_18_out_ap_vld;
+output  [7:0] nshift_buf_17_out;
+output   nshift_buf_17_out_ap_vld;
+output  [7:0] nshift_buf_16_out;
+output   nshift_buf_16_out_ap_vld;
+output  [31:0] m0_buf_23_out;
+output   m0_buf_23_out_ap_vld;
+output  [31:0] m0_buf_22_out;
+output   m0_buf_22_out_ap_vld;
+output  [31:0] m0_buf_21_out;
+output   m0_buf_21_out_ap_vld;
+output  [31:0] m0_buf_20_out;
+output   m0_buf_20_out_ap_vld;
+output  [31:0] m0_buf_19_out;
+output   m0_buf_19_out_ap_vld;
+output  [31:0] m0_buf_18_out;
+output   m0_buf_18_out_ap_vld;
+output  [31:0] m0_buf_17_out;
+output   m0_buf_17_out_ap_vld;
+output  [31:0] m0_buf_16_out;
+output   m0_buf_16_out_ap_vld;
+output  [31:0] bias_buf_23_out;
+output   bias_buf_23_out_ap_vld;
+output  [31:0] bias_buf_22_out;
+output   bias_buf_22_out_ap_vld;
+output  [31:0] bias_buf_21_out;
+output   bias_buf_21_out_ap_vld;
+output  [31:0] bias_buf_20_out;
+output   bias_buf_20_out_ap_vld;
+output  [31:0] bias_buf_19_out;
+output   bias_buf_19_out_ap_vld;
+output  [31:0] bias_buf_18_out;
+output   bias_buf_18_out_ap_vld;
+output  [31:0] bias_buf_17_out;
+output   bias_buf_17_out_ap_vld;
+output  [31:0] bias_buf_16_out;
+output   bias_buf_16_out_ap_vld;
 
 reg ap_idle;
-reg nshift_buf_15_out_ap_vld;
-reg nshift_buf_14_out_ap_vld;
-reg nshift_buf_13_out_ap_vld;
-reg nshift_buf_12_out_ap_vld;
-reg nshift_buf_11_out_ap_vld;
-reg nshift_buf_10_out_ap_vld;
-reg nshift_buf_9_out_ap_vld;
-reg nshift_buf_8_out_ap_vld;
-reg m0_buf_15_out_ap_vld;
-reg m0_buf_14_out_ap_vld;
-reg m0_buf_13_out_ap_vld;
-reg m0_buf_12_out_ap_vld;
-reg m0_buf_11_out_ap_vld;
-reg m0_buf_10_out_ap_vld;
-reg m0_buf_9_out_ap_vld;
-reg m0_buf_8_out_ap_vld;
-reg bias_buf_15_out_ap_vld;
-reg bias_buf_14_out_ap_vld;
-reg bias_buf_13_out_ap_vld;
-reg bias_buf_12_out_ap_vld;
-reg bias_buf_11_out_ap_vld;
-reg bias_buf_10_out_ap_vld;
-reg bias_buf_9_out_ap_vld;
-reg bias_buf_8_out_ap_vld;
+reg nshift_buf_23_out_ap_vld;
+reg nshift_buf_22_out_ap_vld;
+reg nshift_buf_21_out_ap_vld;
+reg nshift_buf_20_out_ap_vld;
+reg nshift_buf_19_out_ap_vld;
+reg nshift_buf_18_out_ap_vld;
+reg nshift_buf_17_out_ap_vld;
+reg nshift_buf_16_out_ap_vld;
+reg m0_buf_23_out_ap_vld;
+reg m0_buf_22_out_ap_vld;
+reg m0_buf_21_out_ap_vld;
+reg m0_buf_20_out_ap_vld;
+reg m0_buf_19_out_ap_vld;
+reg m0_buf_18_out_ap_vld;
+reg m0_buf_17_out_ap_vld;
+reg m0_buf_16_out_ap_vld;
+reg bias_buf_23_out_ap_vld;
+reg bias_buf_22_out_ap_vld;
+reg bias_buf_21_out_ap_vld;
+reg bias_buf_20_out_ap_vld;
+reg bias_buf_19_out_ap_vld;
+reg bias_buf_18_out_ap_vld;
+reg bias_buf_17_out_ap_vld;
+reg bias_buf_16_out_ap_vld;
 
 (* fsm_encoding = "none" *) reg   [0:0] ap_CS_fsm;
 wire    ap_CS_fsm_pp0_stage0;
@@ -217,59 +217,56 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 wire    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln120_fu_758_p2;
+wire   [0:0] icmp_ln130_fu_747_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
-wire   [2:0] trunc_ln120_fu_778_p1;
-reg   [2:0] trunc_ln120_reg_1373;
+wire   [2:0] trunc_ln130_fu_763_p1;
+reg   [2:0] trunc_ln130_reg_1373;
 wire    ap_block_pp0_stage0_11001;
-wire   [0:0] icmp_ln122_fu_783_p2;
-reg   [0:0] icmp_ln122_reg_1377;
-wire   [63:0] zext_ln123_fu_801_p1;
+wire   [0:0] icmp_ln132_fu_767_p2;
+reg   [0:0] icmp_ln132_reg_1377;
+wire   [63:0] zext_ln135_fu_801_p1;
 wire    ap_block_pp0_stage0;
-reg   [3:0] t_fu_170;
-wire   [3:0] add_ln120_fu_764_p2;
+reg   [3:0] t_fu_172;
+wire   [3:0] add_ln130_fu_753_p2;
 wire    ap_loop_init;
-reg   [3:0] ap_sig_allocacmp_t_1;
-reg   [31:0] bias_buf_8_fu_174;
-wire   [31:0] bias_buf_16_fu_931_p1;
-reg   [31:0] bias_buf_9_fu_178;
-reg   [31:0] bias_buf_10_fu_182;
-reg   [31:0] bias_buf_11_fu_186;
-reg   [31:0] bias_buf_12_fu_190;
-reg   [31:0] bias_buf_13_fu_194;
-reg   [31:0] bias_buf_14_fu_198;
-reg   [31:0] bias_buf_15_fu_202;
-reg   [31:0] m0_buf_8_fu_206;
-reg   [31:0] m0_buf_9_fu_210;
-reg   [31:0] m0_buf_10_fu_214;
-reg   [31:0] m0_buf_11_fu_218;
-reg   [31:0] m0_buf_12_fu_222;
-reg   [31:0] m0_buf_13_fu_226;
-reg   [31:0] m0_buf_14_fu_230;
-reg   [31:0] m0_buf_15_fu_234;
-reg   [7:0] nshift_buf_8_fu_238;
-wire   [7:0] zext_ln126_fu_951_p1;
-reg   [7:0] nshift_buf_9_fu_242;
-reg   [7:0] nshift_buf_10_fu_246;
-reg   [7:0] nshift_buf_11_fu_250;
-reg   [7:0] nshift_buf_12_fu_254;
-reg   [7:0] nshift_buf_13_fu_258;
-reg   [7:0] nshift_buf_14_fu_262;
-reg   [7:0] nshift_buf_15_fu_266;
+reg   [3:0] ap_sig_allocacmp_t_2;
+reg   [31:0] bias_buf_16_fu_176;
+wire   [31:0] bias_buf_24_fu_934_p1;
+reg   [31:0] m0_buf_16_fu_180;
+reg   [7:0] nshift_buf_16_fu_184;
+wire   [7:0] zext_ln138_fu_954_p1;
+reg   [31:0] bias_buf_17_fu_188;
+reg   [31:0] bias_buf_18_fu_192;
+reg   [31:0] bias_buf_19_fu_196;
+reg   [31:0] bias_buf_20_fu_200;
+reg   [31:0] bias_buf_21_fu_204;
+reg   [31:0] bias_buf_22_fu_208;
+reg   [31:0] bias_buf_23_fu_212;
+reg   [31:0] m0_buf_17_fu_216;
+reg   [31:0] m0_buf_18_fu_220;
+reg   [31:0] m0_buf_19_fu_224;
+reg   [31:0] m0_buf_20_fu_228;
+reg   [31:0] m0_buf_21_fu_232;
+reg   [31:0] m0_buf_22_fu_236;
+reg   [31:0] m0_buf_23_fu_240;
+reg   [7:0] nshift_buf_17_fu_244;
+reg   [7:0] nshift_buf_18_fu_248;
+reg   [7:0] nshift_buf_19_fu_252;
+reg   [7:0] nshift_buf_20_fu_256;
+reg   [7:0] nshift_buf_21_fu_260;
+reg   [7:0] nshift_buf_22_fu_264;
+reg   [7:0] nshift_buf_23_fu_268;
 wire    ap_block_pp0_stage0_01001;
 reg    qp_mem_EN_A_local;
 wire   [31:0] qp_mem_Addr_A_local;
 wire   [31:0] qp_mem_Addr_A_orig;
-wire   [4:0] zext_ln120_1_fu_774_p1;
-wire   [9:0] zext_ln120_fu_770_p1;
-wire   [9:0] add_ln123_fu_789_p2;
-wire   [9:0] add_ln123_1_fu_795_p2;
-wire   [71:0] bias_buf_16_fu_931_p0;
-wire   [71:0] m0_buf_16_fu_935_p1;
-wire   [71:0] nshift_buf_16_fu_943_p1;
-wire   [5:0] nshift_buf_16_fu_943_p3;
+wire   [9:0] zext_ln130_fu_759_p1;
+wire   [9:0] add_ln135_fu_789_p2;
+wire   [9:0] zext_ln130_1_cast_fu_615_p1;
+wire   [9:0] add_ln135_2_fu_795_p2;
+wire   [5:0] nshift_buf_24_fu_946_p3;
 reg    ap_done_reg;
 wire    ap_continue_int;
 reg    ap_done_int;
@@ -278,53 +275,52 @@ wire    ap_enable_pp0;
 wire    ap_start_int;
 wire    ap_ready_sig;
 wire    ap_done_sig;
-reg    ap_condition_432;
-reg    ap_condition_436;
-reg    ap_condition_439;
-reg    ap_condition_442;
-reg    ap_condition_445;
-reg    ap_condition_448;
-reg    ap_condition_451;
-reg    ap_condition_454;
-reg    ap_condition_457;
-reg    ap_condition_460;
-reg    ap_condition_463;
-reg    ap_condition_466;
-reg    ap_condition_469;
-reg    ap_condition_472;
-reg    ap_condition_475;
-reg    ap_condition_478;
+reg    ap_condition_431;
+reg    ap_condition_435;
+reg    ap_condition_438;
+reg    ap_condition_441;
+reg    ap_condition_444;
+reg    ap_condition_447;
+reg    ap_condition_450;
+reg    ap_condition_453;
+reg    ap_condition_456;
+reg    ap_condition_459;
+reg    ap_condition_462;
+reg    ap_condition_465;
+reg    ap_condition_468;
+reg    ap_condition_471;
+reg    ap_condition_474;
 wire    ap_ce_reg;
 
 // power-on initialization
 initial begin
 #0 ap_CS_fsm = 1'd1;
 #0 ap_enable_reg_pp0_iter1 = 1'b0;
-#0 t_fu_170 = 4'd0;
-#0 bias_buf_8_fu_174 = 32'd0;
-#0 bias_buf_9_fu_178 = 32'd0;
-#0 bias_buf_10_fu_182 = 32'd0;
-#0 bias_buf_11_fu_186 = 32'd0;
-#0 bias_buf_12_fu_190 = 32'd0;
-#0 bias_buf_13_fu_194 = 32'd0;
-#0 bias_buf_14_fu_198 = 32'd0;
-#0 bias_buf_15_fu_202 = 32'd0;
-#0 m0_buf_8_fu_206 = 32'd0;
-#0 m0_buf_9_fu_210 = 32'd0;
-#0 m0_buf_10_fu_214 = 32'd0;
-#0 m0_buf_11_fu_218 = 32'd0;
-#0 m0_buf_12_fu_222 = 32'd0;
-#0 m0_buf_13_fu_226 = 32'd0;
-#0 m0_buf_14_fu_230 = 32'd0;
-#0 m0_buf_15_fu_234 = 32'd0;
-#0 nshift_buf_8_fu_238 = 8'd0;
-#0 nshift_buf_9_fu_242 = 8'd0;
-#0 nshift_buf_10_fu_246 = 8'd0;
-#0 nshift_buf_11_fu_250 = 8'd0;
-#0 nshift_buf_12_fu_254 = 8'd0;
-#0 nshift_buf_13_fu_258 = 8'd0;
-#0 nshift_buf_14_fu_262 = 8'd0;
-#0 nshift_buf_15_fu_266 = 8'd0;
+#0 t_fu_172 = 4'd0;
+#0 bias_buf_16_fu_176 = 32'd0;
+#0 m0_buf_16_fu_180 = 32'd0;
+#0 nshift_buf_16_fu_184 = 8'd0;
+#0 bias_buf_17_fu_188 = 32'd0;
+#0 bias_buf_18_fu_192 = 32'd0;
+#0 bias_buf_19_fu_196 = 32'd0;
+#0 bias_buf_20_fu_200 = 32'd0;
+#0 bias_buf_21_fu_204 = 32'd0;
+#0 bias_buf_22_fu_208 = 32'd0;
+#0 bias_buf_23_fu_212 = 32'd0;
+#0 m0_buf_17_fu_216 = 32'd0;
+#0 m0_buf_18_fu_220 = 32'd0;
+#0 m0_buf_19_fu_224 = 32'd0;
+#0 m0_buf_20_fu_228 = 32'd0;
+#0 m0_buf_21_fu_232 = 32'd0;
+#0 m0_buf_22_fu_236 = 32'd0;
+#0 m0_buf_23_fu_240 = 32'd0;
+#0 nshift_buf_17_fu_244 = 8'd0;
+#0 nshift_buf_18_fu_248 = 8'd0;
+#0 nshift_buf_19_fu_252 = 8'd0;
+#0 nshift_buf_20_fu_256 = 8'd0;
+#0 nshift_buf_21_fu_260 = 8'd0;
+#0 nshift_buf_22_fu_264 = 8'd0;
+#0 nshift_buf_23_fu_268 = 8'd0;
 #0 ap_done_reg = 1'b0;
 end
 
@@ -378,11 +374,9 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_10_fu_182 <= bias_buf_2;
-        end else if ((1'b1 == ap_condition_436)) begin
-            bias_buf_10_fu_182 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_432)) begin
-            bias_buf_10_fu_182 <= 32'd0;
+            bias_buf_16_fu_176 <= bias_buf;
+        end else if ((1'b1 == ap_condition_431)) begin
+            bias_buf_16_fu_176 <= bias_buf_24_fu_934_p1;
         end
     end
 end
@@ -390,11 +384,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_11_fu_186 <= bias_buf_3;
-        end else if ((1'b1 == ap_condition_442)) begin
-            bias_buf_11_fu_186 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_439)) begin
-            bias_buf_11_fu_186 <= 32'd0;
+            bias_buf_17_fu_188 <= bias_buf_1;
+        end else if ((1'b1 == ap_condition_438)) begin
+            bias_buf_17_fu_188 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_435)) begin
+            bias_buf_17_fu_188 <= 32'd0;
         end
     end
 end
@@ -402,11 +396,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_12_fu_190 <= bias_buf_4;
-        end else if ((1'b1 == ap_condition_448)) begin
-            bias_buf_12_fu_190 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_445)) begin
-            bias_buf_12_fu_190 <= 32'd0;
+            bias_buf_18_fu_192 <= bias_buf_2;
+        end else if ((1'b1 == ap_condition_444)) begin
+            bias_buf_18_fu_192 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_441)) begin
+            bias_buf_18_fu_192 <= 32'd0;
         end
     end
 end
@@ -414,11 +408,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_13_fu_194 <= bias_buf_5;
-        end else if ((1'b1 == ap_condition_454)) begin
-            bias_buf_13_fu_194 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_451)) begin
-            bias_buf_13_fu_194 <= 32'd0;
+            bias_buf_19_fu_196 <= bias_buf_3;
+        end else if ((1'b1 == ap_condition_450)) begin
+            bias_buf_19_fu_196 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_447)) begin
+            bias_buf_19_fu_196 <= 32'd0;
         end
     end
 end
@@ -426,11 +420,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_14_fu_198 <= bias_buf_6;
-        end else if ((1'b1 == ap_condition_460)) begin
-            bias_buf_14_fu_198 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_457)) begin
-            bias_buf_14_fu_198 <= 32'd0;
+            bias_buf_20_fu_200 <= bias_buf_4;
+        end else if ((1'b1 == ap_condition_456)) begin
+            bias_buf_20_fu_200 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_453)) begin
+            bias_buf_20_fu_200 <= 32'd0;
         end
     end
 end
@@ -438,11 +432,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_15_fu_202 <= bias_buf_7;
-        end else if ((1'b1 == ap_condition_466)) begin
-            bias_buf_15_fu_202 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_463)) begin
-            bias_buf_15_fu_202 <= 32'd0;
+            bias_buf_21_fu_204 <= bias_buf_5;
+        end else if ((1'b1 == ap_condition_462)) begin
+            bias_buf_21_fu_204 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_459)) begin
+            bias_buf_21_fu_204 <= 32'd0;
         end
     end
 end
@@ -450,11 +444,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_8_fu_174 <= bias_buf;
-        end else if ((1'b1 == ap_condition_472)) begin
-            bias_buf_8_fu_174 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_469)) begin
-            bias_buf_8_fu_174 <= 32'd0;
+            bias_buf_22_fu_208 <= bias_buf_6;
+        end else if ((1'b1 == ap_condition_468)) begin
+            bias_buf_22_fu_208 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_465)) begin
+            bias_buf_22_fu_208 <= 32'd0;
         end
     end
 end
@@ -462,11 +456,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            bias_buf_9_fu_178 <= bias_buf_1;
-        end else if ((1'b1 == ap_condition_478)) begin
-            bias_buf_9_fu_178 <= bias_buf_16_fu_931_p1;
-        end else if ((1'b1 == ap_condition_475)) begin
-            bias_buf_9_fu_178 <= 32'd0;
+            bias_buf_23_fu_212 <= bias_buf_7;
+        end else if ((1'b1 == ap_condition_474)) begin
+            bias_buf_23_fu_212 <= bias_buf_24_fu_934_p1;
+        end else if ((1'b1 == ap_condition_471)) begin
+            bias_buf_23_fu_212 <= 32'd0;
         end
     end
 end
@@ -474,11 +468,9 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_10_fu_214 <= m0_buf_2;
-        end else if ((1'b1 == ap_condition_436)) begin
-            m0_buf_10_fu_214 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_432)) begin
-            m0_buf_10_fu_214 <= 32'd0;
+            m0_buf_16_fu_180 <= m0_buf;
+        end else if ((1'b1 == ap_condition_431)) begin
+            m0_buf_16_fu_180 <= {{qp_mem_Dout_A[63:32]}};
         end
     end
 end
@@ -486,11 +478,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_11_fu_218 <= m0_buf_3;
-        end else if ((1'b1 == ap_condition_442)) begin
-            m0_buf_11_fu_218 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_439)) begin
-            m0_buf_11_fu_218 <= 32'd0;
+            m0_buf_17_fu_216 <= m0_buf_1;
+        end else if ((1'b1 == ap_condition_438)) begin
+            m0_buf_17_fu_216 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_435)) begin
+            m0_buf_17_fu_216 <= 32'd0;
         end
     end
 end
@@ -498,11 +490,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_12_fu_222 <= m0_buf_4;
-        end else if ((1'b1 == ap_condition_448)) begin
-            m0_buf_12_fu_222 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_445)) begin
-            m0_buf_12_fu_222 <= 32'd0;
+            m0_buf_18_fu_220 <= m0_buf_2;
+        end else if ((1'b1 == ap_condition_444)) begin
+            m0_buf_18_fu_220 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_441)) begin
+            m0_buf_18_fu_220 <= 32'd0;
         end
     end
 end
@@ -510,11 +502,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_13_fu_226 <= m0_buf_5;
-        end else if ((1'b1 == ap_condition_454)) begin
-            m0_buf_13_fu_226 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_451)) begin
-            m0_buf_13_fu_226 <= 32'd0;
+            m0_buf_19_fu_224 <= m0_buf_3;
+        end else if ((1'b1 == ap_condition_450)) begin
+            m0_buf_19_fu_224 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_447)) begin
+            m0_buf_19_fu_224 <= 32'd0;
         end
     end
 end
@@ -522,11 +514,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_14_fu_230 <= m0_buf_6;
-        end else if ((1'b1 == ap_condition_460)) begin
-            m0_buf_14_fu_230 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_457)) begin
-            m0_buf_14_fu_230 <= 32'd0;
+            m0_buf_20_fu_228 <= m0_buf_4;
+        end else if ((1'b1 == ap_condition_456)) begin
+            m0_buf_20_fu_228 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_453)) begin
+            m0_buf_20_fu_228 <= 32'd0;
         end
     end
 end
@@ -534,11 +526,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_15_fu_234 <= m0_buf_7;
-        end else if ((1'b1 == ap_condition_466)) begin
-            m0_buf_15_fu_234 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_463)) begin
-            m0_buf_15_fu_234 <= 32'd0;
+            m0_buf_21_fu_232 <= m0_buf_5;
+        end else if ((1'b1 == ap_condition_462)) begin
+            m0_buf_21_fu_232 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_459)) begin
+            m0_buf_21_fu_232 <= 32'd0;
         end
     end
 end
@@ -546,11 +538,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_8_fu_206 <= m0_buf;
-        end else if ((1'b1 == ap_condition_472)) begin
-            m0_buf_8_fu_206 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_469)) begin
-            m0_buf_8_fu_206 <= 32'd0;
+            m0_buf_22_fu_236 <= m0_buf_6;
+        end else if ((1'b1 == ap_condition_468)) begin
+            m0_buf_22_fu_236 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_465)) begin
+            m0_buf_22_fu_236 <= 32'd0;
         end
     end
 end
@@ -558,11 +550,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            m0_buf_9_fu_210 <= m0_buf_1;
-        end else if ((1'b1 == ap_condition_478)) begin
-            m0_buf_9_fu_210 <= {{m0_buf_16_fu_935_p1[63:32]}};
-        end else if ((1'b1 == ap_condition_475)) begin
-            m0_buf_9_fu_210 <= 32'd0;
+            m0_buf_23_fu_240 <= m0_buf_7;
+        end else if ((1'b1 == ap_condition_474)) begin
+            m0_buf_23_fu_240 <= {{qp_mem_Dout_A[63:32]}};
+        end else if ((1'b1 == ap_condition_471)) begin
+            m0_buf_23_fu_240 <= 32'd0;
         end
     end
 end
@@ -570,11 +562,9 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_10_fu_246 <= nshift_buf_2;
-        end else if ((1'b1 == ap_condition_436)) begin
-            nshift_buf_10_fu_246 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_432)) begin
-            nshift_buf_10_fu_246 <= 8'd1;
+            nshift_buf_16_fu_184 <= nshift_buf;
+        end else if ((1'b1 == ap_condition_431)) begin
+            nshift_buf_16_fu_184 <= zext_ln138_fu_954_p1;
         end
     end
 end
@@ -582,11 +572,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_11_fu_250 <= nshift_buf_3;
-        end else if ((1'b1 == ap_condition_442)) begin
-            nshift_buf_11_fu_250 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_439)) begin
-            nshift_buf_11_fu_250 <= 8'd1;
+            nshift_buf_17_fu_244 <= nshift_buf_1;
+        end else if ((1'b1 == ap_condition_438)) begin
+            nshift_buf_17_fu_244 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_435)) begin
+            nshift_buf_17_fu_244 <= 8'd1;
         end
     end
 end
@@ -594,11 +584,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_12_fu_254 <= nshift_buf_4;
-        end else if ((1'b1 == ap_condition_448)) begin
-            nshift_buf_12_fu_254 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_445)) begin
-            nshift_buf_12_fu_254 <= 8'd1;
+            nshift_buf_18_fu_248 <= nshift_buf_2;
+        end else if ((1'b1 == ap_condition_444)) begin
+            nshift_buf_18_fu_248 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_441)) begin
+            nshift_buf_18_fu_248 <= 8'd1;
         end
     end
 end
@@ -606,11 +596,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_13_fu_258 <= nshift_buf_5;
-        end else if ((1'b1 == ap_condition_454)) begin
-            nshift_buf_13_fu_258 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_451)) begin
-            nshift_buf_13_fu_258 <= 8'd1;
+            nshift_buf_19_fu_252 <= nshift_buf_3;
+        end else if ((1'b1 == ap_condition_450)) begin
+            nshift_buf_19_fu_252 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_447)) begin
+            nshift_buf_19_fu_252 <= 8'd1;
         end
     end
 end
@@ -618,11 +608,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_14_fu_262 <= nshift_buf_6;
-        end else if ((1'b1 == ap_condition_460)) begin
-            nshift_buf_14_fu_262 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_457)) begin
-            nshift_buf_14_fu_262 <= 8'd1;
+            nshift_buf_20_fu_256 <= nshift_buf_4;
+        end else if ((1'b1 == ap_condition_456)) begin
+            nshift_buf_20_fu_256 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_453)) begin
+            nshift_buf_20_fu_256 <= 8'd1;
         end
     end
 end
@@ -630,11 +620,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_15_fu_266 <= nshift_buf_7;
-        end else if ((1'b1 == ap_condition_466)) begin
-            nshift_buf_15_fu_266 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_463)) begin
-            nshift_buf_15_fu_266 <= 8'd1;
+            nshift_buf_21_fu_260 <= nshift_buf_5;
+        end else if ((1'b1 == ap_condition_462)) begin
+            nshift_buf_21_fu_260 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_459)) begin
+            nshift_buf_21_fu_260 <= 8'd1;
         end
     end
 end
@@ -642,11 +632,11 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_8_fu_238 <= nshift_buf;
-        end else if ((1'b1 == ap_condition_472)) begin
-            nshift_buf_8_fu_238 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_469)) begin
-            nshift_buf_8_fu_238 <= 8'd1;
+            nshift_buf_22_fu_264 <= nshift_buf_6;
+        end else if ((1'b1 == ap_condition_468)) begin
+            nshift_buf_22_fu_264 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_465)) begin
+            nshift_buf_22_fu_264 <= 8'd1;
         end
     end
 end
@@ -654,34 +644,34 @@ end
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         if ((ap_loop_init == 1'b1)) begin
-            nshift_buf_9_fu_242 <= nshift_buf_1;
-        end else if ((1'b1 == ap_condition_478)) begin
-            nshift_buf_9_fu_242 <= zext_ln126_fu_951_p1;
-        end else if ((1'b1 == ap_condition_475)) begin
-            nshift_buf_9_fu_242 <= 8'd1;
+            nshift_buf_23_fu_268 <= nshift_buf_7;
+        end else if ((1'b1 == ap_condition_474)) begin
+            nshift_buf_23_fu_268 <= zext_ln138_fu_954_p1;
+        end else if ((1'b1 == ap_condition_471)) begin
+            nshift_buf_23_fu_268 <= 8'd1;
         end
     end
 end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln120_fu_758_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            t_fu_170 <= add_ln120_fu_764_p2;
+        if (((icmp_ln130_fu_747_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            t_fu_172 <= add_ln130_fu_753_p2;
         end else if ((ap_loop_init == 1'b1)) begin
-            t_fu_170 <= 4'd0;
+            t_fu_172 <= 4'd0;
         end
     end
 end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        icmp_ln122_reg_1377 <= icmp_ln122_fu_783_p2;
-        trunc_ln120_reg_1373 <= trunc_ln120_fu_778_p1;
+        icmp_ln132_reg_1377 <= icmp_ln132_fu_767_p2;
+        trunc_ln130_reg_1373 <= trunc_ln130_fu_763_p1;
     end
 end
 
 always @ (*) begin
-    if (((icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -722,201 +712,201 @@ end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0) & (1'b1 == ap_CS_fsm_pp0_stage0) & (ap_loop_init == 1'b1))) begin
-        ap_sig_allocacmp_t_1 = 4'd0;
+        ap_sig_allocacmp_t_2 = 4'd0;
     end else begin
-        ap_sig_allocacmp_t_1 = t_fu_170;
+        ap_sig_allocacmp_t_2 = t_fu_172;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_10_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_16_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_10_out_ap_vld = 1'b0;
+        bias_buf_16_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_11_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_17_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_11_out_ap_vld = 1'b0;
+        bias_buf_17_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_12_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_18_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_12_out_ap_vld = 1'b0;
+        bias_buf_18_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_13_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_19_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_13_out_ap_vld = 1'b0;
+        bias_buf_19_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_14_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_20_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_14_out_ap_vld = 1'b0;
+        bias_buf_20_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_15_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_21_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_15_out_ap_vld = 1'b0;
+        bias_buf_21_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_8_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_22_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_8_out_ap_vld = 1'b0;
+        bias_buf_22_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        bias_buf_9_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        bias_buf_23_out_ap_vld = 1'b1;
     end else begin
-        bias_buf_9_out_ap_vld = 1'b0;
+        bias_buf_23_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_10_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_16_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_10_out_ap_vld = 1'b0;
+        m0_buf_16_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_11_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_17_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_11_out_ap_vld = 1'b0;
+        m0_buf_17_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_12_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_18_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_12_out_ap_vld = 1'b0;
+        m0_buf_18_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_13_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_19_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_13_out_ap_vld = 1'b0;
+        m0_buf_19_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_14_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_20_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_14_out_ap_vld = 1'b0;
+        m0_buf_20_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_15_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_21_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_15_out_ap_vld = 1'b0;
+        m0_buf_21_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_8_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_22_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_8_out_ap_vld = 1'b0;
+        m0_buf_22_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        m0_buf_9_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        m0_buf_23_out_ap_vld = 1'b1;
     end else begin
-        m0_buf_9_out_ap_vld = 1'b0;
+        m0_buf_23_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_10_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_16_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_10_out_ap_vld = 1'b0;
+        nshift_buf_16_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_11_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_17_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_11_out_ap_vld = 1'b0;
+        nshift_buf_17_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_12_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_18_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_12_out_ap_vld = 1'b0;
+        nshift_buf_18_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_13_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_19_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_13_out_ap_vld = 1'b0;
+        nshift_buf_19_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_14_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_20_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_14_out_ap_vld = 1'b0;
+        nshift_buf_20_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_15_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_21_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_15_out_ap_vld = 1'b0;
+        nshift_buf_21_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_8_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_22_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_8_out_ap_vld = 1'b0;
+        nshift_buf_22_out_ap_vld = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln120_fu_758_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        nshift_buf_9_out_ap_vld = 1'b1;
+    if (((ap_loop_exit_ready == 1'b1) & (icmp_ln130_fu_747_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+        nshift_buf_23_out_ap_vld = 1'b1;
     end else begin
-        nshift_buf_9_out_ap_vld = 1'b0;
+        nshift_buf_23_out_ap_vld = 1'b0;
     end
 end
 
@@ -939,11 +929,11 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln120_fu_764_p2 = (ap_sig_allocacmp_t_1 + 4'd1);
+assign add_ln130_fu_753_p2 = (ap_sig_allocacmp_t_2 + 4'd1);
 
-assign add_ln123_1_fu_795_p2 = (add_ln123_fu_789_p2 + shl_ln);
+assign add_ln135_2_fu_795_p2 = (add_ln135_fu_789_p2 + zext_ln130_1_cast_fu_615_p1);
 
-assign add_ln123_fu_789_p2 = (zext_ln120_fu_770_p1 + empty);
+assign add_ln135_fu_789_p2 = (zext_ln130_fu_759_p1 + cfg_qp_base);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -956,67 +946,63 @@ assign ap_block_pp0_stage0_11001 = ~(1'b1 == 1'b1);
 assign ap_block_pp0_stage0_subdone = ~(1'b1 == 1'b1);
 
 always @ (*) begin
-    ap_condition_432 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd2));
+    ap_condition_431 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd0));
 end
 
 always @ (*) begin
-    ap_condition_436 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd2));
+    ap_condition_435 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd1));
 end
 
 always @ (*) begin
-    ap_condition_439 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd3));
+    ap_condition_438 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd1));
 end
 
 always @ (*) begin
-    ap_condition_442 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd3));
+    ap_condition_441 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd2));
 end
 
 always @ (*) begin
-    ap_condition_445 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd4));
+    ap_condition_444 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd2));
 end
 
 always @ (*) begin
-    ap_condition_448 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd4));
+    ap_condition_447 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd3));
 end
 
 always @ (*) begin
-    ap_condition_451 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd5));
+    ap_condition_450 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd3));
 end
 
 always @ (*) begin
-    ap_condition_454 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd5));
+    ap_condition_453 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd4));
 end
 
 always @ (*) begin
-    ap_condition_457 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd6));
+    ap_condition_456 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd4));
 end
 
 always @ (*) begin
-    ap_condition_460 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd6));
+    ap_condition_459 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd5));
 end
 
 always @ (*) begin
-    ap_condition_463 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd7));
+    ap_condition_462 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd5));
 end
 
 always @ (*) begin
-    ap_condition_466 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd7));
+    ap_condition_465 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd6));
 end
 
 always @ (*) begin
-    ap_condition_469 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd0));
+    ap_condition_468 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd6));
 end
 
 always @ (*) begin
-    ap_condition_472 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd0));
+    ap_condition_471 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (((icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd7)) | ((icmp_ln132_reg_1377 == 1'd0) & (trunc_ln130_reg_1373 == 3'd0))));
 end
 
 always @ (*) begin
-    ap_condition_475 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd0) & (trunc_ln120_reg_1373 == 3'd1));
-end
-
-always @ (*) begin
-    ap_condition_478 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln122_reg_1377 == 1'd1) & (trunc_ln120_reg_1373 == 3'd1));
+    ap_condition_474 = ((ap_enable_reg_pp0_iter1 == 1'b1) & (icmp_ln132_reg_1377 == 1'd1) & (trunc_ln130_reg_1373 == 3'd7));
 end
 
 assign ap_done = ap_done_sig;
@@ -1029,73 +1015,67 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign bias_buf_10_out = bias_buf_10_fu_182;
+assign bias_buf_16_out = bias_buf_16_fu_176;
 
-assign bias_buf_11_out = bias_buf_11_fu_186;
+assign bias_buf_17_out = bias_buf_17_fu_188;
 
-assign bias_buf_12_out = bias_buf_12_fu_190;
+assign bias_buf_18_out = bias_buf_18_fu_192;
 
-assign bias_buf_13_out = bias_buf_13_fu_194;
+assign bias_buf_19_out = bias_buf_19_fu_196;
 
-assign bias_buf_14_out = bias_buf_14_fu_198;
+assign bias_buf_20_out = bias_buf_20_fu_200;
 
-assign bias_buf_15_out = bias_buf_15_fu_202;
+assign bias_buf_21_out = bias_buf_21_fu_204;
 
-assign bias_buf_16_fu_931_p0 = qp_mem_Dout_A;
+assign bias_buf_22_out = bias_buf_22_fu_208;
 
-assign bias_buf_16_fu_931_p1 = bias_buf_16_fu_931_p0[31:0];
+assign bias_buf_23_out = bias_buf_23_fu_212;
 
-assign bias_buf_8_out = bias_buf_8_fu_174;
+assign bias_buf_24_fu_934_p1 = qp_mem_Dout_A[31:0];
 
-assign bias_buf_9_out = bias_buf_9_fu_178;
+assign icmp_ln130_fu_747_p2 = ((ap_sig_allocacmp_t_2 == 4'd8) ? 1'b1 : 1'b0);
 
-assign icmp_ln120_fu_758_p2 = ((ap_sig_allocacmp_t_1 == 4'd8) ? 1'b1 : 1'b0);
+assign icmp_ln132_fu_767_p2 = ((ap_sig_allocacmp_t_2 < oc_valid) ? 1'b1 : 1'b0);
 
-assign icmp_ln122_fu_783_p2 = (($signed(zext_ln120_1_fu_774_p1) < $signed(oc_valid)) ? 1'b1 : 1'b0);
+assign m0_buf_16_out = m0_buf_16_fu_180;
 
-assign m0_buf_10_out = m0_buf_10_fu_214;
+assign m0_buf_17_out = m0_buf_17_fu_216;
 
-assign m0_buf_11_out = m0_buf_11_fu_218;
+assign m0_buf_18_out = m0_buf_18_fu_220;
 
-assign m0_buf_12_out = m0_buf_12_fu_222;
+assign m0_buf_19_out = m0_buf_19_fu_224;
 
-assign m0_buf_13_out = m0_buf_13_fu_226;
+assign m0_buf_20_out = m0_buf_20_fu_228;
 
-assign m0_buf_14_out = m0_buf_14_fu_230;
+assign m0_buf_21_out = m0_buf_21_fu_232;
 
-assign m0_buf_15_out = m0_buf_15_fu_234;
+assign m0_buf_22_out = m0_buf_22_fu_236;
 
-assign m0_buf_16_fu_935_p1 = qp_mem_Dout_A;
+assign m0_buf_23_out = m0_buf_23_fu_240;
 
-assign m0_buf_8_out = m0_buf_8_fu_206;
+assign nshift_buf_16_out = nshift_buf_16_fu_184;
 
-assign m0_buf_9_out = m0_buf_9_fu_210;
+assign nshift_buf_17_out = nshift_buf_17_fu_244;
 
-assign nshift_buf_10_out = nshift_buf_10_fu_246;
+assign nshift_buf_18_out = nshift_buf_18_fu_248;
 
-assign nshift_buf_11_out = nshift_buf_11_fu_250;
+assign nshift_buf_19_out = nshift_buf_19_fu_252;
 
-assign nshift_buf_12_out = nshift_buf_12_fu_254;
+assign nshift_buf_20_out = nshift_buf_20_fu_256;
 
-assign nshift_buf_13_out = nshift_buf_13_fu_258;
+assign nshift_buf_21_out = nshift_buf_21_fu_260;
 
-assign nshift_buf_14_out = nshift_buf_14_fu_262;
+assign nshift_buf_22_out = nshift_buf_22_fu_264;
 
-assign nshift_buf_15_out = nshift_buf_15_fu_266;
+assign nshift_buf_23_out = nshift_buf_23_fu_268;
 
-assign nshift_buf_16_fu_943_p1 = qp_mem_Dout_A;
-
-assign nshift_buf_16_fu_943_p3 = {{nshift_buf_16_fu_943_p1[69:64]}};
-
-assign nshift_buf_8_out = nshift_buf_8_fu_238;
-
-assign nshift_buf_9_out = nshift_buf_9_fu_242;
+assign nshift_buf_24_fu_946_p3 = {{qp_mem_Dout_A[69:64]}};
 
 assign qp_mem_Addr_A = qp_mem_Addr_A_local;
 
 assign qp_mem_Addr_A_local = qp_mem_Addr_A_orig << 32'd4;
 
-assign qp_mem_Addr_A_orig = zext_ln123_fu_801_p1;
+assign qp_mem_Addr_A_orig = zext_ln135_fu_801_p1;
 
 assign qp_mem_Din_A = 128'd0;
 
@@ -1103,14 +1083,14 @@ assign qp_mem_EN_A = qp_mem_EN_A_local;
 
 assign qp_mem_WEN_A = 16'd0;
 
-assign trunc_ln120_fu_778_p1 = ap_sig_allocacmp_t_1[2:0];
+assign trunc_ln130_fu_763_p1 = ap_sig_allocacmp_t_2[2:0];
 
-assign zext_ln120_1_fu_774_p1 = ap_sig_allocacmp_t_1;
+assign zext_ln130_1_cast_fu_615_p1 = zext_ln130_1;
 
-assign zext_ln120_fu_770_p1 = ap_sig_allocacmp_t_1;
+assign zext_ln130_fu_759_p1 = ap_sig_allocacmp_t_2;
 
-assign zext_ln123_fu_801_p1 = add_ln123_1_fu_795_p2;
+assign zext_ln135_fu_801_p1 = add_ln135_2_fu_795_p2;
 
-assign zext_ln126_fu_951_p1 = nshift_buf_16_fu_943_p3;
+assign zext_ln138_fu_954_p1 = nshift_buf_24_fu_946_p3;
 
 endmodule //tinyissimo_layer_top_tinyissimo_layer_top_Pipeline_LOAD_QP
