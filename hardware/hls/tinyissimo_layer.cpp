@@ -347,47 +347,37 @@ void tinyissimo_layer(
                         act_tile[t] = mx;
                     }
 
-                    // Pack into 128-bit output word (RMW)
-                    // Build 64-bit half with compile-time constant ranges
+                    // Pack TILE_OC=16 lanes into a full 128-bit word and
+                    // write directly — no half-word RMW needed.
                     int out_idx = fmap_wr_offset
-                                + (oct / 2) * spatial_out
+                                + oct * spatial_out
                                 + pool_oh * pool_w + pool_ow;
 
-                    ap_uint<64> half = 0;
+                    ap_uint<128> packed = 0;
                     PACK_POOL:
                     for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                         if (t < oc_valid)
-                            half.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
+                            packed.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
                     }
-                    ap_uint<128> out_word = fmap_out[out_idx];
-                    if (oct & 1)
-                        out_word.range(127, 64) = half;
-                    else
-                        out_word.range(63, 0) = half;
-                    fmap_out[out_idx] = out_word;
+                    fmap_out[out_idx] = packed;
                 }
 
             } else {
-                // No pooling: pack and write directly (RMW)
-                // Build 64-bit half with compile-time constant ranges
+                // No pooling: pack TILE_OC=16 lanes into a full 128-bit
+                // word and write directly — no half-word RMW needed.
                 int out_idx = fmap_wr_offset
-                            + (oct / 2) * out_h * out_w
+                            + oct * out_h * out_w
                             + oh * out_w + ow;
 
-                ap_uint<64> half = 0;
+                ap_uint<128> packed = 0;
                 PACK_DIRECT:
                 for (int t = 0; t < TILE_OC; t++) {
 #pragma HLS UNROLL
                     if (t < oc_valid)
-                        half.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
+                        packed.range(t*8+7, t*8) = (ap_uint<8>)act_tile[t];
                 }
-                ap_uint<128> out_word = fmap_out[out_idx];
-                if (oct & 1)
-                    out_word.range(127, 64) = half;
-                else
-                    out_word.range(63, 0) = half;
-                fmap_out[out_idx] = out_word;
+                fmap_out[out_idx] = packed;
             }
 
         } // OUT_COL_LOOP

@@ -164,17 +164,17 @@ static void unpack_output(const ap_uint<128> fmap[],
     int pw = use_maxpool ? out_w / 2 : out_w;
     int spatial = ph * pw;
 
+    // With TILE_OC=16 every OC tile fills a full 128-bit fmap word, so
+    // tile index == word index (no /2 pairing) and the byte slot is
+    // simply t*8 (no half-word offset).
     for (int oct = 0; oct < oc_tiles; oct++) {
-        int pair   = oct / 2;
-        int bit_lo = (oct % 2) * 64;
         for (int row = 0; row < ph; row++)
         for (int col = 0; col < pw; col++) {
-            ap_uint<128> word = fmap[fmap_offset + pair * spatial + row * pw + col];
+            ap_uint<128> word = fmap[fmap_offset + oct * spatial + row * pw + col];
             for (int t = 0; t < TILE_OC; t++) {
                 int ch = oct * TILE_OC + t;
                 if (ch >= out_c) continue;
-                uint8_t raw = (uint8_t)word.range(bit_lo + t*8+7,
-                                                   bit_lo + t*8);
+                uint8_t raw = (uint8_t)word.range(t*8+7, t*8);
                 flat[(row * pw + col) * out_c + ch] = (int8_t)raw;
             }
         }

@@ -10,9 +10,10 @@
 #include <ap_int.h>
 #include "layer_config.h"
 
-// ── Tile parallelism (matching RTL C_PAR=16 for IC, 8 for OC) ───────────
+// ── Tile parallelism (TILE_IC=16 for IC, TILE_OC=16 for OC) ─────────────
+// TILE_OC=16 ⇒ 16 × 8-bit = 128-bit, exactly one fmap word, no half-RMW.
 static const int TILE_IC = 16;
-static const int TILE_OC = 8;
+static const int TILE_OC = 16;
 
 // ── Compile-time maximum dimensions ─────────────────────────────────────
 static const int MAX_H        = 256;
