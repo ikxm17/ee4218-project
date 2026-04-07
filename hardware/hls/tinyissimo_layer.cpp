@@ -93,10 +93,14 @@ void tinyissimo_layer(
         }
     }
 
-    // ── Weight buffer (partitioned for 8-way parallel OC read) ──────────
+    // ── Weight buffer (partitioned for TILE_OC-way parallel OC read) ────
+    // LUTRAM (distributed) so the kernel adds zero BRAM on top of the
+    // existing HDL bitstream — see plan: HDL+HLS coexistence in one
+    // bitstream. Trivial single-line swap to bram or uram in a future
+    // tuning pass once the HDL footprint is locked.
     ap_uint<128> w_buf[TILE_OC][MAX_IC_TILES][MAX_KH][MAX_KW];
 #pragma HLS ARRAY_PARTITION variable=w_buf complete dim=1
-#pragma HLS BIND_STORAGE variable=w_buf type=ram_2p impl=bram
+#pragma HLS BIND_STORAGE variable=w_buf type=ram_2p impl=lutram
 
     // ── Per-channel quantisation parameter buffers ──────────────────────
     ap_int<32>  bias_buf  [TILE_OC];
@@ -111,16 +115,20 @@ void tinyissimo_layer(
 #pragma HLS ARRAY_PARTITION variable=acc complete dim=1
 
     // ── MaxPool row buffer: 2 rows x MAX_W x TILE_OC ───────────────────
+    // LUTRAM for the same coexistence reason as w_buf.
     ap_int<8> pool_buf[2][MAX_W][TILE_OC];
 #pragma HLS ARRAY_PARTITION variable=pool_buf complete dim=3
+#pragma HLS BIND_STORAGE variable=pool_buf type=ram_2p impl=lutram
 
     // ── Per-row accumulator buffer (Phase A → Phase B) ─────────────────
     // Phase A (OUT_COL_CONV) stashes one row of CONV results here so
     // Phase B (OUT_COL_STORE) can pull them in a pipelined region. This
     // breaks the long combinational cone from rescale → SiLU → byte-pack
     // → fmap_out write merge that dominated the post-route critical path.
+    // LUTRAM for the same coexistence reason as w_buf.
     ap_int<32> acc_row[MAX_W][TILE_OC];
 #pragma HLS ARRAY_PARTITION variable=acc_row complete dim=2
+#pragma HLS BIND_STORAGE variable=acc_row type=ram_2p impl=lutram
 
     // ════════════════════════════════════════════════════════════════════
     // Main processing: iterate over OC tiles
