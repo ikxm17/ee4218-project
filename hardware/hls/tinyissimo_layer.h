@@ -43,6 +43,11 @@ void tinyissimo_layer(
     ap_int<8> zp_out,
     int wt_base,
     int qp_base,
+    // Ping-pong buffer offsets (word-level, into FMAP_DEPTH arrays)
+    // Enables detection-head branches: layers 11-13 and 14-16 both
+    // read from layer 10's output at different URAM regions.
+    int fmap_rd_offset,
+    int fmap_wr_offset,
     // External memories (ap_memory interfaces in synthesis)
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
@@ -64,6 +69,8 @@ void tinyissimo_layer_top(
     ap_int<8> zp_out,
     int wt_base,
     int qp_base,
+    int fmap_rd_offset,
+    int fmap_wr_offset,
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],

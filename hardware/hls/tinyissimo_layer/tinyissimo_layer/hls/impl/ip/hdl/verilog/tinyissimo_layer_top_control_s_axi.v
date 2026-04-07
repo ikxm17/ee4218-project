@@ -47,6 +47,8 @@
     output wire [7:0]                    zp_out,
     output wire [31:0]                   wt_base,
     output wire [31:0]                   qp_base,
+    output wire [31:0]                   fmap_rd_offset,
+    output wire [31:0]                   fmap_wr_offset,
     output wire                          ap_start,
     input  wire                          ap_done,
     input  wire                          ap_ready,
@@ -123,51 +125,61 @@
 // 0x80 : Data signal of qp_base
 //        bit 31~0 - qp_base[31:0] (Read/Write)
 // 0x84 : reserved
+// 0x88 : Data signal of fmap_rd_offset
+//        bit 31~0 - fmap_rd_offset[31:0] (Read/Write)
+// 0x8c : reserved
+// 0x90 : Data signal of fmap_wr_offset
+//        bit 31~0 - fmap_wr_offset[31:0] (Read/Write)
+// 0x94 : reserved
 // (SC = Self Clear, COR = Clear on Read, TOW = Toggle on Write, COH = Clear on Handshake)
 
 //------------------------Parameter----------------------
 localparam
-    ADDR_AP_CTRL            = 8'h00,
-    ADDR_GIE                = 8'h04,
-    ADDR_IER                = 8'h08,
-    ADDR_ISR                = 8'h0c,
-    ADDR_IN_H_DATA_0        = 8'h10,
-    ADDR_IN_H_CTRL          = 8'h14,
-    ADDR_IN_W_DATA_0        = 8'h18,
-    ADDR_IN_W_CTRL          = 8'h1c,
-    ADDR_IN_C_DATA_0        = 8'h20,
-    ADDR_IN_C_CTRL          = 8'h24,
-    ADDR_OUT_C_DATA_0       = 8'h28,
-    ADDR_OUT_C_CTRL         = 8'h2c,
-    ADDR_KH_DATA_0          = 8'h30,
-    ADDR_KH_CTRL            = 8'h34,
-    ADDR_KW_DATA_0          = 8'h38,
-    ADDR_KW_CTRL            = 8'h3c,
-    ADDR_PAD_H_DATA_0       = 8'h40,
-    ADDR_PAD_H_CTRL         = 8'h44,
-    ADDR_PAD_W_DATA_0       = 8'h48,
-    ADDR_PAD_W_CTRL         = 8'h4c,
-    ADDR_USE_MAXPOOL_DATA_0 = 8'h50,
-    ADDR_USE_MAXPOOL_CTRL   = 8'h54,
-    ADDR_USE_SILU_DATA_0    = 8'h58,
-    ADDR_USE_SILU_CTRL      = 8'h5c,
-    ADDR_LAYER_IDX_DATA_0   = 8'h60,
-    ADDR_LAYER_IDX_CTRL     = 8'h64,
-    ADDR_ZP_IN_DATA_0       = 8'h68,
-    ADDR_ZP_IN_CTRL         = 8'h6c,
-    ADDR_ZP_OUT_DATA_0      = 8'h70,
-    ADDR_ZP_OUT_CTRL        = 8'h74,
-    ADDR_WT_BASE_DATA_0     = 8'h78,
-    ADDR_WT_BASE_CTRL       = 8'h7c,
-    ADDR_QP_BASE_DATA_0     = 8'h80,
-    ADDR_QP_BASE_CTRL       = 8'h84,
-    WRIDLE                  = 2'd0,
-    WRDATA                  = 2'd1,
-    WRRESP                  = 2'd2,
-    WRRESET                 = 2'd3,
-    RDIDLE                  = 2'd0,
-    RDDATA                  = 2'd1,
-    RDRESET                 = 2'd2,
+    ADDR_AP_CTRL               = 8'h00,
+    ADDR_GIE                   = 8'h04,
+    ADDR_IER                   = 8'h08,
+    ADDR_ISR                   = 8'h0c,
+    ADDR_IN_H_DATA_0           = 8'h10,
+    ADDR_IN_H_CTRL             = 8'h14,
+    ADDR_IN_W_DATA_0           = 8'h18,
+    ADDR_IN_W_CTRL             = 8'h1c,
+    ADDR_IN_C_DATA_0           = 8'h20,
+    ADDR_IN_C_CTRL             = 8'h24,
+    ADDR_OUT_C_DATA_0          = 8'h28,
+    ADDR_OUT_C_CTRL            = 8'h2c,
+    ADDR_KH_DATA_0             = 8'h30,
+    ADDR_KH_CTRL               = 8'h34,
+    ADDR_KW_DATA_0             = 8'h38,
+    ADDR_KW_CTRL               = 8'h3c,
+    ADDR_PAD_H_DATA_0          = 8'h40,
+    ADDR_PAD_H_CTRL            = 8'h44,
+    ADDR_PAD_W_DATA_0          = 8'h48,
+    ADDR_PAD_W_CTRL            = 8'h4c,
+    ADDR_USE_MAXPOOL_DATA_0    = 8'h50,
+    ADDR_USE_MAXPOOL_CTRL      = 8'h54,
+    ADDR_USE_SILU_DATA_0       = 8'h58,
+    ADDR_USE_SILU_CTRL         = 8'h5c,
+    ADDR_LAYER_IDX_DATA_0      = 8'h60,
+    ADDR_LAYER_IDX_CTRL        = 8'h64,
+    ADDR_ZP_IN_DATA_0          = 8'h68,
+    ADDR_ZP_IN_CTRL            = 8'h6c,
+    ADDR_ZP_OUT_DATA_0         = 8'h70,
+    ADDR_ZP_OUT_CTRL           = 8'h74,
+    ADDR_WT_BASE_DATA_0        = 8'h78,
+    ADDR_WT_BASE_CTRL          = 8'h7c,
+    ADDR_QP_BASE_DATA_0        = 8'h80,
+    ADDR_QP_BASE_CTRL          = 8'h84,
+    ADDR_FMAP_RD_OFFSET_DATA_0 = 8'h88,
+    ADDR_FMAP_RD_OFFSET_CTRL   = 8'h8c,
+    ADDR_FMAP_WR_OFFSET_DATA_0 = 8'h90,
+    ADDR_FMAP_WR_OFFSET_CTRL   = 8'h94,
+    WRIDLE                     = 2'd0,
+    WRDATA                     = 2'd1,
+    WRRESP                     = 2'd2,
+    WRRESET                    = 2'd3,
+    RDIDLE                     = 2'd0,
+    RDDATA                     = 2'd1,
+    RDRESET                    = 2'd2,
     ADDR_BITS                = 8;
 
 //------------------------Local signal-------------------
@@ -212,6 +224,8 @@ localparam
     reg  [7:0]                    int_zp_out = 'b0;
     reg  [31:0]                   int_wt_base = 'b0;
     reg  [31:0]                   int_qp_base = 'b0;
+    reg  [31:0]                   int_fmap_rd_offset = 'b0;
+    reg  [31:0]                   int_fmap_wr_offset = 'b0;
 
 //------------------------Instantiation------------------
 
@@ -366,6 +380,12 @@ always @(posedge ACLK) begin
                 ADDR_QP_BASE_DATA_0: begin
                     rdata <= int_qp_base[31:0];
                 end
+                ADDR_FMAP_RD_OFFSET_DATA_0: begin
+                    rdata <= int_fmap_rd_offset[31:0];
+                end
+                ADDR_FMAP_WR_OFFSET_DATA_0: begin
+                    rdata <= int_fmap_wr_offset[31:0];
+                end
             endcase
         end
     end
@@ -393,6 +413,8 @@ assign zp_in             = int_zp_in;
 assign zp_out            = int_zp_out;
 assign wt_base           = int_wt_base;
 assign qp_base           = int_qp_base;
+assign fmap_rd_offset    = int_fmap_rd_offset;
+assign fmap_wr_offset    = int_fmap_wr_offset;
 // int_interrupt
 always @(posedge ACLK) begin
     if (ARESET)
@@ -672,6 +694,26 @@ always @(posedge ACLK) begin
     else if (ACLK_EN) begin
         if (w_hs && waddr == ADDR_QP_BASE_DATA_0)
             int_qp_base[31:0] <= (WDATA[31:0] & wmask) | (int_qp_base[31:0] & ~wmask);
+    end
+end
+
+// int_fmap_rd_offset[31:0]
+always @(posedge ACLK) begin
+    if (ARESET)
+        int_fmap_rd_offset[31:0] <= 0;
+    else if (ACLK_EN) begin
+        if (w_hs && waddr == ADDR_FMAP_RD_OFFSET_DATA_0)
+            int_fmap_rd_offset[31:0] <= (WDATA[31:0] & wmask) | (int_fmap_rd_offset[31:0] & ~wmask);
+    end
+end
+
+// int_fmap_wr_offset[31:0]
+always @(posedge ACLK) begin
+    if (ARESET)
+        int_fmap_wr_offset[31:0] <= 0;
+    else if (ACLK_EN) begin
+        if (w_hs && waddr == ADDR_FMAP_WR_OFFSET_DATA_0)
+            int_fmap_wr_offset[31:0] <= (WDATA[31:0] & wmask) | (int_fmap_wr_offset[31:0] & ~wmask);
     end
 end
 

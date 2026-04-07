@@ -47,6 +47,8 @@ void tinyissimo_layer(
     ap_int<8> zp_out,
     int wt_base,
     int qp_base,
+    int fmap_rd_offset,
+    int fmap_wr_offset,
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],
@@ -196,7 +198,8 @@ void tinyissimo_layer(
                 // Safe address for speculative reads when padding
                 int h_safe = (h < 0) ? 0 : ((h >= in_h) ? 0 : h);
                 int w_safe = (w < 0) ? 0 : ((w >= in_w) ? 0 : w);
-                ap_uint<128> raw = fmap_in[c_ict * in_h * in_w
+                ap_uint<128> raw = fmap_in[fmap_rd_offset
+                                           + c_ict * in_h * in_w
                                            + h_safe * in_w + w_safe];
 
                 // Unpack 16 int8 pixel values (pad channels use zp_in)
@@ -296,7 +299,8 @@ void tinyissimo_layer(
 
                     // Pack into 128-bit output word (RMW)
                     // Build 64-bit half with compile-time constant ranges
-                    int out_idx = (oct / 2) * spatial_out
+                    int out_idx = fmap_wr_offset
+                                + (oct / 2) * spatial_out
                                 + pool_oh * pool_w + pool_ow;
 
                     ap_uint<64> half = 0;
@@ -317,7 +321,8 @@ void tinyissimo_layer(
             } else {
                 // No pooling: pack and write directly (RMW)
                 // Build 64-bit half with compile-time constant ranges
-                int out_idx = (oct / 2) * out_h * out_w
+                int out_idx = fmap_wr_offset
+                            + (oct / 2) * out_h * out_w
                             + oh * out_w + ow;
 
                 ap_uint<64> half = 0;

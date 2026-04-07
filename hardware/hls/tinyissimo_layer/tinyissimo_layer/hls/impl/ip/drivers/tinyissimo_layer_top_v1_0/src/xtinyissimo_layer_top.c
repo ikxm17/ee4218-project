@@ -331,6 +331,40 @@ u32 XTinyissimo_layer_top_Get_qp_base(XTinyissimo_layer_top *InstancePtr) {
     return Data;
 }
 
+void XTinyissimo_layer_top_Set_fmap_rd_offset(XTinyissimo_layer_top *InstancePtr, u32 Data) {
+    Xil_AssertVoid(InstancePtr != NULL);
+    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    XTinyissimo_layer_top_WriteReg(InstancePtr->Control_BaseAddress, XTINYISSIMO_LAYER_TOP_CONTROL_ADDR_FMAP_RD_OFFSET_DATA, Data);
+}
+
+u32 XTinyissimo_layer_top_Get_fmap_rd_offset(XTinyissimo_layer_top *InstancePtr) {
+    u32 Data;
+
+    Xil_AssertNonvoid(InstancePtr != NULL);
+    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    Data = XTinyissimo_layer_top_ReadReg(InstancePtr->Control_BaseAddress, XTINYISSIMO_LAYER_TOP_CONTROL_ADDR_FMAP_RD_OFFSET_DATA);
+    return Data;
+}
+
+void XTinyissimo_layer_top_Set_fmap_wr_offset(XTinyissimo_layer_top *InstancePtr, u32 Data) {
+    Xil_AssertVoid(InstancePtr != NULL);
+    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    XTinyissimo_layer_top_WriteReg(InstancePtr->Control_BaseAddress, XTINYISSIMO_LAYER_TOP_CONTROL_ADDR_FMAP_WR_OFFSET_DATA, Data);
+}
+
+u32 XTinyissimo_layer_top_Get_fmap_wr_offset(XTinyissimo_layer_top *InstancePtr) {
+    u32 Data;
+
+    Xil_AssertNonvoid(InstancePtr != NULL);
+    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    Data = XTinyissimo_layer_top_ReadReg(InstancePtr->Control_BaseAddress, XTINYISSIMO_LAYER_TOP_CONTROL_ADDR_FMAP_WR_OFFSET_DATA);
+    return Data;
+}
+
 void XTinyissimo_layer_top_InterruptGlobalEnable(XTinyissimo_layer_top *InstancePtr) {
     Xil_AssertVoid(InstancePtr != NULL);
     Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);

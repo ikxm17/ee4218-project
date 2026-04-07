@@ -9,6 +9,7 @@
 //   4. Chained: L1(4x4, 16->16) -> L2(4x4, 16->8), no pool
 //   5. 8x8, IC=32->OC=24, 1x1 conv, no pool, SiLU    (CONV1)
 //   6. 8x8, IC=24->OC=8,  1x1 conv, no pool, linear  (CONV1_LIN)
+//   7. Branching offsets: two branches from shared fmap, split output
 //
 // Compile standalone (no HLS toolchain needed):
 //   g++ -std=c++17 -I<HLS_INCLUDE_PATH> -O2 \
@@ -153,7 +154,8 @@ static void fill_silu_mem(const int8_t lut[256],
 static void unpack_output(const ap_uint<128> fmap[],
                            int8_t* flat,
                            int out_h, int out_w, int out_c,
-                           bool use_maxpool)
+                           bool use_maxpool,
+                           int fmap_offset = 0)
 {
     int oc_tiles = (out_c + TILE_OC - 1) / TILE_OC;
     int ph = use_maxpool ? out_h / 2 : out_h;
@@ -165,7 +167,7 @@ static void unpack_output(const ap_uint<128> fmap[],
         int bit_lo = (oct % 2) * 64;
         for (int row = 0; row < ph; row++)
         for (int col = 0; col < pw; col++) {
-            ap_uint<128> word = fmap[pair * spatial + row * pw + col];
+            ap_uint<128> word = fmap[fmap_offset + pair * spatial + row * pw + col];
             for (int t = 0; t < TILE_OC; t++) {
                 int ch = oct * TILE_OC + t;
                 if (ch >= out_c) continue;
@@ -299,7 +301,7 @@ static void test1_no_pool() {
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE, QP_BASE,
+        WT_BASE, QP_BASE, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Unpack and compare
@@ -363,7 +365,7 @@ static void test2_maxpool() {
         IH, IW, IC, OC, KH, KW, PH, PW,
         true, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE, QP_BASE,
+        WT_BASE, QP_BASE, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[PH2*PW2*OC];
@@ -437,7 +439,7 @@ static void test3_nonmultiple() {
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE, QP_BASE,
+        WT_BASE, QP_BASE, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -517,7 +519,7 @@ static void test4_chained() {
         IH, IW, L1_IC, L1_OC, KH, KW, PH, PW,
         false, true, LI_1,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE_L1, QP_BASE_L1,
+        WT_BASE_L1, QP_BASE_L1, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Run L2: fmap_out (from L1) -> fmap_in (reuse as output buffer)
@@ -529,7 +531,7 @@ static void test4_chained() {
         IH, IW, L1_OC, L2_OC, KH, KW, PH, PW,
         false, true, LI_2,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE_L2, QP_BASE_L2,
+        WT_BASE_L2, QP_BASE_L2, 0, 0,
         g_fmap_out, g_fmap_final, g_wt_mem, g_qp_mem, g_silu_mem);
 
     // Reference: L1 then L2
@@ -609,7 +611,7 @@ static void test5_conv1() {
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, true, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE, QP_BASE,
+        WT_BASE, QP_BASE, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -672,7 +674,7 @@ static void test6_conv1_lin() {
         IH, IW, IC, OC, KH, KW, PH, PW,
         false, false, LAYER_IDX,
         (ap_int<8>)zp_in, (ap_int<8>)zp_out,
-        WT_BASE, QP_BASE,
+        WT_BASE, QP_BASE, 0, 0,
         g_fmap_in, g_fmap_out, g_wt_mem, g_qp_mem, g_silu_mem);
 
     int8_t dut_out[OH*OW*OC];
@@ -693,6 +695,131 @@ static void test6_conv1_lin() {
     printf("  Errors: %d / %d\n\n", errors, OH*OW*OC);
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Test 7: Branching detection head -- two branches from shared input
+//   Mimics layers 10->11 and 10->14: both read from the same fmap
+//   region (offset 0), but write to different output regions (64, 128).
+//   Uses a single fmap buffer for both in and out (like RTL ping-pong).
+// ═══════════════════════════════════════════════════════════════════════
+
+static void test7_branch_offsets() {
+    printf("=== Test 7: 4x4 branching offsets (shared input, split output) ===\n");
+
+    const int IH=4, IW=4, IC=16;
+    const int BR_A_OC=8, BR_B_OC=8;
+    const int KH=3, KW=3, PH=1, PW=1;
+    const int OH=IH, OW=IW;
+    // Branch A writes at fmap offset 64, Branch B at 128
+    // (oc_tiles=1 for OC=8, so each branch uses (oc_tiles/2)*OH*OW=8 words)
+    const int WR_OFF_A = 64, WR_OFF_B = 128;
+    const int RD_OFF = 0;  // both read from offset 0
+
+    const int WT_BASE_A=0;
+    const int WT_BASE_B = BR_A_OC * ((IC+TILE_IC-1)/TILE_IC) * KH * KW;
+    const int QP_BASE_A=0, QP_BASE_B=BR_A_OC;
+    const int LI_A=7, LI_B=8;
+
+    int8_t   ifmap[IH*IW*IC];
+    int8_t   wA[BR_A_OC*KH*KW*IC], wB[BR_B_OC*KH*KW*IC];
+    int32_t  bA[BR_A_OC], bB[BR_B_OC];
+    uint32_t m0A[BR_A_OC], m0B[BR_B_OC];
+    uint8_t  nsA[BR_A_OC], nsB[BR_B_OC];
+    int8_t   lut[256];
+
+    g_seed = 7;
+    for (int i = 0; i < IH*IW*IC; i++) ifmap[i] = randi8();
+    for (int i = 0; i < BR_A_OC*KH*KW*IC; i++) wA[i] = randi8();
+    for (int i = 0; i < BR_B_OC*KH*KW*IC; i++) wB[i] = randi8();
+    for (int i = 0; i < BR_A_OC; i++) {
+        bA[i] = (int32_t)(randi8())*64;
+        m0A[i] = 0x80000000u;
+        nsA[i] = 31;
+    }
+    for (int i = 0; i < BR_B_OC; i++) {
+        bB[i] = (int32_t)(randi8())*64;
+        m0B[i] = 0x80000000u;
+        nsB[i] = 31;
+    }
+    build_identity_lut(lut);
+
+    int8_t zp_in = 0, zp_out = 0;
+
+    // Use a single shared fmap buffer for both read and write
+    static ap_uint<128> g_fmap_shared[FMAP_DEPTH];
+    memset(g_fmap_shared, 0, sizeof(g_fmap_shared));
+
+    // Pack input at offset 0
+    pack_input(ifmap, g_fmap_shared, IH, IW, IC);
+    pack_weights_rom(wA, g_wt_mem, WT_BASE_A, BR_A_OC, IC, KH, KW);
+    pack_weights_rom(wB, g_wt_mem, WT_BASE_B, BR_B_OC, IC, KH, KW);
+    pack_qp_rom(bA, m0A, nsA, g_qp_mem, QP_BASE_A, BR_A_OC);
+    pack_qp_rom(bB, m0B, nsB, g_qp_mem, QP_BASE_B, BR_B_OC);
+    fill_silu_mem(lut, g_silu_mem, LI_A);
+    fill_silu_mem(lut, g_silu_mem, LI_B);
+
+    // Branch A: read from offset 0, write to WR_OFF_A
+    tinyissimo_layer_top(
+        IH, IW, IC, BR_A_OC, KH, KW, PH, PW,
+        false, true, LI_A,
+        (ap_int<8>)zp_in, (ap_int<8>)zp_out,
+        WT_BASE_A, QP_BASE_A, RD_OFF, WR_OFF_A,
+        g_fmap_shared, g_fmap_shared, g_wt_mem, g_qp_mem, g_silu_mem);
+
+    // Branch B: read from same offset 0, write to WR_OFF_B
+    tinyissimo_layer_top(
+        IH, IW, IC, BR_B_OC, KH, KW, PH, PW,
+        false, true, LI_B,
+        (ap_int<8>)zp_in, (ap_int<8>)zp_out,
+        WT_BASE_B, QP_BASE_B, RD_OFF, WR_OFF_B,
+        g_fmap_shared, g_fmap_shared, g_wt_mem, g_qp_mem, g_silu_mem);
+
+    // Verify Branch A output at WR_OFF_A
+    int8_t dut_a[OH*OW*BR_A_OC];
+    unpack_output(g_fmap_shared, dut_a, OH, OW, BR_A_OC, false, WR_OFF_A);
+
+    int errors_a = 0;
+    for (int oh=0; oh<OH; oh++)
+    for (int ow=0; ow<OW; ow++)
+    for (int oc=0; oc<BR_A_OC; oc++) {
+        int8_t ref = ref_pixel(ifmap, wA, bA, m0A, nsA, lut,
+                               zp_in, zp_out, true,
+                               IH, IW, IC, KH, KW, PH, PW,
+                               oh, ow, oc);
+        int8_t got = dut_a[(oh*OW+ow)*BR_A_OC + oc];
+        check("T7a", got, ref, oh, ow, oc);
+        if (got != ref) errors_a++;
+    }
+
+    // Verify Branch B output at WR_OFF_B
+    int8_t dut_b[OH*OW*BR_B_OC];
+    unpack_output(g_fmap_shared, dut_b, OH, OW, BR_B_OC, false, WR_OFF_B);
+
+    int errors_b = 0;
+    for (int oh=0; oh<OH; oh++)
+    for (int ow=0; ow<OW; ow++)
+    for (int oc=0; oc<BR_B_OC; oc++) {
+        int8_t ref = ref_pixel(ifmap, wB, bB, m0B, nsB, lut,
+                               zp_in, zp_out, true,
+                               IH, IW, IC, KH, KW, PH, PW,
+                               oh, ow, oc);
+        int8_t got = dut_b[(oh*OW+ow)*BR_B_OC + oc];
+        check("T7b", got, ref, oh, ow, oc);
+        if (got != ref) errors_b++;
+    }
+
+    // Verify input at offset 0 was NOT corrupted by writes
+    int8_t readback[IH*IW*IC];
+    unpack_output(g_fmap_shared, readback, IH, IW, IC, false, 0);
+    int corrupted = 0;
+    for (int i = 0; i < IH*IW*IC; i++) {
+        if (readback[i] != ifmap[i]) corrupted++;
+    }
+
+    printf("  Branch A errors: %d / %d\n", errors_a, OH*OW*BR_A_OC);
+    printf("  Branch B errors: %d / %d\n", errors_b, OH*OW*BR_B_OC);
+    printf("  Input corruption: %d / %d\n\n", corrupted, IH*IW*IC);
+}
+
 // ���═══���═════════════════════════════════��══════════════════════════════════
 // main
 // ══���══════════════��═══════════════════════════════════════════════════════
@@ -707,6 +834,7 @@ int main() {
     test4_chained();
     test5_conv1();
     test6_conv1_lin();
+    test7_branch_offsets();
 
     printf("==========================================\n");
     printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);

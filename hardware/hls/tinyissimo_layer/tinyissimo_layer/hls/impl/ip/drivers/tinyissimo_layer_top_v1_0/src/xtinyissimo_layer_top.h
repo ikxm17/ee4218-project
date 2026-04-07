@@ -129,6 +129,10 @@ void XTinyissimo_layer_top_Set_wt_base(XTinyissimo_layer_top *InstancePtr, u32 D
 u32 XTinyissimo_layer_top_Get_wt_base(XTinyissimo_layer_top *InstancePtr);
 void XTinyissimo_layer_top_Set_qp_base(XTinyissimo_layer_top *InstancePtr, u32 Data);
 u32 XTinyissimo_layer_top_Get_qp_base(XTinyissimo_layer_top *InstancePtr);
+void XTinyissimo_layer_top_Set_fmap_rd_offset(XTinyissimo_layer_top *InstancePtr, u32 Data);
+u32 XTinyissimo_layer_top_Get_fmap_rd_offset(XTinyissimo_layer_top *InstancePtr);
+void XTinyissimo_layer_top_Set_fmap_wr_offset(XTinyissimo_layer_top *InstancePtr, u32 Data);
+u32 XTinyissimo_layer_top_Get_fmap_wr_offset(XTinyissimo_layer_top *InstancePtr);
 
 void XTinyissimo_layer_top_InterruptGlobalEnable(XTinyissimo_layer_top *InstancePtr);
 void XTinyissimo_layer_top_InterruptGlobalDisable(XTinyissimo_layer_top *InstancePtr);

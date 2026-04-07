@@ -18,6 +18,8 @@ void tinyissimo_layer_top(
     ap_int<8> zp_out,
     int wt_base,
     int qp_base,
+    int fmap_rd_offset,
+    int fmap_wr_offset,
     const ap_uint<128> fmap_in  [FMAP_DEPTH],
     ap_uint<128>       fmap_out [FMAP_DEPTH],
     const ap_uint<128> wt_mem   [WT_DEPTH],
@@ -33,22 +35,24 @@ void tinyissimo_layer_top(
 #pragma HLS INTERFACE bram port=silu_mem
 
     // ── Scalar parameters via AXI-Lite ──────────────────────────────────
-#pragma HLS INTERFACE s_axilite port=in_h       bundle=control
-#pragma HLS INTERFACE s_axilite port=in_w       bundle=control
-#pragma HLS INTERFACE s_axilite port=in_c       bundle=control
-#pragma HLS INTERFACE s_axilite port=out_c      bundle=control
-#pragma HLS INTERFACE s_axilite port=kh         bundle=control
-#pragma HLS INTERFACE s_axilite port=kw         bundle=control
-#pragma HLS INTERFACE s_axilite port=pad_h      bundle=control
-#pragma HLS INTERFACE s_axilite port=pad_w      bundle=control
-#pragma HLS INTERFACE s_axilite port=use_maxpool bundle=control
-#pragma HLS INTERFACE s_axilite port=use_silu   bundle=control
-#pragma HLS INTERFACE s_axilite port=layer_idx  bundle=control
-#pragma HLS INTERFACE s_axilite port=zp_in      bundle=control
-#pragma HLS INTERFACE s_axilite port=zp_out     bundle=control
-#pragma HLS INTERFACE s_axilite port=wt_base    bundle=control
-#pragma HLS INTERFACE s_axilite port=qp_base    bundle=control
-#pragma HLS INTERFACE s_axilite port=return     bundle=control
+#pragma HLS INTERFACE s_axilite port=in_h           bundle=control
+#pragma HLS INTERFACE s_axilite port=in_w           bundle=control
+#pragma HLS INTERFACE s_axilite port=in_c           bundle=control
+#pragma HLS INTERFACE s_axilite port=out_c          bundle=control
+#pragma HLS INTERFACE s_axilite port=kh             bundle=control
+#pragma HLS INTERFACE s_axilite port=kw             bundle=control
+#pragma HLS INTERFACE s_axilite port=pad_h          bundle=control
+#pragma HLS INTERFACE s_axilite port=pad_w          bundle=control
+#pragma HLS INTERFACE s_axilite port=use_maxpool    bundle=control
+#pragma HLS INTERFACE s_axilite port=use_silu       bundle=control
+#pragma HLS INTERFACE s_axilite port=layer_idx      bundle=control
+#pragma HLS INTERFACE s_axilite port=zp_in          bundle=control
+#pragma HLS INTERFACE s_axilite port=zp_out         bundle=control
+#pragma HLS INTERFACE s_axilite port=wt_base        bundle=control
+#pragma HLS INTERFACE s_axilite port=qp_base        bundle=control
+#pragma HLS INTERFACE s_axilite port=fmap_rd_offset bundle=control
+#pragma HLS INTERFACE s_axilite port=fmap_wr_offset bundle=control
+#pragma HLS INTERFACE s_axilite port=return         bundle=control
 
     // ── Delegate to core compute function (inlined) ─────────────────────
     tinyissimo_layer(
@@ -56,6 +60,7 @@ void tinyissimo_layer_top(
         kh, kw, pad_h, pad_w,
         use_maxpool, use_silu, layer_idx,
         zp_in, zp_out, wt_base, qp_base,
+        fmap_rd_offset, fmap_wr_offset,
         fmap_in, fmap_out, wt_mem, qp_mem, silu_mem
     );
 }

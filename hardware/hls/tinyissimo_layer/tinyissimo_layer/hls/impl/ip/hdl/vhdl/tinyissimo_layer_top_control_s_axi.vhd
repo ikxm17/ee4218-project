@@ -50,6 +50,8 @@ port (
     zp_out                :out  STD_LOGIC_VECTOR(7 downto 0);
     wt_base               :out  STD_LOGIC_VECTOR(31 downto 0);
     qp_base               :out  STD_LOGIC_VECTOR(31 downto 0);
+    fmap_rd_offset        :out  STD_LOGIC_VECTOR(31 downto 0);
+    fmap_wr_offset        :out  STD_LOGIC_VECTOR(31 downto 0);
     ap_start              :out  STD_LOGIC;
     ap_done               :in   STD_LOGIC;
     ap_ready              :in   STD_LOGIC;
@@ -128,6 +130,12 @@ end entity tinyissimo_layer_top_control_s_axi;
 -- 0x80 : Data signal of qp_base
 --        bit 31~0 - qp_base[31:0] (Read/Write)
 -- 0x84 : reserved
+-- 0x88 : Data signal of fmap_rd_offset
+--        bit 31~0 - fmap_rd_offset[31:0] (Read/Write)
+-- 0x8c : reserved
+-- 0x90 : Data signal of fmap_wr_offset
+--        bit 31~0 - fmap_wr_offset[31:0] (Read/Write)
+-- 0x94 : reserved
 -- (SC = Self Clear, COR = Clear on Read, TOW = Toggle on Write, COH = Clear on Handshake)
 
 architecture behave of tinyissimo_layer_top_control_s_axi is
@@ -137,40 +145,44 @@ attribute DowngradeIPIdentifiedWarnings of behave : architecture is "yes";
     signal wstate  : states := wrreset;
     signal rstate  : states := rdreset;
     signal wnext, rnext: states;
-    constant ADDR_AP_CTRL            : INTEGER := 16#00#;
-    constant ADDR_GIE                : INTEGER := 16#04#;
-    constant ADDR_IER                : INTEGER := 16#08#;
-    constant ADDR_ISR                : INTEGER := 16#0c#;
-    constant ADDR_IN_H_DATA_0        : INTEGER := 16#10#;
-    constant ADDR_IN_H_CTRL          : INTEGER := 16#14#;
-    constant ADDR_IN_W_DATA_0        : INTEGER := 16#18#;
-    constant ADDR_IN_W_CTRL          : INTEGER := 16#1c#;
-    constant ADDR_IN_C_DATA_0        : INTEGER := 16#20#;
-    constant ADDR_IN_C_CTRL          : INTEGER := 16#24#;
-    constant ADDR_OUT_C_DATA_0       : INTEGER := 16#28#;
-    constant ADDR_OUT_C_CTRL         : INTEGER := 16#2c#;
-    constant ADDR_KH_DATA_0          : INTEGER := 16#30#;
-    constant ADDR_KH_CTRL            : INTEGER := 16#34#;
-    constant ADDR_KW_DATA_0          : INTEGER := 16#38#;
-    constant ADDR_KW_CTRL            : INTEGER := 16#3c#;
-    constant ADDR_PAD_H_DATA_0       : INTEGER := 16#40#;
-    constant ADDR_PAD_H_CTRL         : INTEGER := 16#44#;
-    constant ADDR_PAD_W_DATA_0       : INTEGER := 16#48#;
-    constant ADDR_PAD_W_CTRL         : INTEGER := 16#4c#;
-    constant ADDR_USE_MAXPOOL_DATA_0 : INTEGER := 16#50#;
-    constant ADDR_USE_MAXPOOL_CTRL   : INTEGER := 16#54#;
-    constant ADDR_USE_SILU_DATA_0    : INTEGER := 16#58#;
-    constant ADDR_USE_SILU_CTRL      : INTEGER := 16#5c#;
-    constant ADDR_LAYER_IDX_DATA_0   : INTEGER := 16#60#;
-    constant ADDR_LAYER_IDX_CTRL     : INTEGER := 16#64#;
-    constant ADDR_ZP_IN_DATA_0       : INTEGER := 16#68#;
-    constant ADDR_ZP_IN_CTRL         : INTEGER := 16#6c#;
-    constant ADDR_ZP_OUT_DATA_0      : INTEGER := 16#70#;
-    constant ADDR_ZP_OUT_CTRL        : INTEGER := 16#74#;
-    constant ADDR_WT_BASE_DATA_0     : INTEGER := 16#78#;
-    constant ADDR_WT_BASE_CTRL       : INTEGER := 16#7c#;
-    constant ADDR_QP_BASE_DATA_0     : INTEGER := 16#80#;
-    constant ADDR_QP_BASE_CTRL       : INTEGER := 16#84#;
+    constant ADDR_AP_CTRL               : INTEGER := 16#00#;
+    constant ADDR_GIE                   : INTEGER := 16#04#;
+    constant ADDR_IER                   : INTEGER := 16#08#;
+    constant ADDR_ISR                   : INTEGER := 16#0c#;
+    constant ADDR_IN_H_DATA_0           : INTEGER := 16#10#;
+    constant ADDR_IN_H_CTRL             : INTEGER := 16#14#;
+    constant ADDR_IN_W_DATA_0           : INTEGER := 16#18#;
+    constant ADDR_IN_W_CTRL             : INTEGER := 16#1c#;
+    constant ADDR_IN_C_DATA_0           : INTEGER := 16#20#;
+    constant ADDR_IN_C_CTRL             : INTEGER := 16#24#;
+    constant ADDR_OUT_C_DATA_0          : INTEGER := 16#28#;
+    constant ADDR_OUT_C_CTRL            : INTEGER := 16#2c#;
+    constant ADDR_KH_DATA_0             : INTEGER := 16#30#;
+    constant ADDR_KH_CTRL               : INTEGER := 16#34#;
+    constant ADDR_KW_DATA_0             : INTEGER := 16#38#;
+    constant ADDR_KW_CTRL               : INTEGER := 16#3c#;
+    constant ADDR_PAD_H_DATA_0          : INTEGER := 16#40#;
+    constant ADDR_PAD_H_CTRL            : INTEGER := 16#44#;
+    constant ADDR_PAD_W_DATA_0          : INTEGER := 16#48#;
+    constant ADDR_PAD_W_CTRL            : INTEGER := 16#4c#;
+    constant ADDR_USE_MAXPOOL_DATA_0    : INTEGER := 16#50#;
+    constant ADDR_USE_MAXPOOL_CTRL      : INTEGER := 16#54#;
+    constant ADDR_USE_SILU_DATA_0       : INTEGER := 16#58#;
+    constant ADDR_USE_SILU_CTRL         : INTEGER := 16#5c#;
+    constant ADDR_LAYER_IDX_DATA_0      : INTEGER := 16#60#;
+    constant ADDR_LAYER_IDX_CTRL        : INTEGER := 16#64#;
+    constant ADDR_ZP_IN_DATA_0          : INTEGER := 16#68#;
+    constant ADDR_ZP_IN_CTRL            : INTEGER := 16#6c#;
+    constant ADDR_ZP_OUT_DATA_0         : INTEGER := 16#70#;
+    constant ADDR_ZP_OUT_CTRL           : INTEGER := 16#74#;
+    constant ADDR_WT_BASE_DATA_0        : INTEGER := 16#78#;
+    constant ADDR_WT_BASE_CTRL          : INTEGER := 16#7c#;
+    constant ADDR_QP_BASE_DATA_0        : INTEGER := 16#80#;
+    constant ADDR_QP_BASE_CTRL          : INTEGER := 16#84#;
+    constant ADDR_FMAP_RD_OFFSET_DATA_0 : INTEGER := 16#88#;
+    constant ADDR_FMAP_RD_OFFSET_CTRL   : INTEGER := 16#8c#;
+    constant ADDR_FMAP_WR_OFFSET_DATA_0 : INTEGER := 16#90#;
+    constant ADDR_FMAP_WR_OFFSET_CTRL   : INTEGER := 16#94#;
     constant ADDR_BITS         : INTEGER := 8;
 
     signal AWREADY_t           : STD_LOGIC;
@@ -215,6 +227,8 @@ attribute DowngradeIPIdentifiedWarnings of behave : architecture is "yes";
     signal int_zp_out          : UNSIGNED(7 downto 0) := (others => '0');
     signal int_wt_base         : UNSIGNED(31 downto 0) := (others => '0');
     signal int_qp_base         : UNSIGNED(31 downto 0) := (others => '0');
+    signal int_fmap_rd_offset  : UNSIGNED(31 downto 0) := (others => '0');
+    signal int_fmap_wr_offset  : UNSIGNED(31 downto 0) := (others => '0');
 
 
 begin
@@ -374,6 +388,10 @@ begin
                         rdata_data <= RESIZE(int_wt_base(31 downto 0), 32);
                     when ADDR_QP_BASE_DATA_0 =>
                         rdata_data <= RESIZE(int_qp_base(31 downto 0), 32);
+                    when ADDR_FMAP_RD_OFFSET_DATA_0 =>
+                        rdata_data <= RESIZE(int_fmap_rd_offset(31 downto 0), 32);
+                    when ADDR_FMAP_WR_OFFSET_DATA_0 =>
+                        rdata_data <= RESIZE(int_fmap_wr_offset(31 downto 0), 32);
                     when others =>
                         NULL;
                     end case;
@@ -403,6 +421,8 @@ begin
     zp_out               <= STD_LOGIC_VECTOR(int_zp_out);
     wt_base              <= STD_LOGIC_VECTOR(int_wt_base);
     qp_base              <= STD_LOGIC_VECTOR(int_qp_base);
+    fmap_rd_offset       <= STD_LOGIC_VECTOR(int_fmap_rd_offset);
+    fmap_wr_offset       <= STD_LOGIC_VECTOR(int_fmap_wr_offset);
 
     process (ACLK)
     begin
@@ -764,6 +784,32 @@ begin
             elsif (ACLK_EN = '1') then
                 if (w_hs = '1' and waddr = ADDR_QP_BASE_DATA_0) then
                     int_qp_base(31 downto 0) <= (UNSIGNED(WDATA(31 downto 0)) and wmask(31 downto 0)) or ((not wmask(31 downto 0)) and int_qp_base(31 downto 0));
+                end if;
+            end if;
+        end if;
+    end process;
+
+    process (ACLK)
+    begin
+        if (ACLK'event and ACLK = '1') then
+            if (ARESET = '1') then
+                int_fmap_rd_offset(31 downto 0) <= (others => '0');
+            elsif (ACLK_EN = '1') then
+                if (w_hs = '1' and waddr = ADDR_FMAP_RD_OFFSET_DATA_0) then
+                    int_fmap_rd_offset(31 downto 0) <= (UNSIGNED(WDATA(31 downto 0)) and wmask(31 downto 0)) or ((not wmask(31 downto 0)) and int_fmap_rd_offset(31 downto 0));
+                end if;
+            end if;
+        end if;
+    end process;
+
+    process (ACLK)
+    begin
+        if (ACLK'event and ACLK = '1') then
+            if (ARESET = '1') then
+                int_fmap_wr_offset(31 downto 0) <= (others => '0');
+            elsif (ACLK_EN = '1') then
+                if (w_hs = '1' and waddr = ADDR_FMAP_WR_OFFSET_DATA_0) then
+                    int_fmap_wr_offset(31 downto 0) <= (UNSIGNED(WDATA(31 downto 0)) and wmask(31 downto 0)) or ((not wmask(31 downto 0)) and int_fmap_wr_offset(31 downto 0));
                 end if;
             end if;
         end if;

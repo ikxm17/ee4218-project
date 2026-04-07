@@ -1354,6 +1354,52 @@
             <spirit:testable spirit:testConstraint="unconstrained">false</spirit:testable>
           </spirit:field>
         </spirit:register>
+        <spirit:register>
+          <spirit:name>fmap_rd_offset</spirit:name>
+          <spirit:displayName>fmap_rd_offset</spirit:displayName>
+          <spirit:description>Data signal of fmap_rd_offset</spirit:description>
+          <spirit:addressOffset>136</spirit:addressOffset>
+          <spirit:size spirit:format="long">32</spirit:size>
+          <spirit:access>write-only</spirit:access>
+          <spirit:reset>
+            <spirit:value spirit:format="long">0</spirit:value>
+          </spirit:reset>
+          <spirit:field>
+            <spirit:name>fmap_rd_offset</spirit:name>
+            <spirit:description>Bit 31 to 0 of fmap_rd_offset</spirit:description>
+            <spirit:bitOffset>0</spirit:bitOffset>
+            <spirit:bitWidth spirit:format="long">32</spirit:bitWidth>
+            <spirit:access>write-only</spirit:access>
+            <spirit:writeValueConstraint>
+              <spirit:minimum>0</spirit:minimum>
+              <spirit:maximum>0</spirit:maximum>
+            </spirit:writeValueConstraint>
+            <spirit:testable spirit:testConstraint="unconstrained">false</spirit:testable>
+          </spirit:field>
+        </spirit:register>
+        <spirit:register>
+          <spirit:name>fmap_wr_offset</spirit:name>
+          <spirit:displayName>fmap_wr_offset</spirit:displayName>
+          <spirit:description>Data signal of fmap_wr_offset</spirit:description>
+          <spirit:addressOffset>144</spirit:addressOffset>
+          <spirit:size spirit:format="long">32</spirit:size>
+          <spirit:access>write-only</spirit:access>
+          <spirit:reset>
+            <spirit:value spirit:format="long">0</spirit:value>
+          </spirit:reset>
+          <spirit:field>
+            <spirit:name>fmap_wr_offset</spirit:name>
+            <spirit:description>Bit 31 to 0 of fmap_wr_offset</spirit:description>
+            <spirit:bitOffset>0</spirit:bitOffset>
+            <spirit:bitWidth spirit:format="long">32</spirit:bitWidth>
+            <spirit:access>write-only</spirit:access>
+            <spirit:writeValueConstraint>
+              <spirit:minimum>0</spirit:minimum>
+              <spirit:maximum>0</spirit:maximum>
+            </spirit:writeValueConstraint>
+            <spirit:testable spirit:testConstraint="unconstrained">false</spirit:testable>
+          </spirit:field>
+        </spirit:register>
       </spirit:addressBlock>
     </spirit:memoryMap>
   </spirit:memoryMaps>
@@ -1371,7 +1417,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>5dc2886d</spirit:value>
+            <spirit:value>f0a855f6</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1387,7 +1433,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>20feaede</spirit:value>
+            <spirit:value>ebf0cee1</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1403,7 +1449,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>0766e63e</spirit:value>
+            <spirit:value>734376ad</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1419,7 +1465,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>6c3d0df3</spirit:value>
+            <spirit:value>356740d6</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1433,7 +1479,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>586739e7</spirit:value>
+            <spirit:value>f7f234b2</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -2333,10 +2379,6 @@
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/tinyissimo_layer_top_ama_addmuladd_14s_14s_14s_14s_14_4_1.v</spirit:name>
-        <spirit:fileType>verilogSource</spirit:fileType>
-      </spirit:file>
-      <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_control_s_axi.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
@@ -2346,6 +2388,10 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_mac_muladd_8s_8s_16s_17_4_1.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/tinyissimo_layer_top_mac_muladd_14s_14s_14s_14_4_1.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
@@ -2421,11 +2467,6 @@
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/tinyissimo_layer_top_ama_addmuladd_14s_14s_14s_14s_14_4_1.v</spirit:name>
-        <spirit:fileType>verilogSource</spirit:fileType>
-        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
-      </spirit:file>
-      <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_control_s_axi.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
@@ -2437,6 +2478,11 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_mac_muladd_8s_8s_16s_17_4_1.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/tinyissimo_layer_top_mac_muladd_14s_14s_14s_14_4_1.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -2533,10 +2579,6 @@
         <spirit:fileType>vhdlSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/vhdl/tinyissimo_layer_top_ama_addmuladd_14s_14s_14s_14s_14_4_1.vhd</spirit:name>
-        <spirit:fileType>vhdlSource</spirit:fileType>
-      </spirit:file>
-      <spirit:file>
         <spirit:name>hdl/vhdl/tinyissimo_layer_top_control_s_axi.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
       </spirit:file>
@@ -2546,6 +2588,10 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/vhdl/tinyissimo_layer_top_mac_muladd_8s_8s_16s_17_4_1.vhd</spirit:name>
+        <spirit:fileType>vhdlSource</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/vhdl/tinyissimo_layer_top_mac_muladd_14s_14s_14s_14_4_1.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
@@ -2611,18 +2657,13 @@
       <spirit:file>
         <spirit:name>hdl/vhdl/tinyissimo_layer_top.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_88c6159d</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_3926b8e2</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
       <spirit:name>xilinx_vhdlbehavioralsimulation_view_fileset</spirit:name>
       <spirit:file>
         <spirit:name>hdl/vhdl/tinyissimo_layer_top_am_addmul_14s_14s_14s_14_4_1.vhd</spirit:name>
-        <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
-      </spirit:file>
-      <spirit:file>
-        <spirit:name>hdl/vhdl/tinyissimo_layer_top_ama_addmuladd_14s_14s_14s_14s_14_4_1.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -2638,6 +2679,11 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/vhdl/tinyissimo_layer_top_mac_muladd_8s_8s_16s_17_4_1.vhd</spirit:name>
+        <spirit:fileType>vhdlSource</spirit:fileType>
+        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/vhdl/tinyissimo_layer_top_mac_muladd_14s_14s_14s_14_4_1.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -2817,11 +2863,11 @@
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>latency</spirit:name>
-      <spirit:value spirit:id="PARAM_VALUE.latency" spirit:order="4">36</spirit:value>
+      <spirit:value spirit:id="PARAM_VALUE.latency" spirit:order="4">37</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>II</spirit:name>
-      <spirit:value spirit:id="PARAM_VALUE.II" spirit:order="5">37 ~ 92304742</spirit:value>
+      <spirit:value spirit:id="PARAM_VALUE.II" spirit:order="5">38 ~ 92304758</spirit:value>
     </spirit:parameter>
   </spirit:parameters>
   <spirit:vendorExtensions>
@@ -2834,8 +2880,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>Tinyissimo_layer_top</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114554034</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-06T10:14:25Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114555236</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-07T06:16:10Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -2844,11 +2890,11 @@
     <xilinx:packagingInfo>
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
       <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="b7ca137d"/>
-      <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="daf2e83c"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="fd26842d"/>
+      <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="ecb2d67b"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="f934f96b"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="ca8cde95"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="78d1c0d1"/>
-      <xilinx:checksum xilinx:scope="parameters" xilinx:value="42b1e8a6"/>
+      <xilinx:checksum xilinx:scope="parameters" xilinx:value="e49b692c"/>
     </xilinx:packagingInfo>
   </spirit:vendorExtensions>
 </spirit:component>
