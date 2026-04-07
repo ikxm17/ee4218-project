@@ -111,6 +111,27 @@ def test_inference_on_test_image_completes(tinyissimoyolo_accel_ip):
 # Bit-exact comparison vs simulation golden
 # ---------------------------------------------------------------------------
 
+def test_run_is_deterministic_across_back_to_back_calls(tinyissimoyolo_accel_ip):
+    """Two consecutive `drv.run()` calls on the same input must produce
+    bit-identical results.
+
+    Regression test for the bug where `run()` skipped the soft reset
+    between calls, letting stale URAM contents from a prior inference
+    leak into the next one. The fix is `run()` calling `configure()`
+    (soft_reset + set_mode) before `start()`. Without it, A1 ≠ A2 with
+    ~50% of the result bytes differing.
+    """
+    drv = TinyissimoYoloAcceleratorDriver(tinyissimoyolo_accel_ip)
+    image = np.zeros((256, 256, 3), dtype=np.uint8)
+    r1 = drv.run(image)["raw_table"].copy()
+    r2 = drv.run(image)["raw_table"].copy()
+    assert np.array_equal(r1, r2), (
+        f"run() is non-deterministic across back-to-back calls: "
+        f"{(r1 != r2).sum()}/{r1.size} bytes differ. "
+        f"Did run() skip the soft reset?"
+    )
+
+
 def test_cv3_output_bit_exact_vs_golden(tinyissimoyolo_accel_ip):
     """The strictest oracle: after running on the canonical test image,
     the cv3 region of the AXI-Lite RESULT readback must byte-for-byte
