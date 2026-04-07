@@ -49,9 +49,6 @@ module tinyissimoyolo_accelerator #(
         .pixel_bram_addr     (),
         .pixel_bram_en       (),
         .pixel_bram_data     ('0),
-        .res_write_en        (),
-        .res_write_addr      (),
-        .res_write_data      (),
 
         /* AXI-Lite */
         .s_axi_lite_awaddr   (s_axi_lite_awaddr),

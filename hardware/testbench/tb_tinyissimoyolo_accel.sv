@@ -78,9 +78,6 @@ module tb_tinyissimoyolo_accel;
     logic [DEPTH_BITS-1:0]            tb_pixel_bram_addr;
     logic                             tb_pixel_bram_en;
     logic [MAX_PARALLEL*N_BITS-1:0]   tb_pixel_bram_data;
-    logic                             tb_res_write_en;
-    logic [DEPTH_BITS-1:0]            tb_res_write_addr;
-    logic signed [N_BITS-1:0]         tb_res_write_data;
     logic                             irq_done;
 
     assign tb_pixel_bram_data = '0;
@@ -102,9 +99,6 @@ module tb_tinyissimoyolo_accel;
         .pixel_bram_addr     (tb_pixel_bram_addr),
         .pixel_bram_en       (tb_pixel_bram_en),
         .pixel_bram_data     (tb_pixel_bram_data),
-        .res_write_en        (tb_res_write_en),
-        .res_write_addr      (tb_res_write_addr),
-        .res_write_data      (tb_res_write_data),
         .s_axi_lite_awaddr   (s_axi_lite_awaddr),
         .s_axi_lite_awvalid  (s_axi_lite_awvalid),
         .s_axi_lite_awready  (s_axi_lite_awready),

@@ -28,11 +28,6 @@ module tb_inference_hdl;
     logic                               pixel_bram_en;
     logic [MAX_PARALLEL*N_BITS-1:0]     pixel_bram_data;
 
-    // RES output interface
-    logic                               res_write_en;
-    logic [DEPTH_BITS-1:0]              res_write_addr;
-    logic signed [N_BITS-1:0]           res_write_data;
-
     // AXI stubs (TB_MODE=1, all tied off internally by inference_top.sv)
     logic [12:0] s_axi_lite_awaddr;
     logic        s_axi_lite_awvalid;
@@ -105,9 +100,6 @@ module tb_inference_hdl;
         .pixel_bram_addr     (pixel_bram_addr),
         .pixel_bram_en       (pixel_bram_en),
         .pixel_bram_data     (pixel_bram_data),
-        .res_write_en        (res_write_en),
-        .res_write_addr      (res_write_addr),
-        .res_write_data      (res_write_data),
         .s_axi_lite_awaddr   (s_axi_lite_awaddr),
         .s_axi_lite_awvalid  (s_axi_lite_awvalid),
         .s_axi_lite_awready  (s_axi_lite_awready),

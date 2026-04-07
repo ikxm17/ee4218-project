@@ -10,43 +10,52 @@ module inference_hdl #(
     parameter KSQ          = K * K,
     parameter WT_DATA_W    = MAX_PARALLEL * N_BITS,
     parameter WT_ADDR_W    = $clog2(32768),
-    parameter QP_ADDR_W    = $clog2(1024)
+    parameter QP_ADDR_W    = $clog2(1024),
+    parameter LUT_ADDR_W   = $clog2(ACT_LUT_DEPTH),
+    parameter FMAP_DATA_W  = MAX_PARALLEL * N_BITS,
+    parameter FMAP_ADDR_W  = $clog2(16384)
 )(
     input  logic                             aclk,
     input  logic                             aresetn,
     input  logic                             start,
     output logic                             done,
 
-    /* Weight ROM read port (top.sv u_wt_mem port B) */
+    /* Weight ROM read port (inference_top u_wt_mem port B) */
     output logic                             wt_mem_en_b,
     output logic [WT_ADDR_W-1:0]             wt_mem_addr_b,
     input  logic [WT_DATA_W-1:0]             wt_mem_dout_b,
 
-    /* QP ROM read port (top.sv u_qp_mem port B) */
+    /* QP ROM read port (inference_top u_qp_mem port B) */
     output logic                             qp_mem_en_b,
     output logic [QP_ADDR_W-1:0]             qp_mem_addr_b,
     input  logic [71:0]                      qp_mem_dout_b,
 
-    /* Pixel BRAM interface (testbench drives) */
+    /* SiLU LUT ROM read port (inference_top u_silu_mem port B) */
+    output logic                             silu_mem_en_b,
+    output logic [LUT_ADDR_W-1:0]            silu_mem_addr_b,
+    input  logic [N_BITS-1:0]                silu_mem_dout_b,
+
+    /* Input feature-map read port (inference_top routes to fmap_a/b) */
     output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
     output logic                             pixel_bram_en,
     input  logic [MAX_PARALLEL*N_BITS-1:0]   pixel_bram_data,
 
-    /* RES output interface (testbench captures) */
-    output logic                             res_write_en,
-    output logic [DEPTH_BITS-1:0]            res_write_addr,
-    output logic signed [N_BITS-1:0]         res_write_data,
+    /* Output feature-map RMW read-back port (inference_top routes to fmap_a/b) */
+    output logic                             out_buf_rd_en,
+    output logic [FMAP_ADDR_W-1:0]           out_buf_rd_addr,
+    input  logic [FMAP_DATA_W-1:0]           out_buf_rd_data,
 
-    /* Current layer info (for activation + pool stages) */
-    output logic [1:0]                       curr_layer_type,
+    /* Output feature-map RMW write port (inference_top routes to fmap_a/b) */
+    output logic                             out_buf_wr_en,
+    output logic [FMAP_ADDR_W-1:0]           out_buf_wr_addr,
+    output logic [FMAP_DATA_W-1:0]           out_buf_wr_data,
+
+    /* Status (for AXI register file) */
     output logic [4:0]                       curr_layer_idx,
-    output logic [8:0]                       curr_act_size,
-    output logic [7:0]                       curr_ch_out,
 
-    /* Sub-pingpong config (for top.sv URAM routing) */
+    /* Sub-pingpong config (for inference_top URAM routing) */
     output logic                             curr_pp_buf_sel,
-    output logic [13:0]                      curr_pp_rd_offset,
-    output logic [13:0]                      curr_pp_wr_offset
+    output logic [13:0]                      curr_pp_rd_offset
 );
 
     /* ================================================================
@@ -163,6 +172,11 @@ module inference_hdl #(
     logic [DEPTH_BITS-1:0]     conv3d_res_addr, conv1_res_addr;
     logic signed [N_BITS-1:0]  conv3d_res_data, conv1_res_data;
 
+    /* Muxed conv RES output (now internal — feeds activation stage) */
+    logic                      conv_res_en;
+    logic [DEPTH_BITS-1:0]     conv_res_addr;
+    logic signed [N_BITS-1:0]  conv_res_data;
+
     /* Muxed ACC BRAM signals */
     logic                      acc_wr_en;
     logic [DEPTH_BITS-1:0]     acc_wr_addr;
@@ -180,9 +194,9 @@ module inference_hdl #(
     assign acc_rd_en   = is_conv1 ? conv1_acc_rd_en    : conv3d_acc_rd_en;
     assign acc_rd_addr = is_conv1 ? conv1_acc_rd_addr  : conv3d_acc_rd_addr;
 
-    assign res_write_en   = is_conv1 ? conv1_res_en   : conv3d_res_en;
-    assign res_write_addr = is_conv1 ? conv1_res_addr  : conv3d_res_addr;
-    assign res_write_data = is_conv1 ? conv1_res_data  : conv3d_res_data;
+    assign conv_res_en   = is_conv1 ? conv1_res_en   : conv3d_res_en;
+    assign conv_res_addr = is_conv1 ? conv1_res_addr  : conv3d_res_addr;
+    assign conv_res_data = is_conv1 ? conv1_res_data  : conv3d_res_data;
 
     /* ================================================================
      *  Next State Logic
@@ -507,8 +521,18 @@ module inference_hdl #(
     end
 
     /* ================================================================
-     *  Current Layer Info (for activation stage)
+     *  Current Layer Info
+     *
+     *  curr_layer_idx, curr_pp_buf_sel, curr_pp_rd_offset are exposed
+     *  to inference_top (status + URAM routing).
+     *  The remainder are internal — consumed by the activation, max_pool,
+     *  and RMW writer stages instantiated below.
      * ================================================================ */
+    logic [1:0]  curr_layer_type;
+    logic [8:0]  curr_act_size;
+    logic [7:0]  curr_ch_out;
+    logic [13:0] curr_pp_wr_offset;
+
     assign curr_layer_type   = r_cfg.layer_type;
     assign curr_layer_idx    = r_layer_idx;
     assign curr_act_size     = r_cfg.h_in;
@@ -622,5 +646,102 @@ module inference_hdl #(
         .addr_b (acc_rd_addr[ACC_ADDR_W-1:0]),
         .dout_b (acc_rd_data)
     );
+
+    /* ================================================================
+     *  Activation Stage (SiLU LUT with CONV1_LIN bypass)
+     * ================================================================ */
+    logic                        act_out_valid;
+    logic [DEPTH_BITS-1:0]       act_out_addr;
+    logic signed [N_BITS-1:0]    act_out_data;
+
+    activation #(
+        .N_BITS     (N_BITS),
+        .DEPTH_BITS (DEPTH_BITS),
+        .LUT_ADDR_W (LUT_ADDR_W)
+    ) u_activation (
+        .clk        (aclk),
+        .rst_n      (aresetn),
+        .layer_type (curr_layer_type),
+        .layer_idx  (curr_layer_idx),
+        .in_valid   (conv_res_en),
+        .in_addr    (conv_res_addr),
+        .in_data    (conv_res_data),
+        .lut_en     (silu_mem_en_b),
+        .lut_addr   (silu_mem_addr_b),
+        .lut_rdata  (silu_mem_dout_b),
+        .out_valid  (act_out_valid),
+        .out_addr   (act_out_addr),
+        .out_data   (act_out_data)
+    );
+
+    /* ================================================================
+     *  Max Pooling Stage (2x2 stride-2, CONV3_POOL layers only)
+     * ================================================================ */
+    logic                        pool_out_valid;
+    logic [DEPTH_BITS-1:0]       pool_out_addr;
+    logic signed [N_BITS-1:0]    pool_out_data;
+
+    max_pool #(
+        .N_BITS     (N_BITS),
+        .DEPTH_BITS (DEPTH_BITS)
+    ) u_max_pool (
+        .clk        (aclk),
+        .rst_n      (aresetn),
+        .layer_type (curr_layer_type),
+        .act_size   (curr_act_size),
+        .in_valid   (act_out_valid),
+        .in_addr    (act_out_addr),
+        .in_data    (act_out_data),
+        .out_valid  (pool_out_valid),
+        .out_addr   (pool_out_addr),
+        .out_data   (pool_out_data)
+    );
+
+    /* ================================================================
+     *  RMW Output Writer
+     *
+     *  Splices the per-pixel pool output (8-bit) into the appropriate
+     *  byte lane of a 128-bit URAM word, writing back via the
+     *  out_buf_wr_* port.  Read-back of the existing word comes from
+     *  out_buf_rd_data.  inference_top routes both ports to whichever
+     *  fmap_a/b URAM is the current output buffer.
+     * ================================================================ */
+    logic                     rmw_s0_valid;
+    logic [FMAP_ADDR_W-1:0]   rmw_s0_addr;
+    logic signed [N_BITS-1:0] rmw_s0_data;
+    logic [3:0]               rmw_s0_byte_pos;
+
+    wire [8:0] h_out = (curr_layer_type == CONV3_POOL) ? (curr_act_size >> 1) : curr_act_size;
+    wire [FMAP_ADDR_W-1:0] rmw_base_addr = curr_pp_wr_offset + (curr_ch_out >> 4) * h_out * h_out;
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            rmw_s0_valid <= 1'b0;
+        end else begin
+            rmw_s0_valid    <= pool_out_valid;
+            rmw_s0_addr     <= rmw_base_addr + pool_out_addr[FMAP_ADDR_W-1:0];
+            rmw_s0_data     <= pool_out_data;
+            rmw_s0_byte_pos <= curr_ch_out[3:0];
+        end
+    end
+
+    assign out_buf_rd_en   = pool_out_valid;
+    assign out_buf_rd_addr = rmw_base_addr + pool_out_addr[FMAP_ADDR_W-1:0];
+
+    logic [FMAP_DATA_W-1:0] spliced_word;
+    always_comb begin
+        spliced_word = (rmw_s0_byte_pos == 4'd0) ? {FMAP_DATA_W{1'b0}} : out_buf_rd_data;
+        spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
+    end
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            out_buf_wr_en <= 1'b0;
+        end else begin
+            out_buf_wr_en   <= rmw_s0_valid;
+            out_buf_wr_addr <= rmw_s0_addr;
+            out_buf_wr_data <= spliced_word;
+        end
+    end
 
 endmodule
