@@ -216,8 +216,17 @@ module inference_top #(
     logic inference_start;
     logic inference_done;
 
+    /* Engine select: 0 = HDL inference engine, 1 = HLS inference engine.
+       Latched at the PH_IDLE -> PH_PRELOAD transition so that mid-run
+       changes to the AXI-Lite MODE register cannot glitch the FSM. */
+    logic engine_sel;
+    logic engine_sel_latched;
+
     /* Inference controller outputs — declared here so generate blocks can read them */
     logic [4:0]                  curr_layer_idx;
+    logic [4:0]                  hdl_curr_layer_idx;
+    logic [4:0]                  hls_curr_layer_idx;
+    assign curr_layer_idx = engine_sel_latched ? hls_curr_layer_idx : hdl_curr_layer_idx;
 
     generate if (!TB_MODE) begin : gen_axi_integration
         /* ---- Phase FSM ---- */
@@ -291,6 +300,15 @@ module inference_top #(
             else          was_preload <= (phase == PH_PRELOAD);
         end
         assign inference_start = (phase == PH_RUN) && was_preload;
+
+        // Latch engine_sel at the IDLE -> PRELOAD edge so the choice
+        // stays stable for the entire run.
+        always_ff @(posedge aclk or negedge aresetn) begin
+            if (!aresetn)
+                engine_sel_latched <= 1'b0;
+            else if (phase == PH_IDLE && phase_next == PH_PRELOAD)
+                engine_sel_latched <= engine_sel;
+        end
 
         /* Preload write mux: FIFO (mode 0) vs S_AXIS (mode 1) */
         assign preload_wr_en   = axil_mode[0] ? axis_wr_en   : fifo_wr_en;
@@ -373,6 +391,7 @@ module inference_top #(
             .s_axi_rready      (s_axi_lite_rready),
             .o_start           (axil_start),
             .o_mode            (axil_mode),
+            .o_engine_sel      (engine_sel),
             .i_busy            (phase == PH_RUN),
             .i_done            (phase == PH_DONE),
             .i_cycle_count     (cycle_count),
@@ -388,7 +407,9 @@ module inference_top #(
 
     end else begin : gen_tb_mode
         /* Testbench mode: no AXI, direct start/done */
-        assign inference_start = start;
+        assign inference_start    = start;
+        assign engine_sel         = 1'b0;  // TB always runs HDL engine
+        assign engine_sel_latched = 1'b0;
         assign preload_wr_en   = 1'b0;
         assign preload_wr_addr = '0;
         assign preload_wr_data = '0;
@@ -410,7 +431,7 @@ module inference_top #(
     end endgenerate
 
     /* ================================================================
-     *  Inference Engine Wires (abstract child interface)
+     *  Inference Engine Wires (abstract child interface — HDL engine)
      * ================================================================ */
     logic                             curr_pp_buf_sel;
     logic [13:0]                      curr_pp_rd_offset;
@@ -426,6 +447,55 @@ module inference_top #(
     logic                             out_buf_wr_en_int;
     logic [FMAP_ADDR_W-1:0]           out_buf_wr_addr_int;
     logic [FMAP_DATA_W-1:0]           out_buf_wr_data_int;
+
+    /* ================================================================
+     *  Per-engine private memory port wires
+     *
+     *  Each engine drives its own private copies of the shared ROM
+     *  read ports and the URAM RW ports.  An engine_sel_latched mux
+     *  routes ONE engine's signals onto the actual sdp_ram instances
+     *  below.
+     * ================================================================ */
+    logic                       hdl_done;
+    logic                       hls_done;
+
+    logic                       hdl_wt_en_b;
+    logic [WT_MEM_ADDR_W-1:0]   hdl_wt_addr_b;
+    logic                       hdl_qp_en_b;
+    logic [QP_MEM_ADDR_W-1:0]   hdl_qp_addr_b;
+    logic                       hdl_act_en_b;
+    logic [ACT_MEM_ADDR_W-1:0]  hdl_act_addr_b;
+
+    logic                       hls_wt_en_b;
+    logic [WT_MEM_ADDR_W-1:0]   hls_wt_addr_b;
+    logic                       hls_qp_en_b;
+    logic [QP_MEM_ADDR_W-1:0]   hls_qp_addr_b;
+    logic                       hls_act_en_b;
+    logic [ACT_MEM_ADDR_W-1:0]  hls_act_addr_b;
+
+    /* HLS engine private fmap port wires (drives both URAM port pairs) */
+    logic                       hls_fmap_a_en_a, hls_fmap_a_we_a;
+    logic [FMAP_ADDR_W-1:0]     hls_fmap_a_addr_a;
+    logic [FMAP_DATA_W-1:0]     hls_fmap_a_din_a;
+    logic                       hls_fmap_a_en_b;
+    logic [FMAP_ADDR_W-1:0]     hls_fmap_a_addr_b;
+
+    logic                       hls_fmap_b_en_a, hls_fmap_b_we_a;
+    logic [FMAP_ADDR_W-1:0]     hls_fmap_b_addr_a;
+    logic [FMAP_DATA_W-1:0]     hls_fmap_b_din_a;
+    logic                       hls_fmap_b_en_b;
+    logic [FMAP_ADDR_W-1:0]     hls_fmap_b_addr_b;
+
+    /* ROM read-port mux: HLS engine when engine_sel_latched, else HDL */
+    assign wt_mem_en_b    = engine_sel_latched ? hls_wt_en_b   : hdl_wt_en_b;
+    assign wt_mem_addr_b  = engine_sel_latched ? hls_wt_addr_b : hdl_wt_addr_b;
+    assign qp_mem_en_b    = engine_sel_latched ? hls_qp_en_b   : hdl_qp_en_b;
+    assign qp_mem_addr_b  = engine_sel_latched ? hls_qp_addr_b : hdl_qp_addr_b;
+    assign act_mem_en_b   = engine_sel_latched ? hls_act_en_b  : hdl_act_en_b;
+    assign act_mem_addr_b = engine_sel_latched ? hls_act_addr_b: hdl_act_addr_b;
+
+    /* Done mux: only the active engine's done feeds the FSM */
+    assign inference_done = engine_sel_latched ? hls_done : hdl_done;
 
     /* ================================================================
      *  URAM Port Routing
@@ -461,60 +531,71 @@ module inference_top #(
     assign out_buf_rd_data_int = buf_sel ? fmap_b_dout_b : fmap_a_dout_b;
 
     // --- fmap_a port allocation ---
-    assign fmap_a_en_a   = !buf_sel ? out_buf_wr_en_int   : 1'b0;
-    assign fmap_a_we_a   = !buf_sel ? out_buf_wr_en_int   : 1'b0;
-    assign fmap_a_addr_a = !buf_sel ? out_buf_wr_addr_int : '0;
-    assign fmap_a_din_a  = !buf_sel ? out_buf_wr_data_int : '0;
-    assign fmap_a_en_b   = !buf_sel ? out_buf_rd_en_int   : input_rd_en;
-    assign fmap_a_addr_b = !buf_sel ? out_buf_rd_addr_int : input_rd_addr;
+    //
+    // engine_sel_latched == 1 (HLS): the HLS wrapper drives both ports
+    //   directly.  fmap_a is never used by the AXI preload, so the HLS
+    //   engine has full control of both ports.
+    // engine_sel_latched == 0 (HDL): the existing buf_sel routing applies.
+    assign fmap_a_en_a   = engine_sel_latched ? hls_fmap_a_en_a
+                         : (!buf_sel ? out_buf_wr_en_int   : 1'b0);
+    assign fmap_a_we_a   = engine_sel_latched ? hls_fmap_a_we_a
+                         : (!buf_sel ? out_buf_wr_en_int   : 1'b0);
+    assign fmap_a_addr_a = engine_sel_latched ? hls_fmap_a_addr_a
+                         : (!buf_sel ? out_buf_wr_addr_int : '0);
+    assign fmap_a_din_a  = engine_sel_latched ? hls_fmap_a_din_a
+                         : (!buf_sel ? out_buf_wr_data_int : '0);
+    assign fmap_a_en_b   = engine_sel_latched ? hls_fmap_a_en_b
+                         : (!buf_sel ? out_buf_rd_en_int   : input_rd_en);
+    assign fmap_a_addr_b = engine_sel_latched ? hls_fmap_a_addr_b
+                         : (!buf_sel ? out_buf_rd_addr_int : input_rd_addr);
 
     // --- fmap_b port allocation (preload + result muxes) ---
-    assign fmap_b_en_a   = preload_active ? preload_wr_en   : (buf_sel ? out_buf_wr_en_int   : 1'b0);
-    assign fmap_b_we_a   = preload_active ? preload_wr_en   : (buf_sel ? out_buf_wr_en_int   : 1'b0);
-    assign fmap_b_addr_a = preload_active ? preload_wr_addr : (buf_sel ? out_buf_wr_addr_int : '0);
-    assign fmap_b_din_a  = preload_active ? preload_wr_data : (buf_sel ? out_buf_wr_data_int : '0);
+    //
+    // The AXI preload (PH_PRELOAD) and the result readout (post-PH_RUN)
+    // always win over either engine, regardless of engine_sel_latched.
+    // Outside of those windows, the active engine drives the ports.
+    assign fmap_b_en_a   = preload_active ? preload_wr_en
+                         : (engine_sel_latched ? hls_fmap_b_en_a
+                                               : (buf_sel ? out_buf_wr_en_int   : 1'b0));
+    assign fmap_b_we_a   = preload_active ? preload_wr_en
+                         : (engine_sel_latched ? hls_fmap_b_we_a
+                                               : (buf_sel ? out_buf_wr_en_int   : 1'b0));
+    assign fmap_b_addr_a = preload_active ? preload_wr_addr
+                         : (engine_sel_latched ? hls_fmap_b_addr_a
+                                               : (buf_sel ? out_buf_wr_addr_int : '0));
+    assign fmap_b_din_a  = preload_active ? preload_wr_data
+                         : (engine_sel_latched ? hls_fmap_b_din_a
+                                               : (buf_sel ? out_buf_wr_data_int : '0));
 
-    assign fmap_b_en_b   = result_rd_en ? 1'b1                                : (buf_sel ? out_buf_rd_en_int   : input_rd_en);
-    assign fmap_b_addr_b = result_rd_en ? (FMAP_ADDR_W'(256) + result_rd_addr) : (buf_sel ? out_buf_rd_addr_int : input_rd_addr);
+    assign fmap_b_en_b   = result_rd_en ? 1'b1
+                         : (engine_sel_latched ? hls_fmap_b_en_b
+                                               : (buf_sel ? out_buf_rd_en_int   : input_rd_en));
+    assign fmap_b_addr_b = result_rd_en ? (FMAP_ADDR_W'(256) + result_rd_addr)
+                         : (engine_sel_latched ? hls_fmap_b_addr_b
+                                               : (buf_sel ? out_buf_rd_addr_int : input_rd_addr));
     assign result_rd_data = fmap_b_dout_b;
 
     /* ================================================================
-     *  Inference Controller
+     *  Inference Controller — HDL / HLS dual engines
      *
-     *  Today: only inference_hdl is instantiated. The hierarchy is
-     *  flat — `inference_top.u_inference_hdl.*` is the access path.
+     *  Both engines are instantiated as siblings of u_inference_hdl /
+     *  u_inference_hls.  Each has its own private start, done, and
+     *  memory-port wires.  A runtime select bit (engine_sel) — written
+     *  via AXI-Lite MODE register bit 4 — drives a top-level mux that
+     *  routes ONE engine's signals onto the shared sdp_ram ports.
      *
-     *  Future (runtime A/B testing of HDL vs HLS):
-     *  ----------------------------------------------------------------
-     *  When the Vitis HLS source for inference_hls.sv is ready, add
-     *  a SECOND sibling instance:
-     *
-     *      inference_hls #(...) u_inference_hls (
-     *          .aclk    (aclk),
-     *          .aresetn (aresetn),
-     *          .start   (inference_start),
-     *          ...same port map as u_inference_hdl below...
-     *      );
-     *
-     *  Both engines stay clocked, both produce their own done /
-     *  wt_mem_* / qp_mem_* / silu_mem_* / in_buf_rd_* / out_buf_*
-     *  signals.  A 1-bit AXI-Lite control register (proposed name:
-     *  CTRL.engine_sel — bit 2 of the existing CTRL reg @0x000)
-     *  drives a comb mux that routes ONE engine's signals onto the
-     *  shared ROM/URAM ports:
-     *
-     *      assign wt_mem_addr_b   = engine_sel ? hls_wt_addr   : hdl_wt_addr;
-     *      assign in_buf_rd_addr  = engine_sel ? hls_in_addr   : hdl_in_addr;
-     *      assign out_buf_wr_data = engine_sel ? hls_wr_data   : hdl_wr_data;
-     *      ... etc for every engine output ...
-     *
-     *  And the inactive engine's `start` is gated to 0 so it idles.
-     *  curr_layer_idx is also muxed for AXI status readback.
+     *  engine_sel is sampled and latched at the PH_IDLE -> PH_PRELOAD
+     *  transition (engine_sel_latched), so it stays stable for the
+     *  entire run and cannot glitch the FSM.  The inactive engine's
+     *  start input is gated to 0 so it idles for the duration.
      *
      *  Cost: ~2x area on the inference core (both engines on silicon).
      *  Benefit: A/B benchmark on the same bitstream — flip the AXI
      *  bit and re-run inference, no rebuild.
      * ================================================================ */
+    /* HDL engine — gated by ~engine_sel_latched.  When the HLS engine
+       is selected, the HDL engine never sees a start pulse and stays
+       idle for the duration of the run. */
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .K            (3),
@@ -527,16 +608,16 @@ module inference_top #(
     ) u_inference_hdl (
         .aclk              (aclk),
         .aresetn           (aresetn),
-        .start             (inference_start),
-        .done              (inference_done),
-        .wt_mem_en_b       (wt_mem_en_b),
-        .wt_mem_addr_b     (wt_mem_addr_b),
+        .start             (inference_start & ~engine_sel_latched),
+        .done              (hdl_done),
+        .wt_mem_en_b       (hdl_wt_en_b),
+        .wt_mem_addr_b     (hdl_wt_addr_b),
         .wt_mem_dout_b     (wt_mem_dout_b),
-        .qp_mem_en_b       (qp_mem_en_b),
-        .qp_mem_addr_b     (qp_mem_addr_b),
+        .qp_mem_en_b       (hdl_qp_en_b),
+        .qp_mem_addr_b     (hdl_qp_addr_b),
         .qp_mem_dout_b     (qp_mem_dout_b),
-        .silu_mem_en_b     (act_mem_en_b),
-        .silu_mem_addr_b   (act_mem_addr_b),
+        .silu_mem_en_b     (hdl_act_en_b),
+        .silu_mem_addr_b   (hdl_act_addr_b),
         .silu_mem_dout_b   (act_mem_dout_b),
         .in_buf_rd_addr    (pixel_addr_int),
         .in_buf_rd_en      (pixel_en_int),
@@ -547,9 +628,51 @@ module inference_top #(
         .out_buf_wr_en     (out_buf_wr_en_int),
         .out_buf_wr_addr   (out_buf_wr_addr_int),
         .out_buf_wr_data   (out_buf_wr_data_int),
-        .curr_layer_idx    (curr_layer_idx),
+        .curr_layer_idx    (hdl_curr_layer_idx),
         .curr_pp_buf_sel   (curr_pp_buf_sel),
         .curr_pp_rd_offset (curr_pp_rd_offset)
+    );
+
+    /* HLS engine — black-box wrapper around the Vitis-HLS-generated
+       tinyissimo_layer_top.  Walks all 17 layers internally, exposes
+       both fmap_a and fmap_b URAMs as separate BRAM-style ports.
+       Gated by engine_sel_latched: when the HDL engine is selected,
+       the HLS engine never sees a start pulse and stays idle. */
+    inference_hls u_inference_hls (
+        .aclk            (aclk),
+        .aresetn         (aresetn),
+        .start           (inference_start &  engine_sel_latched),
+        .done            (hls_done),
+
+        .fmap_a_en_a     (hls_fmap_a_en_a),
+        .fmap_a_we_a     (hls_fmap_a_we_a),
+        .fmap_a_addr_a   (hls_fmap_a_addr_a),
+        .fmap_a_din_a    (hls_fmap_a_din_a),
+        .fmap_a_en_b     (hls_fmap_a_en_b),
+        .fmap_a_addr_b   (hls_fmap_a_addr_b),
+        .fmap_a_dout_b   (fmap_a_dout_b),
+
+        .fmap_b_en_a     (hls_fmap_b_en_a),
+        .fmap_b_we_a     (hls_fmap_b_we_a),
+        .fmap_b_addr_a   (hls_fmap_b_addr_a),
+        .fmap_b_din_a    (hls_fmap_b_din_a),
+        .fmap_b_en_b     (hls_fmap_b_en_b),
+        .fmap_b_addr_b   (hls_fmap_b_addr_b),
+        .fmap_b_dout_b   (fmap_b_dout_b),
+
+        .wt_mem_en_b     (hls_wt_en_b),
+        .wt_mem_addr_b   (hls_wt_addr_b),
+        .wt_mem_dout_b   (wt_mem_dout_b),
+
+        .qp_mem_en_b     (hls_qp_en_b),
+        .qp_mem_addr_b   (hls_qp_addr_b),
+        .qp_mem_dout_b   (qp_mem_dout_b),
+
+        .silu_mem_en_b   (hls_act_en_b),
+        .silu_mem_addr_b (hls_act_addr_b),
+        .silu_mem_dout_b (act_mem_dout_b),
+
+        .curr_layer_idx  (hls_curr_layer_idx)
     );
 
     /* Forward done to output port (testbench mode) */

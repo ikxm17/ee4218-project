@@ -5,7 +5,8 @@
  * Register map:
  *   0x000  CTRL       R/W  [0]=start, [1]=pixel_fifo_rst, [7]=soft_reset
  *   0x004  STATUS     R    [0]=busy, [1]=done, [2]=idle, [3]=preload_done
- *   0x008  MODE       R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine (KIV)
+ *   0x008  MODE       R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine_sel
+ *                              0=HDL inference engine, 1=HLS inference engine
  *   0x00C  CYCLE_CNT  R    inference cycle counter
  *   0x010  LAYER_IDX  R    [4:0]=current layer during inference
  *   0x020  PIXEL_FIFO W    sequential pixel write (65536 × 32-bit)
@@ -44,6 +45,7 @@ module axil_regs #(
     /* Control outputs */
     output logic                      o_start,
     output logic [1:0]                o_mode,
+    output logic                      o_engine_sel,
 
     /* Status inputs */
     input  logic                      i_busy,
@@ -208,6 +210,7 @@ module axil_regs #(
     rd_state_t rd_state;
 
     logic [ADDR_W-1:0] rd_addr;
+    logic [DATA_W-1:0] rd_data_mux;   // forward declaration; driven below
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -254,7 +257,6 @@ module axil_regs #(
 
     wire [DATA_W-1:0] result_data_slice = i_result_rd_data[rd_addr[3:2] * 32 +: 32];
 
-    logic [DATA_W-1:0] rd_data_mux;
     always_comb begin
         if (is_result_read)
             rd_data_mux = result_data_slice;
@@ -274,7 +276,8 @@ module axil_regs #(
     /* ================================================================
      *  Control outputs
      * ================================================================ */
-    assign o_start = reg_ctrl[0];
-    assign o_mode  = reg_mode[1:0];
+    assign o_start      = reg_ctrl[0];
+    assign o_mode       = reg_mode[1:0];
+    assign o_engine_sel = reg_mode[4];   // 0 = HDL engine, 1 = HLS engine
 
 endmodule
