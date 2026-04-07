@@ -36,9 +36,9 @@ module inference_hdl #(
     input  logic [N_BITS-1:0]                silu_mem_dout_b,
 
     /* Input feature-map read port (inference_top routes to fmap_a/b) */
-    output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
-    output logic                             pixel_bram_en,
-    input  logic [MAX_PARALLEL*N_BITS-1:0]   pixel_bram_data,
+    output logic [DEPTH_BITS-1:0]            in_buf_rd_addr,
+    output logic                             in_buf_rd_en,
+    input  logic [MAX_PARALLEL*N_BITS-1:0]   in_buf_rd_data,
 
     /* Output feature-map RMW read-back port (inference_top routes to fmap_a/b) */
     output logic                             out_buf_rd_en,
@@ -185,8 +185,8 @@ module inference_hdl #(
     logic [DEPTH_BITS-1:0]     acc_rd_addr;
     logic signed [ACC_BITS-1:0] acc_rd_data;
 
-    assign pixel_bram_addr = is_conv1 ? conv1_pixel_addr : conv3d_pixel_addr;
-    assign pixel_bram_en   = is_conv1 ? conv1_pixel_en   : conv3d_pixel_en;
+    assign in_buf_rd_addr = is_conv1 ? conv1_pixel_addr : conv3d_pixel_addr;
+    assign in_buf_rd_en   = is_conv1 ? conv1_pixel_en   : conv3d_pixel_en;
 
     assign acc_wr_en   = is_conv1 ? conv1_acc_wr_en   : conv3d_acc_wr_en;
     assign acc_wr_addr = is_conv1 ? conv1_acc_wr_addr  : conv3d_acc_wr_addr;
@@ -566,7 +566,7 @@ module inference_hdl #(
         .n_shift              (r_nshift),
         .pixel_bram_addr      (conv3d_pixel_addr),
         .pixel_bram_en        (conv3d_pixel_en),
-        .pixel_bram_data      (pixel_bram_data),
+        .pixel_bram_data      (in_buf_rd_data),
         .weights_all_channels (weights_flat),
         .ACC_write_en         (conv3d_acc_wr_en),
         .ACC_write_address    (conv3d_acc_wr_addr),
@@ -605,7 +605,7 @@ module inference_hdl #(
         .n_shift              (r_nshift),
         .pixel_bram_addr      (conv1_pixel_addr),
         .pixel_bram_en        (conv1_pixel_en),
-        .pixel_bram_data      (pixel_bram_data),
+        .pixel_bram_data      (in_buf_rd_data),
         .weights_all_channels (weights_1x1),
         .ACC_write_en         (conv1_acc_wr_en),
         .ACC_write_address    (conv1_acc_wr_addr),
