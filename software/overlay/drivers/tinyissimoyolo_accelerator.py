@@ -41,15 +41,17 @@ class TinyissimoYoloAcceleratorDriver:
     IP_VLNV = "user.org:user:tinyissimoyolo_accelerator:1.0"
     IP_NAME = "tinyissimoyolo_accel_0"
 
-    # Register offsets (axil_regs.sv:69-77)
-    _CTRL       = 0x000
-    _STATUS     = 0x004
-    _MODE       = 0x008
-    _CYCLE_CNT  = 0x00C
-    _LAYER_IDX  = 0x010
-    _PIXEL_FIFO = 0x020
-    _PIXEL_CNT  = 0x024
-    _RESULT_BASE = 0x100
+    # Register offsets (axil_regs.sv address constants)
+    _CTRL            = 0x000
+    _STATUS          = 0x004
+    _MODE            = 0x008
+    _CYCLE_CNT       = 0x00C
+    _LAYER_IDX       = 0x010
+    _RESULT_BASE_REG = 0x014   # 14-bit URAM base for result window
+    _RESULT_BUF_REG  = 0x018   # 0=fmap_a, 1=fmap_b
+    _PIXEL_FIFO      = 0x020
+    _PIXEL_CNT       = 0x024
+    _RESULT_BASE     = 0x100   # AXI-Lite result region base
 
     # CTRL bits (auto-clearing one-shots in axil_regs.sv:142-143)
     _CTRL_START     = 1 << 0
@@ -185,6 +187,33 @@ class TinyissimoYoloAcceleratorDriver:
             if self.status & self._STATUS_DONE:
                 return True
         return False
+
+    def set_result_window(self, base_addr: int, buf: int = 1):
+        """Slide the AXI-Lite result region over a different URAM range.
+
+        The accelerator's result region (`_RESULT_BASE`..`_RESULT_BASE+0x14FF`)
+        reads from `{buf, base_addr + offset}` where buf selects fmap_a (0)
+        or fmap_b (1) and base_addr is the URAM word address. Defaults
+        (base=256, buf=1) match the original cv2/cv3 layout. Use this for
+        layer-by-layer silicon bisection — point the window at the URAM
+        region a particular layer wrote, then call `read_results_raw()`
+        and compare against `golden_layerN_uram.mem`.
+
+        Args:
+            base_addr: 14-bit URAM word address (0..16383)
+            buf: 0 selects fmap_a, 1 selects fmap_b
+        """
+        self._ip.write(self._RESULT_BASE_REG, base_addr & 0x3FFF)
+        self._ip.write(self._RESULT_BUF_REG, buf & 0x1)
+
+    def read_window(self, base_addr: int, buf: int, num_words: int) -> np.ndarray:
+        """Convenience: slide the window then read `num_words` URAM words.
+
+        Returns the same shape as `read_results_raw()` truncated to
+        `num_words` rows: a (num_words, 16) int8 array.
+        """
+        self.set_result_window(base_addr, buf)
+        return self.read_results_raw()[:num_words]
 
     def read_results_raw(self) -> np.ndarray:
         """Read raw int8 detection results from URAM in a single bulk copy.
