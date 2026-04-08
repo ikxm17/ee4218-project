@@ -27,76 +27,104 @@
       <div class="model-info-body">
 
         <figure class="arch-diagram">
-          <figcaption>Model Architecture (Block-Level Flow)</figcaption>
-          <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" role="img"
-               aria-label="TinyissimoYOLO architecture diagram showing input, four backbone stages, detect head, and output">
+          <figcaption>Model Architecture (All 17 Layers)</figcaption>
+          <!-- Generated from notes/project/model-architecture.md via
+               scripts/internal gen_arch_svg.py. Vertical flow: one row
+               per layer, Conv blocks full-width blue, MaxPool blocks
+               narrower amber (visually funnelling the data), Detect head
+               double-height with cv2/cv3 sub-boxes. -->
+          <svg viewBox="0 0 640 832" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="TinyissimoYOLO per-layer architecture (17 layers)">
             <defs>
               <marker id="arrow-arch" viewBox="0 0 10 10" refX="9" refY="5"
                       markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280" />
               </marker>
             </defs>
-
-            <!-- Input -->
-            <rect class="input-block" x="5"   y="40" width="100" height="80" rx="4" />
-            <text class="block-title"  x="55"  y="62" text-anchor="middle">Input</text>
-            <text class="block-line"   x="55"  y="80" text-anchor="middle">256×256×3</text>
-            <text class="block-line"   x="55"  y="96" text-anchor="middle">RGB uint8</text>
-
-            <!-- Stage 1 -->
-            <rect class="stage stage-1" x="115" y="40" width="100" height="80" rx="4" />
-            <text class="block-title"   x="165" y="62" text-anchor="middle">Stage 1</text>
-            <text class="block-line"    x="165" y="80" text-anchor="middle">16 ch</text>
-            <text class="block-line"    x="165" y="96" text-anchor="middle">128×128</text>
-
-            <!-- Stage 2 -->
-            <rect class="stage stage-2" x="225" y="40" width="100" height="80" rx="4" />
-            <text class="block-title"   x="275" y="62" text-anchor="middle">Stage 2</text>
-            <text class="block-line"    x="275" y="80" text-anchor="middle">32 ch</text>
-            <text class="block-line"    x="275" y="96" text-anchor="middle">64×64</text>
-
-            <!-- Stage 3 -->
-            <rect class="stage stage-3" x="335" y="40" width="100" height="80" rx="4" />
-            <text class="block-title"   x="385" y="62" text-anchor="middle">Stage 3</text>
-            <text class="block-line"    x="385" y="80" text-anchor="middle">64 ch</text>
-            <text class="block-line"    x="385" y="96" text-anchor="middle">32×32</text>
-
-            <!-- Stage 4 -->
-            <rect class="stage stage-4" x="445" y="40" width="100" height="80" rx="4" />
-            <text class="block-title"   x="495" y="62" text-anchor="middle">Stage 4</text>
-            <text class="block-line"    x="495" y="80" text-anchor="middle">128 ch</text>
-            <text class="block-line"    x="495" y="96" text-anchor="middle">16→8</text>
-
-            <!-- Detect Head -->
-            <rect class="head-block" x="555" y="40" width="100" height="80" rx="4" />
-            <text class="block-title" x="605" y="62" text-anchor="middle">Detect Head</text>
-            <text class="block-line"  x="605" y="80" text-anchor="middle">cv2 + cv3</text>
-            <text class="block-line"  x="605" y="96" text-anchor="middle">DFL + cls</text>
-
-            <!-- Output Tensor -->
-            <rect class="output-block" x="665" y="40" width="90" height="80" rx="4" />
-            <text class="block-title"  x="710" y="62" text-anchor="middle">Output</text>
-            <text class="block-line"   x="710" y="80" text-anchor="middle">8×8×67</text>
-            <text class="block-line"   x="710" y="96" text-anchor="middle">int8</text>
-
-            <!-- Arrows between blocks -->
-            <line class="arrow" x1="105" y1="80" x2="115" y2="80" marker-end="url(#arrow-arch)" />
-            <line class="arrow" x1="215" y1="80" x2="225" y2="80" marker-end="url(#arrow-arch)" />
-            <line class="arrow" x1="325" y1="80" x2="335" y2="80" marker-end="url(#arrow-arch)" />
-            <line class="arrow" x1="435" y1="80" x2="445" y2="80" marker-end="url(#arrow-arch)" />
-            <line class="arrow" x1="545" y1="80" x2="555" y2="80" marker-end="url(#arrow-arch)" />
-            <line class="arrow" x1="655" y1="80" x2="665" y2="80" marker-end="url(#arrow-arch)" />
-
-            <!-- MaxPool annotations under arrows -->
-            <text class="annot" x="110" y="148" text-anchor="middle">MaxPool 2×</text>
-            <text class="annot" x="220" y="148" text-anchor="middle">MaxPool 2×</text>
-            <text class="annot" x="330" y="148" text-anchor="middle">MaxPool 2×</text>
-            <text class="annot" x="440" y="148" text-anchor="middle">MaxPool 2×</text>
-
-            <!-- Footer note: total stride / params -->
-            <text class="footnote" x="380" y="180" text-anchor="middle">
-              17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)
-            </text>
+            <rect class="input-block" x="40" y="12" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="34">   Input</text>
+            <text class="shape-tag" x="586" y="34" text-anchor="end">256 × 256 × 3</text>
+            <text class="shape-subtag" x="586" y="46" text-anchor="end">RGB uint8</text>
+            <line class="arrow" x1="320" y1="46" x2="320" y2="53" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="54" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="76">L0   Conv 3→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="76" text-anchor="end">256 × 256 × 16</text>
+            <line class="arrow" x1="320" y1="88" x2="320" y2="95" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="96" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="115">L1   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="115" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="124" x2="320" y2="131" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="132" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="154">L2   Conv 16→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="154" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="166" x2="320" y2="173" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="174" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="196">L3   Conv 16→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="196" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="208" x2="320" y2="215" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="216" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="235">L4   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="235" text-anchor="end">64 × 64 × 16</text>
+            <line class="arrow" x1="320" y1="244" x2="320" y2="251" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="252" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="274">L5   Conv 16→32, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="274" text-anchor="end">64 × 64 × 32</text>
+            <line class="arrow" x1="320" y1="286" x2="320" y2="293" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="294" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="316">L6   Conv 32→32, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="316" text-anchor="end">64 × 64 × 32</text>
+            <line class="arrow" x1="320" y1="328" x2="320" y2="335" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="336" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="355">L7   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="355" text-anchor="end">32 × 32 × 32</text>
+            <line class="arrow" x1="320" y1="364" x2="320" y2="371" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="372" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="394">L8   Conv 32→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="394" text-anchor="end">32 × 32 × 64</text>
+            <line class="arrow" x1="320" y1="406" x2="320" y2="413" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="414" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="436">L9   Conv 64→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="436" text-anchor="end">32 × 32 × 64</text>
+            <line class="arrow" x1="320" y1="448" x2="320" y2="455" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="456" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="475">L10   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="475" text-anchor="end">16 × 16 × 64</text>
+            <line class="arrow" x1="320" y1="484" x2="320" y2="491" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="492" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="514">L11   Conv 64→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="514" text-anchor="end">16 × 16 × 64</text>
+            <line class="arrow" x1="320" y1="526" x2="320" y2="533" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="534" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="556">L12   Conv 64→128, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="556" text-anchor="end">16 × 16 × 128</text>
+            <line class="arrow" x1="320" y1="568" x2="320" y2="575" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="576" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="595">L13   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="595" text-anchor="end">8 × 8 × 128</text>
+            <line class="arrow" x1="320" y1="604" x2="320" y2="611" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="612" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="634">L14   Conv 128→128, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="634" text-anchor="end">8 × 8 × 128</text>
+            <line class="arrow" x1="320" y1="646" x2="320" y2="653" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="654" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="676">L15   Conv 128→24, 1×1  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="676" text-anchor="end">8 × 8 × 24</text>
+            <line class="arrow" x1="320" y1="688" x2="320" y2="695" marker-end="url(#arrow-arch)" />
+            <rect class="detect-block" x="40" y="696" width="560" height="64" rx="4" />
+            <text class="block-title" x="54" y="712">L16   Detect Head</text>
+            <rect class="detect-branch" x="54" y="718" width="259" height="34" rx="3" />
+            <text class="branch-title" x="183" y="734" text-anchor="middle">cv2 · box regression</text>
+            <text class="branch-line"  x="183" y="748" text-anchor="middle">4 × 16 DFL bins = 64</text>
+            <rect class="detect-branch" x="327" y="718" width="259" height="34" rx="3" />
+            <text class="branch-title" x="456" y="734" text-anchor="middle">cv3 · classification</text>
+            <text class="branch-line"  x="456" y="748" text-anchor="middle">3 class logits (sigmoid)</text>
+            <text class="shape-tag" x="586" y="712" text-anchor="end">→ 8 × 8 × 67</text>
+            <line class="arrow" x1="320" y1="760" x2="320" y2="767" marker-end="url(#arrow-arch)" />
+            <rect class="output-block" x="40" y="768" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="790">   Output</text>
+            <text class="shape-tag" x="586" y="790" text-anchor="end">8 × 8 × 67</text>
+            <text class="shape-subtag" x="586" y="802" text-anchor="end">int8, scale ≈ 0.107</text>
+            <text class="footnote" x="320" y="826" text-anchor="middle">17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)</text>
           </svg>
         </figure>
 
@@ -177,9 +205,11 @@
         <label for="conf-slider">
           Confidence
           <span class="info-icon" tabindex="0"
-                data-tooltip="Minimum per-class confidence (post-sigmoid) to keep a detection. Lower values surface more boxes including weak ones — useful for seeing what the model 'almost' detected. Higher values keep only the most confident predictions. Applied per grid cell before NMS.">i</span>
+                data-tooltip="Minimum per-class confidence (post-sigmoid) to keep a detection. Lower values surface weak detections including the 'almost' ones; higher values keep only the most confident predictions. Applied per grid cell before NMS.">i</span>
         </label>
+        <span class="slider-endpoint">show all</span>
         <input id="conf-slider" type="range" min="0" max="1" step="0.01" value="0.30" />
+        <span class="slider-endpoint">high conf</span>
         <span id="conf-value" class="chip-num">0.30</span>
       </div>
 
@@ -187,9 +217,11 @@
         <label for="nms-slider">
           NMS IoU
           <span class="info-icon" tabindex="0"
-                data-tooltip="Non-Maximum Suppression overlap threshold. When two same-class boxes overlap by more than this fraction (intersection-over-union), the lower-confidence one is dropped. Lower values aggressively prune duplicates; higher values let nearby boxes coexist.">i</span>
+                data-tooltip="How much overlap NMS tolerates before calling two boxes duplicates. COUNTERINTUITIVE: higher values keep MORE boxes, because fewer pairs exceed the overlap threshold. At 1.0 nothing is suppressed (IoU > 1 is impossible). At 0.0 even the faintest overlap counts as a duplicate. Default 0.45 follows the YOLO convention.">i</span>
         </label>
+        <span class="slider-endpoint">merge all</span>
         <input id="nms-slider" type="range" min="0" max="1" step="0.01" value="0.45" />
+        <span class="slider-endpoint">keep all</span>
         <span id="nms-value" class="chip-num">0.45</span>
       </div>
 
@@ -292,6 +324,9 @@
 
       <dt>Live Slider Updates</dt>
       <dd>Confidence and NMS IoU are pure post-processing filters — they don't change the model's raw output tensor. After you click <em>Run Inference</em>, the raw tensor is cached and slider drags re-run only the post-process stage on the cached tensor. That's why Pre-Process, Inference Time, and Inference Cycles cells stay frozen while Post-Process / End-to-End / FPS update live.</dd>
+
+      <dt>NMS IoU is Counterintuitive</dt>
+      <dd>The NMS IoU slider controls <em>how much overlap is tolerated before two boxes are called duplicates</em>. Higher values therefore keep <strong>more</strong> boxes, not fewer — because fewer pairs exceed the threshold. Dragging to <code>1.0</code> disables suppression entirely (no two boxes have IoU &gt; 1). Dragging toward <code>0.0</code> is the aggressive "merge everything that overlaps at all" end. Default <code>0.45</code> is the standard YOLO/OpenCV convention. The endpoint labels <em>merge all</em> / <em>keep all</em> next to the slider indicate this direction.</dd>
     </dl>
   </section>
 

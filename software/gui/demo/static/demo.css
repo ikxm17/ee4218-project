@@ -167,6 +167,30 @@ header h1 {
   fill: #6b7280;
 }
 
+/* Per-layer diagram: shape tag floated right, Conv/Pool/Detect styling */
+.arch-diagram svg text.shape-tag {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  fill: #fbbf24; /* amber — pops against the blue Conv fills */
+}
+
+.arch-diagram svg text.shape-subtag {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px;
+  fill: #9ca3af;
+}
+
+.arch-diagram svg text.branch-title {
+  font-size: 10px;
+  font-weight: 600;
+  fill: #e6e8eb;
+}
+
+.arch-diagram svg text.branch-line {
+  font-size: 9px;
+  fill: #d1d5db;
+}
+
 .pipeline-diagram svg text.cache-annot {
   font-size: 9px;
   font-style: italic;
@@ -195,6 +219,33 @@ header h1 {
 
 .pipeline-diagram svg .stage-2 { fill: #1e40af; }
 .pipeline-diagram svg .stage-3 { fill: #1d4ed8; }
+
+/* Per-layer diagram block classes. Conv is deep blue (data flow stays
+   wide), MaxPool is amber with narrower visual width (funnels the data),
+   Detect is green with inner branch sub-boxes, Output stands out orange. */
+.arch-diagram svg .conv-block {
+  fill: #1e40af;
+  stroke: #3b82f6;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .pool-block {
+  fill: #854d0e;
+  stroke: #eab308;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .detect-block {
+  fill: #047857;
+  stroke: #10b981;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .detect-branch {
+  fill: #065f46;
+  stroke: #34d399;
+  stroke-width: 1;
+}
 
 .arch-diagram svg .head-block {
   fill: #047857;
@@ -346,6 +397,14 @@ header h1 {
 .slider-group input[type="range"] {
   width: 120px;
   accent-color: #3b82f6;
+}
+
+.slider-endpoint {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: #6b7280;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .chip-num {
