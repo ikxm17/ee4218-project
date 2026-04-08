@@ -112,23 +112,48 @@ python scripts/verify_goldens_vs_tflite.py
 [`scripts/verify_goldens_vs_tflite.py`](../../scripts/verify_goldens_vs_tflite.py)
 runs the TFLite interpreter layer-by-layer on `pixels_layer0.mem` and diffs
 each intermediate tensor against the matching `golden_layerN_uram.mem`. It
-exits non-zero if any layer drifts by more than 1 LSB.
+classifies every layer as one of:
 
-This is the **offline invariant gate**. A failure here means the Python
-pipeline (weight generator, golden generator, or both) drifted from TFLite —
-not that the RTL is wrong. Catch it here before spending ~30 minutes on a
+- `BIT-EXACT` — zero mismatches against the TFLite tensor
+- `CLOSE (max<=1)` — every diff is ≤ 1 LSB (still treated as failure)
+- `DIVERGED` — at least one diff is > 1 LSB
+
+The script exits non-zero if **any** layer is not BIT-EXACT. It is the
+**offline invariant gate**: a failure here means the Python pipeline
+(weight generator, golden generator, or both) drifted from TFLite — not
+that the RTL is wrong. Catch it here before spending ~30 minutes on a
 bitstream rebuild.
 
-Expected output on a healthy pipeline (post-requantize-fix):
+Expected output on a healthy pipeline:
 
 ```
-17/17 layers match; mean|d| < 1 LSB
+=== summary: 17/17 bit-exact, 0 failed ===
 ```
 
 The on-board cousin of this script is
 [`scripts/diag_accel_silicon_vs_tflite.py`](../../scripts/diag_accel_silicon_vs_tflite.py),
 which runs the same diff against live URAM reads from the accelerator on the
 Kria board.
+
+### Known dev-host caveats
+
+1. **TFLite interpreter version sensitivity.** `verify_goldens_vs_tflite.py`
+   prefers `tflite_runtime` and falls back to `tensorflow.lite`. The two
+   interpreters do not always agree bit-for-bit on every quantized op; small
+   (≤ 8 LSB) divergences across interpreter versions will make the gate
+   report `DIVERGED` even when the pipeline is healthy. Use the same
+   interpreter (and ideally the same version) that was used when the
+   goldens were last regenerated. If you only have `tflite_runtime`
+   available, treat `mean|d| ≪ 1 LSB` as a healthy pattern even if the
+   gate's verdict is not BIT-EXACT.
+
+2. **Python 3.10+ required for the import chain.** The script imports
+   `software.overlay.tests.checks` for the URAM unpack helper, which in
+   turn pulls in `software.overlay.drivers.__init__` and the `Imx219Driver`
+   class. The driver uses Python 3.10+ union syntax (`int | None`), so the
+   project's `ee4218` conda env (Python 3.8) cannot import it. Run the
+   verification gate from a Python 3.10+ environment that has either
+   `tflite_runtime` or full `tensorflow` installed.
 
 ## Step 4 — Sync ROMs into the Vivado IP cache (easy to miss)
 
