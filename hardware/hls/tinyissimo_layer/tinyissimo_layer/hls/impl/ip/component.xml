@@ -722,7 +722,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>101feb61</spirit:value>
+            <spirit:value>e2923ed5</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -738,7 +738,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>e9d90a06</spirit:value>
+            <spirit:value>439e8727</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1858,6 +1858,10 @@
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
+        <spirit:name>hdl/verilog/tinyissimo_layer_top_power.xpe</spirit:name>
+        <spirit:fileType>unknown</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_sparsemux_7_2_8_1_1.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
@@ -2107,6 +2111,10 @@
         <spirit:name>hdl/verilog/tinyissimo_layer_top_partselect_32ns_128ns_7ns_32_1_1.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/tinyissimo_layer_top_power.xpe</spirit:name>
+        <spirit:fileType>unknown</spirit:fileType>
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/verilog/tinyissimo_layer_top_sparsemux_7_2_8_1_1.v</spirit:name>
@@ -2624,8 +2632,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>Tinyissimo_layer_top</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114555829</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-07T16:09:25Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114556369</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-08T01:09:53Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -2634,7 +2642,7 @@
     <xilinx:packagingInfo>
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
       <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="ef4caff4"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="06f1f9e7"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="147171ab"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="1a182821"/>
       <xilinx:checksum xilinx:scope="parameters" xilinx:value="567b9a06"/>
     </xilinx:packagingInfo>
