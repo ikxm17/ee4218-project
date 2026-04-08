@@ -304,12 +304,25 @@ def compare_layer(
     }
 
 
-def verdict_for(stats: dict) -> str:
-    """Classify per-layer stats into BIT-EXACT / CLOSE / DIVERGED."""
+def verdict_for(stats: dict, max_lsb: int = 0) -> str:
+    """Classify per-layer stats into BIT-EXACT / CLOSE / WITHIN-TOL / DIVERGED.
+
+    Args:
+        stats: output of :func:`compare_layer`.
+        max_lsb: non-strict tolerance. If > 0, any layer with
+            ``stats["max_abs"] <= max_lsb`` is labelled ``WITHIN-TOL`` rather
+            than ``DIVERGED`` and counted as a pass in the summary. This
+            exists because the Python golden uses a single-step round-half-up
+            requantize that diverges from TFLite's gemmlowp pipeline by a
+            bounded LSB amount — see ``hardware/scripts/README.md`` Step 3a
+            for the full explanation.
+    """
     if stats["num_mismatch"] == 0:
         return "BIT-EXACT"
     if stats["max_abs"] <= 1:
         return "CLOSE (max<=1)"
+    if max_lsb > 0 and stats["max_abs"] <= max_lsb:
+        return f"WITHIN-TOL (max<={max_lsb})"
     return "DIVERGED"
 
 
@@ -329,6 +342,18 @@ def main():
         "--golden-dir",
         default="hardware/testbench/inference_hdl",
         help="Directory containing golden_layer{N}_uram.mem files",
+    )
+    parser.add_argument(
+        "--max-lsb",
+        type=int,
+        default=0,
+        help=(
+            "Bounded LSB tolerance. If > 0, per-layer diffs with max|d| <= N "
+            "are labelled WITHIN-TOL instead of DIVERGED and counted as a "
+            "pass. Use --max-lsb 8 to treat the known round-half-up vs "
+            "gemmlowp SRDHM+RDP drift as acceptable. See "
+            "hardware/scripts/README.md Step 3a."
+        ),
     )
     args = parser.parse_args()
 
@@ -360,6 +385,7 @@ def main():
     print("-" * len(header))
 
     n_bit_exact = 0
+    n_within_tol = 0
     n_failed = 0
     for (idx, _buf, _base, words, _vlanes, H, W, C) in LAYER_MAP:
         gold_raw = load_golden_uram_mem(
@@ -370,9 +396,11 @@ def main():
 
         tflite_tensor = interp.get_tensor(mapping[idx]["observable_tensor"])
         stats = compare_layer(gold_hwc, tflite_tensor)
-        v = verdict_for(stats)
+        v = verdict_for(stats, max_lsb=args.max_lsb)
         if v == "BIT-EXACT":
             n_bit_exact += 1
+        elif v.startswith("WITHIN-TOL"):
+            n_within_tol += 1
         else:
             n_failed += 1
 
@@ -386,10 +414,19 @@ def main():
             print(f"        first diffs (h,w,c): {stats['first_pos']}")
 
     print("-" * len(header))
-    print(
-        f"=== summary: {n_bit_exact}/{len(LAYER_MAP)} bit-exact, "
-        f"{n_failed} failed ==="
-    )
+    total = len(LAYER_MAP)
+    if args.max_lsb > 0:
+        verdict = "PASS with tolerance" if n_failed == 0 else "FAIL"
+        print(
+            f"=== summary: {n_bit_exact}/{total} bit-exact, "
+            f"{n_within_tol}/{total} within ±{args.max_lsb} LSB, "
+            f"{n_failed} failed ({verdict}) ==="
+        )
+    else:
+        print(
+            f"=== summary: {n_bit_exact}/{total} bit-exact, "
+            f"{n_failed} failed ==="
+        )
     return 0 if n_failed == 0 else 1
 
 
