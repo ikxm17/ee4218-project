@@ -1,24 +1,20 @@
 """Impulse-response silicon diagnostic — localize the +1 shift directly.
 
-Write a clean zero-valued input image with a single non-zero "impulse"
-pixel at a specific (row, col) position, run layer 0 (via set_max_layers=1),
-and read back the layer 0 output. Check where the non-zero 3x3 region lands.
+Run TWO inferences with layer 0 only (set_max_layers=1):
+  Reference: all int8 zero (uint8 128)
+  Test:      all int8 zero EXCEPT one 'impulse' pixel at image(IR, IC)
 
-If conv3d is correct, the impulse at image(r, c) produces a non-zero
-3x3 region at layer 0 output positions (r-1..r+1, c-1..c+1) clipped to
-[0, 127] in the 128x128 layer 0 output (due to the 2x maxpool after
-the 3x3 conv). Specifically:
-  - For impulse at image(2, 2) in the 256x256 input, the conv produces
-    non-zero values at conv_out(1..3, 1..3). After maxpool, the non-zero
-    region is at pool(0..1, 0..1) in the 128x128 output.
-  - The affected URAM words are at addresses 0, 1, 128, 129 in row-major.
+Difference = test - reference.  If conv3d is correct, the impulse at
+image(IR, IC) affects conv(IR-1..IR+1, IC-1..IC+1) in the 256x256 conv
+output. After 2x max-pool, the affected pool positions are {(row, col)
+| row in {(IR-1)//2, IR//2, (IR+1)//2}, col in {(IC-1)//2, IC//2,
+(IC+1)//2}} clipped to valid range. For IR=IC=4, that's pool(1..2, 1..2)
+→ URAM words 129, 130, 257, 258 in row-major 128-wide.
 
-If silicon shows the non-zero region at a different set of addresses,
-we can directly measure the 1D displacement in URAM space.
-
-This test completely sidesteps the int8/uint8 zero-point and channel-count
-questions because we're only checking WHERE the non-zero values land,
-not WHAT they are.
+If silicon shows the affected words at DIFFERENT URAM addresses, we
+directly measure the shift in row-major units. The two-run design
+cancels out all boundary effects (padding, bias, saturation) that
+the single-run baseline couldn't distinguish.
 
 Usage:
     ssh kria-01 'cd ~/workspace/ee4218-project && \\
@@ -33,124 +29,103 @@ from software.overlay.drivers.tinyissimoyolo_accelerator import TinyissimoYoloAc
 
 BIT_PATH = pathlib.Path("hardware/output/playground.bit")
 
-# Place the impulse at a distinctive interior position away from boundaries
-# so the conv output is NOT affected by padding. Use row=4, col=4 in the
-# 256x256 input image. The 3x3 conv window for image position (4, 4) reads
-# input(3..5, 3..5), which is all zero except input(4, 4) = impulse.
+# Impulse location — interior, away from boundaries
 IMPULSE_ROW = 4
 IMPULSE_COL = 4
-IMPULSE_VALUE = (255, 255, 255)  # saturated white (max uint8 on all 3 channels)
+IMPULSE_VAL = 255  # uint8 255 → int8 127 after driver conversion
 
 print(f"=== bitstream md5: {hashlib.md5(BIT_PATH.read_bytes()).hexdigest()} ===")
-print(f"=== impulse at image({IMPULSE_ROW}, {IMPULSE_COL}) = RGB{IMPULSE_VALUE} ===")
 
-# Build the input image: all zero-point (uint8 128 = int8 0), with one impulse
-# Using uint8 128 ensures the int8 value after write_pixels() conversion is 0,
-# which means most conv outputs are the bias term (constant per-channel).
-# The non-bias contribution only comes from the single impulse position.
-image = np.full((256, 256, 3), 128, dtype=np.uint8)  # int8 0 everywhere
-image[IMPULSE_ROW, IMPULSE_COL] = IMPULSE_VALUE  # int8 127 at impulse
+def run_inference(image_rgb):
+    """Run layer 0 only, return fmap_a[0..16383] as (16384, 16) int8."""
+    drv.configure(mode=0)
+    drv.set_max_layers(1)
+    drv.start()
+    drv.write_pixels(image_rgb)
+    if not drv.wait_done(timeout_s=3.0):
+        raise TimeoutError("Inference timeout")
+    return drv.read_window(base_addr=0, buf=0, num_words=16384)
 
 ol = Overlay(str(BIT_PATH), ignore_version=True)
 drv = TinyissimoYoloAcceleratorDriver(ol.tinyissimoyolo_accel_0)
 
-print("\n=== set_max_layers(1) — run only layer 0 ===")
-drv.configure(mode=0)
-drv.set_max_layers(1)
-drv.start()
-drv.write_pixels(image)
+# Reference: all-zero input (uint8 128 → int8 0)
+print("\n=== RUN 1: reference (all int8 zero) ===")
+ref_image = np.full((256, 256, 3), 128, dtype=np.uint8)
+ref_out = run_inference(ref_image)
+print(f"  ref_out[0] = {ref_out[0].tolist()}")
 
-print("=== wait for done ===")
-if not drv.wait_done(timeout_s=3.0):
-    raise TimeoutError("Inference timeout")
-print(f"  cycle_count: {drv.cycle_count}")
+# Test: same but with an impulse at (IR, IC)
+print(f"\n=== RUN 2: impulse at image({IMPULSE_ROW}, {IMPULSE_COL}) ===")
+test_image = np.full((256, 256, 3), 128, dtype=np.uint8)
+test_image[IMPULSE_ROW, IMPULSE_COL] = (IMPULSE_VAL, IMPULSE_VAL, IMPULSE_VAL)
+test_out = run_inference(test_image)
+print(f"  test_out[0] = {test_out[0].tolist()}")
 
-# Read layer 0 output (fmap_a, 16384 words × 16 channels)
-print("\n=== reading fmap_a[0..16383] ===")
-sil = drv.read_window(base_addr=0, buf=0, num_words=16384)
-print(f"  shape: {sil.shape}")
+# Diff = test - ref (in int16 to avoid overflow)
+diff = test_out.astype(np.int16) - ref_out.astype(np.int16)
+nonzero_mask = (diff != 0).any(axis=1)
+nonzero_positions = np.where(nonzero_mask)[0]
+print(f"\n=== DIFFERENCE ANALYSIS ===")
+print(f"  Total URAM positions with nonzero diff: {len(nonzero_positions)}")
 
-# Compute per-spatial-position "activity" — the max absolute value across
-# channels. A zero-input produces a constant output (just the bias), so
-# non-zero-relative positions will stand out.
-#
-# Actually: better — compare each position's values to the "background"
-# value at position (0, 0) (which is far from the impulse but still zero-
-# input, so its output is the pure bias term).
-#
-# Note: conv3d outputs 256x256, but layer 0 has 2x maxpool, so the URAM
-# holds 128x128 = 16384 pool outputs.
+# Expected impulse response locations
+# For IR=IC=4 in image, conv affects image(3..5, 3..5) in 256x256,
+# pool_2x2 maps to pool((3..5)//2, (3..5)//2) = pool(1..2, 1..2)
+# URAM addresses in 128-wide row-major: 129, 130, 257, 258
+expected_pool_positions = [(1, 1), (1, 2), (2, 1), (2, 2)]
+expected_uram_addrs = sorted([r * 128 + c for r, c in expected_pool_positions])
+print(f"  Expected affected URAM addresses (NO shift): {expected_uram_addrs}")
 
-# Since zero-input produces constant "bias" output, "activity" is defined
-# as "differs from the bias baseline".
-baseline = sil[0]  # (16,) int8 — the output at pool position (0, 0)
-print(f"  baseline (pool[0, 0]): {baseline.tolist()}")
+# Under +1 row-major shift hypothesis: silicon[k] = correct[k+1]
+# So correct pool(1, 1) = URAM addr 129 lands at silicon URAM addr 128
+shifted_uram_addrs = [(a - 1) % 16384 for a in expected_uram_addrs]
+print(f"  Expected affected URAM addresses (+1 shift):  {sorted(shifted_uram_addrs)}")
 
-# Find positions where the output differs from the baseline
-diff_mask = (sil != baseline).any(axis=1)  # (16384,) bool
-diff_positions = np.where(diff_mask)[0]
-print(f"  positions differing from baseline: {len(diff_positions)}")
+print(f"\n  First 20 nonzero-diff URAM addresses:")
+for addr in nonzero_positions[:20]:
+    r, c = addr // 128, addr % 128
+    d = diff[addr]
+    max_abs = int(np.abs(d).max())
+    n_nz = int((d != 0).sum())
+    is_exp = addr in expected_uram_addrs
+    is_sft = addr in shifted_uram_addrs
+    tag = " <== EXPECTED" if is_exp else (" <== +1 SHIFT PREDICTION" if is_sft else "")
+    print(f"    URAM[{addr:>5}] pool({r:>3},{c:>3})  n_chs_nz={n_nz:>2} max|Δ|={max_abs:>3}{tag}")
 
-if len(diff_positions) == 0:
-    print("  NO DIFFERENCE FROM BASELINE — impulse didn't propagate!")
-    print("  Either bug or baseline chose a non-baseline position.")
+# Check each hypothesis explicitly
+no_shift_hits = sum(1 for a in expected_uram_addrs if nonzero_mask[a])
+plus1_shift_hits = sum(1 for a in shifted_uram_addrs if nonzero_mask[a])
+
+# Also check: how many of the nonzero positions fall within ±1 of the expected
+# set? (To detect partial shifts or alternative patterns.)
+print(f"\n  Verdict:")
+print(f"    NO shift: {no_shift_hits}/4 expected positions hit")
+print(f"    +1 shift: {plus1_shift_hits}/4 expected positions hit")
+
+if no_shift_hits == 4 and plus1_shift_hits < 4:
+    print(f"  VERDICT: silicon conv3d writes CORRECTLY (no +1 shift)")
+    print(f"           The +1 shift bug must be elsewhere — likely in the read path")
+elif plus1_shift_hits == 4 and no_shift_hits < 4:
+    print(f"  VERDICT: silicon conv3d writes +1 SHIFTED")
+    print(f"           The bug IS in the conv3d write path (or something earlier)")
+elif no_shift_hits == 4 and plus1_shift_hits == 4:
+    print(f"  AMBIGUOUS: both positions hit, possibly leakage")
 else:
-    # Print each differing position with its 2D coordinates (in 128x128 pool space)
-    print(f"\n  Differing URAM addresses (first 30):")
-    for addr in diff_positions[:30]:
-        row = addr // 128
-        col = addr % 128
-        delta = (sil[addr].astype(int) - baseline.astype(int))
-        nonzero_channels = int((delta != 0).sum())
-        max_abs_delta = int(np.abs(delta).max())
-        print(f"    URAM[{addr:>5}] = pool({row:>3}, {col:>3})  "
-              f"chs_differing={nonzero_channels:>2}  max|Δ|={max_abs_delta:>3}")
+    print(f"  UNEXPECTED: neither pattern fully matches")
 
-    # Compute expected positions for the impulse at image(4, 4)
-    # 3x3 conv: non-zero conv outputs at image(3..5, 3..5) in 256x256
-    # 2x maxpool: pool output at (I, J) = max of conv(2I..2I+1, 2J..2J+1)
-    # Non-zero conv positions (3..5, 3..5) affect pool positions:
-    #   row 3 → I=1 (since 2*1=2, 2*1+1=3), row 4 → I=2, row 5 → I=2
-    #   col 3 → J=1, col 4 → J=2, col 5 → J=2
-    # So affected pool positions: (1, 1), (1, 2), (2, 1), (2, 2)
-    # In row-major (128 wide): addresses 1*128+1=129, 1*128+2=130, 2*128+1=257, 2*128+2=258
-    expected_addrs = {
-        1*128+1: "(1,1)",
-        1*128+2: "(1,2)",
-        2*128+1: "(2,1)",
-        2*128+2: "(2,2)",
-    }
-    print(f"\n  Expected non-baseline URAM addresses for impulse at image(4, 4):")
-    for addr, pos in expected_addrs.items():
-        in_silicon = addr in diff_positions
-        row = addr // 128
-        col = addr % 128
-        print(f"    URAM[{addr:>5}] = pool({row:>3}, {col:>3}) {pos}  "
-              f"{'<-- differing on silicon' if in_silicon else 'NOT differing on silicon'}")
-
-    # Measure the displacement: find the actual centroid of the differing region
-    if len(diff_positions) > 0 and len(diff_positions) < 100:
-        # Small enough region to analyze
-        rows = diff_positions // 128
-        cols = diff_positions % 128
-        print(f"\n  Actual differing region: rows {rows.min()}..{rows.max()}, "
-              f"cols {cols.min()}..{cols.max()}")
-        expected_rows = [1, 2]
-        expected_cols = [1, 2]
-        print(f"  Expected region:         rows 1..2, cols 1..2")
-        print(f"  Row displacement:        {rows.min() - 1:+d} to {rows.max() - 2:+d}")
-        print(f"  Col displacement:        {cols.min() - 1:+d} to {cols.max() - 2:+d}")
-
-    # Check specifically for the +1 row-major shift
-    shifted_expected = {a - 1: p for a, p in expected_addrs.items()}
-    print(f"\n  Under '+1 row-major shift' hypothesis, differing URAM addrs should be:")
-    for addr, pos in shifted_expected.items():
-        if addr < 0:
-            addr = 16384 + addr  # wrap
-        in_silicon = addr in diff_positions
-        row = addr // 128
-        col = addr % 128
-        print(f"    URAM[{addr:>5}] = pool({row:>3}, {col:>3}) {pos}(-1)  "
-              f"{'<-- differing' if in_silicon else 'NOT differing'}")
+# Print a 2D ascii heatmap of the affected region (7x7 around impulse's
+# pool coordinates (2, 2))
+print(f"\n  Pool-space heatmap (7x7 around expected impulse center (2,2)):")
+print(f"       " + " ".join(f"c{c:<4}" for c in range(7)))
+for r in range(7):
+    row_cells = []
+    for c in range(7):
+        addr = r * 128 + c
+        if nonzero_mask[addr]:
+            row_cells.append(f"{'X':>4} ")
+        else:
+            row_cells.append(f"{'.':>4} ")
+    print(f"  r{r:<2} " + " ".join(row_cells))
 
 ol.free()
