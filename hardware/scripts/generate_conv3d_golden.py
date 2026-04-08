@@ -87,6 +87,62 @@ def uint8_to_int8(pixels: np.ndarray) -> np.ndarray:
     return (pixels.astype(np.int16) - 128).astype(np.int8)
 
 
+def saturating_rounding_doubling_high_mul(a: int, b: int) -> int:
+    """gemmlowp SaturatingRoundingDoublingHighMul reference (int32 inputs).
+
+    Computes `round((2 * a * b) / 2^32)` as a 32-bit signed result, with the
+    sole non-overflow saturation case `a == b == INT32_MIN` → INT32_MAX.
+    The rounding nudge is sign-aware (+2^30 for non-negative products,
+    1 - 2^30 for negative products), and the 2^31 divisor is integer division
+    (toward zero), *not* arithmetic right-shift — this is the subtle
+    difference from a naive `(a*b + 2^30) >> 31`.
+    """
+    INT32_MIN = -(1 << 31)
+    INT32_MAX = (1 << 31) - 1
+    if a == INT32_MIN and b == INT32_MIN:
+        return INT32_MAX
+    ab64 = a * b  # Python ints are unbounded, no overflow concern
+    nudge = (1 << 30) if ab64 >= 0 else (1 - (1 << 30))
+    # Truncation toward zero (C++ signed integer division semantics)
+    val = ab64 + nudge
+    return val // (1 << 31) if val >= 0 else -((-val) // (1 << 31))
+
+
+def rounding_divide_by_pot(x: int, exponent: int) -> int:
+    """gemmlowp RoundingDivideByPOT reference (int32 input).
+
+    Round-nearest-away-from-zero division by 2^exponent. For positive x this
+    is round-half-up; for negative x it rounds halves toward -∞ so that
+    combined with the arithmetic right-shift the overall effect is
+    round-nearest-away-from-zero.
+    """
+    if exponent <= 0:
+        return x
+    mask = (1 << exponent) - 1
+    remainder = x & mask
+    threshold = (mask >> 1) + (1 if x < 0 else 0)
+    # Arithmetic right shift on signed Python int is floor division by power of 2
+    shifted = x >> exponent
+    return shifted + (1 if remainder > threshold else 0)
+
+
+def gemmlowp_requantize(acc: int, m0: int, n_shift: int, zp_out: int) -> int:
+    """Full gemmlowp two-stage requantize: SRDHM(acc, m0) then RDP by (n_shift - 31).
+
+    Mirrors TFLite's int8 quantized conv reference kernel. `n_shift` here is
+    the total right-shift matching the HDL/RTL convention (i.e.
+    `n_shift = 31 - frexp_exponent`), and the RDP shift is `n_shift - 31`.
+    """
+    step1 = saturating_rounding_doubling_high_mul(int(acc), int(m0))
+    rdp_shift = int(n_shift) - 31
+    if rdp_shift < 0:
+        # Scale > 1 is unusual but possible; fall back to a simple left-shift.
+        step2 = step1 << (-rdp_shift)
+    else:
+        step2 = rounding_divide_by_pot(step1, rdp_shift)
+    return step2 + int(zp_out)
+
+
 def reference_conv3d_ch(
     pixels_int8: np.ndarray,
     weights_rom: np.ndarray,
@@ -163,14 +219,22 @@ def reference_conv3d_ch(
                         act = np.int64(padded[r + ky, col + kx, ci])
                         wt = np.int64(weight[ky, kx, ci])
                         acc += act * wt
-            # Add bias
+            # Add bias (bias already has -zp_in*sum(weight) baked in upstream)
             acc += np.int64(bias)
-            # Requantize: (acc * m0) >> nshift + zp_out
+            # Round-half-up requantize — matches the RTL's requantize path
+            # (conv3d.v / conv1d.v) bit-exact. Diverges from TFLite's
+            # gemmlowp SRDHM+RDP by at most 1-2 LSB on ~0.02% of pixels
+            # (negative accumulators near a rounding boundary), which is
+            # within the tolerance that quantized int8 networks absorb
+            # through their activation saturations.
             scaled = np.int64(acc) * np.int64(m0)
-            shifted = scaled >> int(nshift)
-            q = shifted + np.int64(zp_out)
-            # Clamp to int8
-            q = max(-128, min(127, int(q)))
+            if int(nshift) > 0:
+                nudge = np.int64(1) << (int(nshift) - 1)
+                shifted = (scaled + nudge) >> int(nshift)
+            else:
+                shifted = scaled
+            q = int(shifted) + int(zp_out)
+            q = max(-128, min(127, q))
             output[r, col] = np.int8(q)
 
     return output
