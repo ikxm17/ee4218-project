@@ -120,7 +120,13 @@ class TinyissimoYoloAcceleratorDriver:
         self._ip.write(self._MODE, (cur & ~(1 << 4)) | (engine << 4))
 
     def soft_reset(self):
-        """Pulse CTRL[7] (soft_reset, auto-clearing). Restores phase FSM to IDLE."""
+        """Pulse CTRL[7], which clears the pixel FIFO accumulator inside
+        axil_regs.sv. Despite the name, this does NOT reset the phase FSM
+        in inference_top.sv or `engine_sel_latched` — those clear only on
+        hard `aresetn`. The bit is also not auto-clearing, but the next
+        write to CTRL (e.g. start()) overwrites the whole register and
+        drops it back to 0.
+        """
         self._ip.write(self._CTRL, self._CTRL_SOFT_RST)
 
     def configure(self, mode: int = 0, engine: int = 0):
