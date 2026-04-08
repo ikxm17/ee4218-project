@@ -127,13 +127,17 @@ module tb_tinyissimoyolo_accel;
     // =========================================================================
     //  Register addresses (must match axil_regs.sv)
     // =========================================================================
-    localparam [AXI_ADDR_W-1:0] ADDR_CTRL        = 13'h000,
-                                ADDR_STATUS      = 13'h004,
-                                ADDR_MODE        = 13'h008,
-                                ADDR_PIXEL_FIFO  = 13'h020,
-                                ADDR_PIXEL_CNT   = 13'h024,
-                                ADDR_CYCLE_CNT   = 13'h00C,
-                                ADDR_RESULT_BASE = 13'h100;
+    localparam [AXI_ADDR_W-1:0] ADDR_CTRL          = 13'h000,
+                                ADDR_STATUS        = 13'h004,
+                                ADDR_MODE          = 13'h008,
+                                ADDR_CYCLE_CNT     = 13'h00C,
+                                ADDR_LAYER_IDX     = 13'h010,
+                                ADDR_RESULT_BASE_R = 13'h014,
+                                ADDR_RESULT_BUF_R  = 13'h018,
+                                ADDR_MAX_LAYERS_R  = 13'h01C,
+                                ADDR_PIXEL_FIFO    = 13'h020,
+                                ADDR_PIXEL_CNT     = 13'h024,
+                                ADDR_RESULT_BASE   = 13'h100;
 
     // =========================================================================
     //  AXI-Lite BFM Tasks
@@ -260,6 +264,72 @@ module tb_tinyissimoyolo_accel;
             $display("  [FAIL] %s: %0d / %0d mismatches", buf_name, errors, num_words);
     endtask
 
+    // -------------------------------------------------------------------------
+    // Verify a layer's URAM via AXI-Lite reads through the result region,
+    // exactly as the PYNQ driver does via drv.read_window().
+    //
+    // Slides the result window (ADDR_RESULT_BASE_R / ADDR_RESULT_BUF_R) over
+    // the chunk at [offset .. offset + num_words - 1] in 320-word chunks,
+    // reading 4 × 32-bit lanes per URAM word via axil_read, and compares
+    // against golden_buf[] (which must be loaded by load_golden(layer) first).
+    //
+    // This closes the coverage gap that the hierarchical verify_uram_at_offset
+    // leaves open: all 4 sim flavors verify the URAM storage directly, but
+    // neither that nor the existing cv2/cv3 AXI-Lite readout at base 256/512
+    // ever exercises the `result_base_addr = N` arithmetic for N ∈ [0, 15].
+    // -------------------------------------------------------------------------
+    task automatic verify_axil_at_offset(
+        input int buf_sel,        // 0 = fmap_a, 1 = fmap_b
+        input int num_words,
+        input int offset,
+        input int max_to_check    // cap on words to check for sim runtime
+    );
+        integer errors = 0;
+        integer checked = 0;
+        logic [127:0] actual;
+        logic [31:0]  axi_lane;
+        int           words_this_check;
+
+        words_this_check = (max_to_check < num_words) ? max_to_check : num_words;
+
+        $display("  [AXIL] Reading %s[%0d..%0d] via result region (buf=%0d)...",
+                 (buf_sel == 0) ? "fmap_a" : "fmap_b",
+                 offset, offset + words_this_check - 1, buf_sel);
+
+        // Select the buffer (0=fmap_a, 1=fmap_b)
+        axil_write(ADDR_RESULT_BUF_R, buf_sel);
+
+        for (int w = 0; w < words_this_check; w++) begin
+            // Slide the window: each read window chunk holds 320 URAM words.
+            // Update result_base every 320 words so (ADDR_RESULT_BASE +
+            // lane*4) within the chunk stays within the 0x100..0x14FF region.
+            if (w % 320 == 0) begin
+                axil_write(ADDR_RESULT_BASE_R, offset + w);
+            end
+
+            // Read 4 × 32-bit lanes to assemble one 128-bit URAM word.
+            for (int lane = 0; lane < 4; lane++) begin
+                axil_read(ADDR_RESULT_BASE + (w % 320) * 16 + lane * 4, axi_lane);
+                actual[lane * 32 +: 32] = axi_lane;
+            end
+
+            if (actual !== golden_buf[w]) begin
+                if (errors < 5)
+                    $display("    [AXIL FAIL] word[%0d] Exp: 0x%032h Got: 0x%032h",
+                             w, golden_buf[w], actual);
+                errors++;
+            end
+            checked++;
+        end
+
+        if (errors == 0)
+            $display("  [AXIL PASS] %0d / %0d words match via AXI-Lite",
+                     checked, checked);
+        else
+            $display("  [AXIL FAIL] %0d / %0d mismatches via AXI-Lite",
+                     errors, checked);
+    endtask
+
     // =========================================================================
     //  Main Test Sequence
     // =========================================================================
@@ -351,6 +421,38 @@ module tb_tinyissimoyolo_accel;
             verify_uram_at_offset("fmap_a", URAM_WORDS[0], WR_OFFSET[0]);
         else
             verify_uram_at_offset("fmap_b", URAM_WORDS[0], WR_OFFSET[0]);
+
+        // -----------------------------------------------------------------
+        //  Step 3.6: Verify layer 0 via AXI-Lite reads at result_base=0
+        //
+        //  The hierarchical check above reads dut.u_fmap_a.ram[] directly,
+        //  which is the same URAM storage cells the AXI-Lite read region
+        //  targets. But this does NOT exercise the axil_regs read-address
+        //  decode path with result_base_addr=0 — the cv2/cv3 Step 6 check
+        //  only ever uses base 256 / 512.
+        //
+        //  If PYNQ's drv.read_window(0, buf=0, 16384) returns a +1-shifted
+        //  view of layer 0 while the hierarchical check passes, the bug
+        //  is in the axil_regs result-region read path (not in the compute
+        //  pipeline). This test reproduces that case in sim.
+        //
+        //  Limit to the first 32 URAM words to keep xsim runtime reasonable
+        //  (each axil_read burns ~5-10 cycles).
+        // -----------------------------------------------------------------
+        $display("[STEP 3.6] Verifying layer 0 via AXI-Lite result region (base=0)...");
+        // Test window-sliding: 640 words = 2 chunks of 320 (one set_result_window slide)
+        verify_axil_at_offset(
+            .buf_sel     (PP_BUF_SEL[0]),
+            .num_words   (URAM_WORDS[0]),
+            .offset      (WR_OFFSET[0]),
+            .max_to_check(640)
+        );
+
+        // Restore result region defaults so Step 6 cv2/cv3 reads work
+        // (Step 6 has no explicit set — it relies on the reset defaults
+        //  result_base=256, result_buf=1 from axil_regs.sv:165-166.)
+        axil_write(ADDR_RESULT_BASE_R, 32'd256);
+        axil_write(ADDR_RESULT_BUF_R,  32'd1);
 
         // -----------------------------------------------------------------
         //  Step 4: Wait for inference to complete
