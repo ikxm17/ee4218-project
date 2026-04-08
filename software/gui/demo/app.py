@@ -62,7 +62,7 @@ from software.inference.demo_runners import (  # noqa: E402
     RunnerResult,
     TFLiteRunner,
     make_ground_truth_png,
-    repostprocess as runner_repostprocess,
+    repostprocess_boxes_only,
 )
 from software.overlay.drivers.tinyissimoyolo_accelerator import (  # noqa: E402
     CLASS_COLORS,
@@ -483,9 +483,14 @@ async def repostprocess(name: str, body: RunRequest = RunRequest()):
     This endpoint never touches the TFLite interpreter or the FPGA — it
     operates entirely on the cached numpy arrays from the most recent full
     ``/api/run`` for this image. Threshold changes don't affect inference
-    output, only how it's filtered, so re-running the cheap post_process +
-    nms + draw stages (<1 ms per runner) gives true live interactivity
-    without serialising slider drags on the single-instance accelerator.
+    output, only how it's filtered, so re-running the cheap post_process
+    + nms stages (<1 ms per runner) gives true live interactivity without
+    serialising slider drags on the single-instance accelerator.
+
+    Skips PIL drawing and PNG encoding — the browser redraws each panel
+    on a cached Canvas overlay using the returned boxes/scores/class_ids.
+    That removes ~50 ms of per-tick latency that the live slider drags
+    cannot afford.
 
     Returns 404 if no full run has been cached for this image — the
     frontend should fall back to "click Run Inference first".
@@ -503,9 +508,8 @@ async def repostprocess(name: str, body: RunRequest = RunRequest()):
     results: dict[str, dict] = {}
     for runner_key, entry in cached.items():
         try:
-            boxes, scores, class_ids, png, post_ms = runner_repostprocess(
+            boxes, scores, class_ids, post_ms = repostprocess_boxes_only(
                 entry["raw_tensor"],
-                entry["preproc_arr"],
                 body.conf_thresh,
                 body.nms_thresh,
             )
@@ -533,7 +537,9 @@ async def repostprocess(name: str, body: RunRequest = RunRequest()):
             "boxes": list(boxes),
             "scores": [float(s) for s in scores],
             "class_ids": [int(c) for c in class_ids],
-            "annotated_png_b64": base64.b64encode(png).decode("ascii"),
+            # No annotated_png_b64 — client draws via Canvas from the
+            # cached ground-truth image and the boxes above.
+            "annotated_png_b64": None,
             "timings": new_timings,
         }
 

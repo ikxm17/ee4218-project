@@ -224,17 +224,41 @@ def repostprocess(
 ) -> tuple:
     """Re-run only the postprocessing stage on cached tensors.
 
-    Used by both the full ``run()`` paths (DRY) and the live
-    ``/api/repostprocess`` endpoint that fires when the user drags a
-    threshold slider. Returns ``(boxes, scores, class_ids, annotated_png,
-    postprocess_ms)`` — the post_ms is computed inside the helper so callers
-    don't have to time it themselves.
+    Used by the full ``run()`` paths (DRY) — the ``_draw_detections`` call
+    is the authoritative server-side rendering that's verified against the
+    TFLite/HDL bit-exact goldens. Returns ``(boxes, scores, class_ids,
+    annotated_png, postprocess_ms)``.
+
+    For live slider updates via ``/api/repostprocess``, use
+    ``repostprocess_boxes_only`` instead — that path skips PIL drawing and
+    PNG encoding so the browser can draw boxes on a cached Canvas overlay.
     """
     t0 = time.perf_counter()
     boxes, scores, class_ids = post_process(raw_tensor, conf_thresh, INPUT_SIZE)
     boxes, scores, class_ids = nms(boxes, scores, class_ids, nms_thresh)
     png = _draw_detections(preproc_arr, boxes, scores, class_ids)
     return boxes, scores, class_ids, png, _ms(time.perf_counter() - t0)
+
+
+def repostprocess_boxes_only(
+    raw_tensor: np.ndarray,
+    conf_thresh: float,
+    nms_thresh: float,
+) -> tuple:
+    """Boxes-only variant of ``repostprocess`` — no PIL drawing, no PNG.
+
+    Used by ``/api/repostprocess`` for live slider updates where the
+    browser redraws boxes on a cached Canvas overlay. Skipping the PIL
+    draw + PNG encode + base64 steps removes ~50 ms per request on the
+    Kria, which is the dominant share of the per-tick latency budget
+    during fast slider drags.
+
+    Returns ``(boxes, scores, class_ids, postprocess_ms)``.
+    """
+    t0 = time.perf_counter()
+    boxes, scores, class_ids = post_process(raw_tensor, conf_thresh, INPUT_SIZE)
+    boxes, scores, class_ids = nms(boxes, scores, class_ids, nms_thresh)
+    return boxes, scores, class_ids, _ms(time.perf_counter() - t0)
 
 
 def make_ground_truth_png(image_path) -> bytes:

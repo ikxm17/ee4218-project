@@ -29,17 +29,38 @@ const PANELS = {
   hls:    document.getElementById("panel-hls"),
 };
 
-// Class list comes from /api/config; bootstrapped to defaults so the
-// frontend doesn't crash before /api/config returns.
+// Class list + RGB colors come from /api/config; bootstrapped to defaults
+// so the frontend doesn't crash before /api/config returns.
 let CLASS_NAMES = ["chair", "bowl", "cup"];
+let CLASS_COLORS_RGB = [[0, 0, 255], [0, 255, 0], [255, 0, 0]];
 
 // Track which image has been fully run (cached server-side). Slider drags
 // only fire repostprocess when this matches the picker selection.
 let cachedImage = null;
 
+// Cached ground-truth 256×256 image as an HTMLImageElement — source of
+// truth for client-side Canvas drawing during live slider updates.
+let cachedGroundTruth = null;
+
 // Debounce handle for the live re-postprocess slider drags.
 let repostprocessTimer = null;
-const REPOST_DEBOUNCE_MS = 30;
+// Raised from 30 ms — coalesces rapid drags into ~8 req/s which is
+// realistic throughput once the server does only post_process + nms.
+const REPOST_DEBOUNCE_MS = 120;
+
+// In-flight fetch cancellation + sequence guard for live slider drags.
+// AbortController cancels the network request; the monotonic sequence
+// number is a belt-and-braces guard against stale responses still
+// landing in .then() handlers after cancellation.
+let repostprocessAbort = null;
+let repostprocessSeq = 0;
+
+function abortInFlightRepostprocess() {
+  if (repostprocessAbort) {
+    repostprocessAbort.abort();
+    repostprocessAbort = null;
+  }
+}
 
 // ----- formatters -----------------------------------------------------
 
@@ -111,6 +132,7 @@ async function loadConfig() {
     const data = await resp.json();
 
     if (Array.isArray(data.class_names)) CLASS_NAMES = data.class_names;
+    if (Array.isArray(data.class_colors_rgb)) CLASS_COLORS_RGB = data.class_colors_rgb;
 
     populateLegend(data.class_names || [], data.class_colors_rgb || []);
     populateModelInfo(data.model_info || {});
@@ -354,9 +376,84 @@ function setPanelDetectionSummary(panel, result) {
   }
 }
 
+// Cache the server's ground-truth 256×256 PNG as an HTMLImageElement so
+// client-side Canvas drawing can reuse it as a base layer for bbox
+// overlays during live slider drags. The Image loads async; if the
+// first slider drag fires before it's ready, drawPanelFromCachedGT
+// no-ops (checked via .complete) and the update is lost for that tick
+// — acceptable because (a) the server already painted the initial
+// annotated PNG and (b) a typical image loads in <50 ms over LAN.
+function cacheGroundTruth(b64) {
+  if (!b64) { cachedGroundTruth = null; return; }
+  const img = new Image();
+  img.src = `data:image/png;base64,${b64}`;
+  cachedGroundTruth = img;
+}
+
+// Draw a 256×256 Canvas with the cached ground-truth image as the base
+// layer and bbox rectangles + labels painted on top. Writes the result
+// back into the target <img> via toDataURL so the CSS layout (aspect-
+// ratio, pixelated rendering) is preserved. Mirrors _draw_detections()
+// in software/inference/demo_runners.py — PIL and Canvas font metrics
+// differ slightly but the visual intent is identical.
+function drawPanelFromCachedGT(targetImg, boxes, scores, classIds) {
+  if (!cachedGroundTruth || !cachedGroundTruth.complete) return;
+  if (cachedGroundTruth.naturalWidth === 0) return; // still loading
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(cachedGroundTruth, 0, 0, 256, 256);
+
+  ctx.lineWidth = 2;
+  ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.textBaseline = "top";
+
+  for (let i = 0; i < boxes.length; i++) {
+    const box = boxes[i];
+    if (!box || box.length < 4) continue;
+    const [x, y, w, h] = box;
+    const cls = classIds[i];
+    const rgb = CLASS_COLORS_RGB[cls] || [255, 255, 255];
+    const colorStr = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+
+    // Clamp bbox to canvas bounds (post_process can return OOB coords).
+    const x1 = Math.max(0, Math.round(x));
+    const y1 = Math.max(0, Math.round(y));
+    const x2 = Math.min(255, Math.round(x + w));
+    const y2 = Math.min(255, Math.round(y + h));
+
+    ctx.strokeStyle = colorStr;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+    // Label bar above the bbox if there's room, else just inside.
+    const label = `${CLASS_NAMES[cls] || `cls${cls}`} ${scores[i].toFixed(2)}`;
+    const metrics = ctx.measureText(label);
+    const barW = Math.ceil(metrics.width) + 6;
+    const barH = 14;
+    let barX = x1;
+    let barY = y1 - barH;
+    if (barY < 0) barY = y1;
+    if (barX + barW > 256) barX = 256 - barW;
+    if (barX < 0) barX = 0;
+
+    ctx.fillStyle = colorStr;
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(label, barX + 3, barY + 1);
+  }
+
+  targetImg.src = canvas.toDataURL("image/png");
+  targetImg.style.visibility = "visible";
+}
+
 function renderResults(data) {
-  // Ground-truth panel (256x256 unannotated)
+  // Ground-truth panel (256x256 unannotated). Also cache the image into
+  // a JS Image object so live slider updates can redraw boxes on top
+  // of it via Canvas without waiting for the server PIL + PNG roundtrip.
   setPanelImage(PANELS.gt, data.ground_truth_png_b64);
+  cacheGroundTruth(data.ground_truth_png_b64);
 
   // TFLite / HDL / HLS panels
   for (const key of ["tflite", "hdl", "hls"]) {
@@ -484,9 +581,15 @@ function updateTimingLive(results) {
     if (fpsi)  { fpsi.textContent  = fmtFps(inf); flash(fpsi); }
     if (fpse)  { fpse.textContent  = fmtFps(e2e); flash(fpse); }
 
-    // Live-update detection summary too — slider may have changed counts.
+    // Live-update: draw the panel client-side on a Canvas overlay
+    // rather than consuming a server-rendered PNG. The /api/repostprocess
+    // response no longer includes annotated_png_b64 — the server only
+    // returns boxes/scores/class_ids and we paint them here. This cuts
+    // ~50 ms of latency per tick compared to the initial PIL + PNG +
+    // base64 + browser-decode round-trip.
     if (PANELS[key]) {
-      setPanelImage(PANELS[key], result.annotated_png_b64);
+      const img = panelImg(PANELS[key]);
+      drawPanelFromCachedGT(img, result.boxes, result.scores, result.class_ids);
       setPanelDetectionSummary(PANELS[key], result);
     }
   }
@@ -506,6 +609,15 @@ async function repostprocess() {
   const name = picker.value;
   if (!name || cachedImage !== name) return;
 
+  // Cancel any older in-flight request before issuing a new one, and
+  // stamp this request with a monotonic sequence so responses that
+  // resolve out-of-order (e.g. race between abort and resolve) can be
+  // discarded.
+  abortInFlightRepostprocess();
+  const mySeq = ++repostprocessSeq;
+  repostprocessAbort = new AbortController();
+  const mySignal = repostprocessAbort.signal;
+
   try {
     const resp = await fetch(
       `/api/repostprocess/${encodeURIComponent(name)}`,
@@ -513,6 +625,7 @@ async function repostprocess() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(currentThresholds()),
+        signal: mySignal,
       },
     );
     if (resp.status === 404) {
@@ -523,9 +636,13 @@ async function repostprocess() {
     }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
+    // Belt-and-braces: drop stale responses even if AbortController
+    // races with fetch resolution.
+    if (mySeq !== repostprocessSeq) return;
     updateTimingLive(data.results);
     updateConfigEcho(data.results);
   } catch (err) {
+    if (err.name === "AbortError") return; // expected on cancellation
     console.warn("repostprocess failed:", err);
   }
 }
@@ -538,8 +655,23 @@ function scheduleRepostprocess() {
 // ----- event wiring ---------------------------------------------------
 
 picker.addEventListener("change", () => {
-  cachedImage = null; // switching images invalidates the cache binding
+  // Switching images invalidates the cache binding AND the visible
+  // panels (which otherwise still show the previous run's annotated
+  // PNG — the bug that made a soup image sit next to a stale chair
+  // image in the TFLite/HDL panels). Cancel any in-flight repostprocess
+  // because its cached tensors belong to the OLD image.
+  cachedImage = null;
+  cachedGroundTruth = null;
+  abortInFlightRepostprocess();
+  clearResults();
   updateHero();
+  // Tell the viewer what to do next — otherwise the blank panels look
+  // like a bug rather than "you need to click Run Inference".
+  for (const key of ["tflite", "hdl"]) {
+    if (PANELS[key]) {
+      panelStatus(PANELS[key]).textContent = "Click Run Inference";
+    }
+  }
 });
 
 runBtn.addEventListener("click", runInference);
