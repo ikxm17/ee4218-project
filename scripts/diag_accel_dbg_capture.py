@@ -36,6 +36,9 @@ ADDR_DBG_POOL      = 0x044
 ADDR_DBG_POOL1     = 0x048
 ADDR_DBG_RMW_S0    = 0x04C
 ADDR_DBG_RMW_S01   = 0x050
+ADDR_DBG_RMW_BASE  = 0x054
+ADDR_DBG_RMW_BASE1 = 0x058
+ADDR_DBG_INPUTS    = 0x05C
 
 print(f"=== bitstream md5: {hashlib.md5(BIT_PATH.read_bytes()).hexdigest()} ===")
 
@@ -107,6 +110,27 @@ rs2, rs3 = unpack_pair(w_rmw1, "rmw_s0[2]", "rmw_s0[3]")
 print("\n[4] out_buf_wr_addr (captured at out_buf_wr_en high):")
 ow0, ow1 = unpack_pair(w_out0, "out_wr[0]", "out_wr[1]")
 ow2, ow3 = unpack_pair(w_out1, "out_wr[2]", "out_wr[3]")
+
+# Read rmw_base_addr and input snapshot
+w_base0  = drv._ip.read(ADDR_DBG_RMW_BASE)
+w_base1  = drv._ip.read(ADDR_DBG_RMW_BASE1)
+w_inputs = drv._ip.read(ADDR_DBG_INPUTS)
+
+print("\n[3a] rmw_base_addr (comb, snapshotted at each rmw_s0_valid capture):")
+rb0, rb1 = unpack_pair(w_base0, "rmw_base[0]", "rmw_base[1]")
+rb2, rb3 = unpack_pair(w_base1, "rmw_base[2]", "rmw_base[3]")
+
+# DBG_INPUTS: [31]=0, [30:22]=h_out[8:0], [21:14]=ch_out[7:0], [13:0]=pp_wr_offset[13:0]
+pp_wr_offset_snap = w_inputs & 0x3FFF
+ch_out_snap       = (w_inputs >> 14) & 0xFF
+h_out_snap        = (w_inputs >> 22) & 0x1FF
+print(f"\n[5] rmw_base_addr inputs (snapshotted at first rmw_s0_valid):")
+print(f"    curr_pp_wr_offset = {pp_wr_offset_snap} (0x{pp_wr_offset_snap:04x})")
+print(f"    curr_ch_out       = {ch_out_snap}")
+print(f"    h_out             = {h_out_snap}")
+print(f"    computed base     = pp_wr_offset + (ch_out >> 4) * h_out * h_out")
+print(f"                      = {pp_wr_offset_snap} + ({ch_out_snap >> 4}) * {h_out_snap} * {h_out_snap}")
+print(f"                      = {pp_wr_offset_snap + (ch_out_snap >> 4) * h_out_snap * h_out_snap}")
 
 print(f"\ncapture count: {w_cnt & 0xF}")
 

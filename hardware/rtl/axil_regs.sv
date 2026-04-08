@@ -90,6 +90,13 @@ module axil_regs #(
     input  logic [13:0]               i_dbg_rmw_s0_addr_1,
     input  logic [13:0]               i_dbg_rmw_s0_addr_2,
     input  logic [13:0]               i_dbg_rmw_s0_addr_3,
+    input  logic [13:0]               i_dbg_rmw_base_0,
+    input  logic [13:0]               i_dbg_rmw_base_1,
+    input  logic [13:0]               i_dbg_rmw_base_2,
+    input  logic [13:0]               i_dbg_rmw_base_3,
+    input  logic [13:0]               i_dbg_pp_wr_offset,
+    input  logic [7:0]                i_dbg_ch_out,
+    input  logic [8:0]                i_dbg_h_out,
     input  logic [13:0]               i_dbg_out_wr_addr_0,
     input  logic [13:0]               i_dbg_out_wr_addr_1,
     input  logic [13:0]               i_dbg_out_wr_addr_2,
@@ -117,6 +124,9 @@ module axil_regs #(
                             ADDR_DBG_POOL1     = 13'h048, // pool_out[3:2]
                             ADDR_DBG_RMW_S0    = 13'h04C, // rmw_s0[1:0]
                             ADDR_DBG_RMW_S01   = 13'h050, // rmw_s0[3:2]
+                            ADDR_DBG_RMW_BASE  = 13'h054, // rmw_base[1:0]
+                            ADDR_DBG_RMW_BASE1 = 13'h058, // rmw_base[3:2]
+                            ADDR_DBG_INPUTS    = 13'h05C, // {h_out[8:0], ch_out[7:0], pp_wr_offset[13:0]}
                             ADDR_DBG_OUT_WR    = 13'h038, // out_wr[1:0]
                             ADDR_DBG_OUT_WR1   = 13'h03C, // out_wr[3:2]
                             ADDR_DBG_CAP_CNT   = 13'h040, // {out_idx, conv_res_idx}
@@ -336,6 +346,9 @@ module axil_regs #(
                 ADDR_DBG_POOL1:     rd_data_mux = {2'd0, i_dbg_pool_out_addr_3, 2'd0, i_dbg_pool_out_addr_2};
                 ADDR_DBG_RMW_S0:    rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_1,   2'd0, i_dbg_rmw_s0_addr_0};
                 ADDR_DBG_RMW_S01:   rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_3,   2'd0, i_dbg_rmw_s0_addr_2};
+                ADDR_DBG_RMW_BASE:  rd_data_mux = {2'd0, i_dbg_rmw_base_1,      2'd0, i_dbg_rmw_base_0};
+                ADDR_DBG_RMW_BASE1: rd_data_mux = {2'd0, i_dbg_rmw_base_3,      2'd0, i_dbg_rmw_base_2};
+                ADDR_DBG_INPUTS:    rd_data_mux = {1'b0, i_dbg_h_out, i_dbg_ch_out, i_dbg_pp_wr_offset};
                 ADDR_DBG_OUT_WR:    rd_data_mux = {2'd0, i_dbg_out_wr_addr_1,   2'd0, i_dbg_out_wr_addr_0};
                 ADDR_DBG_OUT_WR1:   rd_data_mux = {2'd0, i_dbg_out_wr_addr_3,   2'd0, i_dbg_out_wr_addr_2};
                 ADDR_DBG_CAP_CNT:   rd_data_mux = {28'd0, i_dbg_capture_count};

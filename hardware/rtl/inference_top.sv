@@ -231,6 +231,11 @@ module inference_top #(
                  dbg_pool_out_addr_2, dbg_pool_out_addr_3;
     logic [13:0] dbg_rmw_s0_addr_0,   dbg_rmw_s0_addr_1,
                  dbg_rmw_s0_addr_2,   dbg_rmw_s0_addr_3;
+    logic [13:0] dbg_rmw_base_0,      dbg_rmw_base_1,
+                 dbg_rmw_base_2,      dbg_rmw_base_3;
+    logic [13:0] dbg_pp_wr_offset;
+    logic [7:0]  dbg_ch_out;
+    logic [8:0]  dbg_h_out;
     logic [13:0] dbg_out_wr_addr_0,   dbg_out_wr_addr_1,
                  dbg_out_wr_addr_2,   dbg_out_wr_addr_3;
     logic [3:0]  dbg_capture_count;
@@ -415,6 +420,13 @@ module inference_top #(
             .i_dbg_rmw_s0_addr_1   (dbg_rmw_s0_addr_1),
             .i_dbg_rmw_s0_addr_2   (dbg_rmw_s0_addr_2),
             .i_dbg_rmw_s0_addr_3   (dbg_rmw_s0_addr_3),
+            .i_dbg_rmw_base_0      (dbg_rmw_base_0),
+            .i_dbg_rmw_base_1      (dbg_rmw_base_1),
+            .i_dbg_rmw_base_2      (dbg_rmw_base_2),
+            .i_dbg_rmw_base_3      (dbg_rmw_base_3),
+            .i_dbg_pp_wr_offset    (dbg_pp_wr_offset),
+            .i_dbg_ch_out          (dbg_ch_out),
+            .i_dbg_h_out           (dbg_h_out),
             .i_dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
             .i_dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
             .i_dbg_out_wr_addr_2   (dbg_out_wr_addr_2),
@@ -611,6 +623,13 @@ module inference_top #(
         .dbg_rmw_s0_addr_1   (dbg_rmw_s0_addr_1),
         .dbg_rmw_s0_addr_2   (dbg_rmw_s0_addr_2),
         .dbg_rmw_s0_addr_3   (dbg_rmw_s0_addr_3),
+        .dbg_rmw_base_0      (dbg_rmw_base_0),
+        .dbg_rmw_base_1      (dbg_rmw_base_1),
+        .dbg_rmw_base_2      (dbg_rmw_base_2),
+        .dbg_rmw_base_3      (dbg_rmw_base_3),
+        .dbg_pp_wr_offset    (dbg_pp_wr_offset),
+        .dbg_ch_out          (dbg_ch_out),
+        .dbg_h_out           (dbg_h_out),
         .dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
         .dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
         .dbg_out_wr_addr_2   (dbg_out_wr_addr_2),

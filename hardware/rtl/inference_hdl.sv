@@ -85,6 +85,19 @@ module inference_hdl #(
     output logic [13:0]                      dbg_rmw_s0_addr_1,
     output logic [13:0]                      dbg_rmw_s0_addr_2,
     output logic [13:0]                      dbg_rmw_s0_addr_3,
+    /* Captures rmw_base_addr (combinational) snapshotted at each
+     * rmw_s0_valid fire. If silicon shows 16383 but sim shows 0, the
+     * issue is in rmw_base_addr computation (pp_wr_offset, ch_out>>4,
+     * or h_out). */
+    output logic [13:0]                      dbg_rmw_base_0,
+    output logic [13:0]                      dbg_rmw_base_1,
+    output logic [13:0]                      dbg_rmw_base_2,
+    output logic [13:0]                      dbg_rmw_base_3,
+    /* Snapshot of the full r_cfg.pp_wr_offset + curr_ch_out at capture 0.
+     * Helps disambiguate where the 16383 is coming from. */
+    output logic [13:0]                      dbg_pp_wr_offset,
+    output logic [7:0]                       dbg_ch_out,
+    output logic [8:0]                       dbg_h_out,
     output logic [3:0]                       dbg_capture_count
 );
 
@@ -850,6 +863,13 @@ module inference_hdl #(
             dbg_rmw_s0_addr_1   <= '0;
             dbg_rmw_s0_addr_2   <= '0;
             dbg_rmw_s0_addr_3   <= '0;
+            dbg_rmw_base_0      <= '0;
+            dbg_rmw_base_1      <= '0;
+            dbg_rmw_base_2      <= '0;
+            dbg_rmw_base_3      <= '0;
+            dbg_pp_wr_offset    <= '0;
+            dbg_ch_out          <= '0;
+            dbg_h_out           <= '0;
             dbg_out_wr_addr_0   <= '0;
             dbg_out_wr_addr_1   <= '0;
             dbg_out_wr_addr_2   <= '0;
@@ -901,13 +921,30 @@ module inference_hdl #(
                     pool_cap_idx <= pool_cap_idx + 2'd1;
             end
 
-            // Capture rmw_s0_addr (layer 0 only, first 4)
+            // Capture rmw_s0_addr + rmw_base_addr at rmw_s0_valid transitions.
+            // Also snapshot pp_wr_offset/ch_out/h_out at the first capture
+            // so we can see what the buggy computation inputs are.
             if (rmw_s0_valid && !rmw_s0_done && (curr_layer_idx == 5'd0)) begin
                 case (rmw_s0_cap_idx)
-                    2'd0: dbg_rmw_s0_addr_0 <= rmw_s0_addr;
-                    2'd1: dbg_rmw_s0_addr_1 <= rmw_s0_addr;
-                    2'd2: dbg_rmw_s0_addr_2 <= rmw_s0_addr;
-                    2'd3: dbg_rmw_s0_addr_3 <= rmw_s0_addr;
+                    2'd0: begin
+                        dbg_rmw_s0_addr_0 <= rmw_s0_addr;
+                        dbg_rmw_base_0    <= rmw_base_addr;
+                        dbg_pp_wr_offset  <= curr_pp_wr_offset;
+                        dbg_ch_out        <= curr_ch_out;
+                        dbg_h_out         <= h_out;
+                    end
+                    2'd1: begin
+                        dbg_rmw_s0_addr_1 <= rmw_s0_addr;
+                        dbg_rmw_base_1    <= rmw_base_addr;
+                    end
+                    2'd2: begin
+                        dbg_rmw_s0_addr_2 <= rmw_s0_addr;
+                        dbg_rmw_base_2    <= rmw_base_addr;
+                    end
+                    2'd3: begin
+                        dbg_rmw_s0_addr_3 <= rmw_s0_addr;
+                        dbg_rmw_base_3    <= rmw_base_addr;
+                    end
                 endcase
                 if (rmw_s0_cap_idx == 2'd3)
                     rmw_s0_done <= 1'b1;
