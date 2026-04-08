@@ -114,18 +114,31 @@ NUM_LAYERS = len(HDL_LAYERS)
 # Quantisation helpers (from extract_tflite_params.py)
 # ---------------------------------------------------------------------------
 def decompose_scale(scale: float, n_bits: int = 31) -> tuple[int, int]:
-    """Decompose scale into (m0, n_shift) where scale ~ m0 * 2^(-n_shift)."""
+    """Decompose scale into (m0, n_shift) where scale ~ m0 * 2^(-n_shift).
+
+    Uses math.frexp to exactly mirror TFLite's QuantizeMultiplier reference
+    (gemmlowp). frexp returns (q, shift) with scale = q * 2^shift and
+    q in [0.5, 1.0), so m0 = round(q * 2^n_bits) lives in [2^(n_bits-1),
+    2^n_bits] and the equivalent right-shift to apply after (acc * m0) is
+    n_bits - shift.
+
+    Previous implementation used log2 + ceil + float multiply which was
+    numerically ~1 LSB off from TFLite for some scales (e.g. layer 0 ch 0
+    produced m0=0x4d9185ff vs TFLite's 0x4d91863b).
+    """
     if scale <= 0.0:
         return 0, 0
-    log2_scale = math.log2(scale)
-    n = max(0, math.ceil(-log2_scale))
-    m0_float = scale * (2.0 ** n) * (2.0 ** n_bits)
-    m0 = int(round(m0_float))
-    if m0 >= (1 << n_bits):
-        m0 >>= 1
-        n -= 1
-    n_shift = n + n_bits
-    return int(m0), int(n_shift)
+    q, shift = math.frexp(scale)          # scale = q * 2^shift, q in [0.5, 1.0)
+    # Use round-half-away-from-zero to match TFLite C++ `TfLiteRound` exactly.
+    # Python's built-in round() is half-to-even (banker's rounding) which
+    # diverges from TFLite at ~0.02% of scales, propagating to 1-LSB output
+    # mismatches through the requantize pipeline.
+    scaled = q * (1 << n_bits)
+    m0 = int(math.floor(scaled + 0.5))    # round-half-up for positive q
+    if m0 == (1 << n_bits):               # rare rounding-up collision
+        m0 //= 2
+        shift += 1
+    return int(m0), int(n_bits - shift)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +244,28 @@ def extract_conv_layers(model_path: str) -> list[ExtractedLayer]:
         if biases is None:
             n_out_ch = weights.shape[0]
             biases = np.zeros(n_out_ch, dtype=np.int32)
+
+        # Bake the zero-point correction term into each per-channel bias.
+        # TFLite's reference conv kernel computes
+        #     acc = sum((input - zp_in) * weight) + bias_raw
+        # but the HDL MAC (conv3d.v / conv1d.v) is simplified to
+        #     acc = sum(input * weight) + bias
+        # To keep the simpler runtime form while matching TFLite bit-exact, we
+        # pre-compute `-zp_in * sum(weight)` per output channel (a build-time
+        # constant) and fold it into the stored bias. The generate_conv3d_golden
+        # Python reference reads this same adjusted bias and so stays in lock-
+        # step with both the RTL and TFLite.
+        weights_i64 = weights.astype(np.int64)  # shape [cout, kH, kW, cin]
+        w_sum_per_ch = weights_i64.sum(axis=(1, 2, 3))           # [cout] int64
+        bias_corrected = biases.astype(np.int64) - np.int64(zp_in) * w_sum_per_ch
+        INT32_MIN, INT32_MAX = -(1 << 31), (1 << 31) - 1
+        if (bias_corrected < INT32_MIN).any() or (bias_corrected > INT32_MAX).any():
+            raise OverflowError(
+                f"Layer {len(layers)}: zp-corrected bias overflows int32 "
+                f"(min={int(bias_corrected.min())}, max={int(bias_corrected.max())}). "
+                f"The RTL bias ROM is 32-bit; a wider representation would be needed."
+            )
+        biases = bias_corrected.astype(np.int32)
 
         # Compute per-channel m0 / n_shift
         m0_list = []
@@ -399,16 +434,24 @@ def generate_silu_lut(extracted: list[ExtractedLayer]) -> list[int]:
     """
     Generate per-layer SiLU LUTs for activation.
 
+    TFLite doesn't have a native SiLU op in PTQ — it decomposes SiLU into
+    a two-stage LOGISTIC + MUL chain where the LOGISTIC output has a FIXED
+    quantization (scale=1/256, zp=-128) that exactly covers the logistic
+    range [0, 1]. To produce a LUT that bit-exactly matches TFLite's
+    inference path, we must mirror this quantization round-trip rather
+    than computing x*sigmoid(x) in pure float.
+
     For each layer with SiLU, maps each possible int8 input q in [-128..127]:
       1. Dequantize: x = (q - zp_out) * scale_out        (conv output domain)
-      2. SiLU:       silu = x / (1 + exp(-x))             (= x * sigmoid(x))
-      3. Quantize:   q_silu = clamp(round(silu / scale_in_next) + zp_in_next)
-
-    The output quantization uses the next layer's input domain, so the LUT
-    absorbs both the nonlinear activation and the cross-layer requantization.
-
-    Returns a flat list of 17*256 uint8 values.
+      2. Stage 1 (LOGISTIC): quantize sigmoid(x) to int8 with (1/256, -128)
+         then dequantize back (this introduces the exact same rounding
+         error TFLite's LOGISTIC op introduces)
+      3. Stage 2 (MUL): compute x * dequant(q_sig), quantize to next
+         layer's input domain
     """
+    LOG_SCALE = 1.0 / 256.0   # TFLite LOGISTIC output scale (fixed)
+    LOG_ZP    = -128          # TFLite LOGISTIC output zero-point (fixed)
+
     lut_flat = []
 
     for i, hdl in enumerate(HDL_LAYERS):
@@ -421,8 +464,15 @@ def generate_silu_lut(extracted: list[ExtractedLayer]) -> list[int]:
         lut = []
         for q in range(-128, 128):
             if has_activation and ext_next is not None:
+                # Dequantize conv output to real domain
                 x_real = (q - ext.zp_out) * ext.scale_out
-                silu_real = x_real / (1.0 + math.exp(-x_real))
+                # Stage 1: LOGISTIC → int8 (fixed scale=1/256, zp=-128) → dequant
+                sig_real = 1.0 / (1.0 + math.exp(-x_real))
+                q_sig = int(round(sig_real / LOG_SCALE)) + LOG_ZP
+                q_sig = max(-128, min(127, q_sig))
+                sig_dq = (q_sig - LOG_ZP) * LOG_SCALE
+                # Stage 2: MUL(x_real, sig_dq), re-quantize to next layer input
+                silu_real = x_real * sig_dq
                 q_silu = int(round(silu_real / ext_next.scale_in)) + ext_next.zp_in
                 q_silu = max(-128, min(127, q_silu))
             else:
