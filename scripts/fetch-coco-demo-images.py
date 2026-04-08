@@ -45,6 +45,13 @@ IMAGES_BASE_URL = "http://images.cocodataset.org/val2017/"
 CACHE_DIR = Path(os.path.expanduser("~/.cache/coco-demo"))
 ANNOTATIONS_CACHE = CACHE_DIR / "annotations" / "instances_val2017.json"
 
+# The canonical known-good regression image the HDL accelerator has been
+# verified against throughout development. Copied into the demo dir under
+# REFERENCE_IMAGE_DST_NAME so it's selectable alongside the scraped COCO
+# images without colliding with the 000000XXXXXX.jpg naming.
+REFERENCE_IMAGE_SRC = Path("software/inference/data/input_image.jpg")
+REFERENCE_IMAGE_DST_NAME = "reference_image.jpg"
+
 # Min bbox area (in the original COCO image's pixel space) used to prefer
 # images whose target object is large-ish. Smaller instances tend to become
 # tiny boxes after the 256x256 resize the accelerator consumes, which
@@ -171,6 +178,34 @@ def pick_images(
     return picks, per_class_ids
 
 
+def copy_reference_image(out_dir: Path) -> Path | None:
+    """Copy the canonical regression image into the demo dir.
+
+    Returns the destination path on success, ``None`` if the source file
+    is missing (not a hard error — the scraper should still succeed even
+    if the reference image isn't available locally). Idempotent: skips
+    the copy if the destination already exists and is non-empty.
+    """
+    src = REFERENCE_IMAGE_SRC
+    if not src.is_file():
+        print(
+            f"[ref] WARN: {src} not found, skipping reference image",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+    dst = out_dir / REFERENCE_IMAGE_DST_NAME
+    if dst.exists() and dst.stat().st_size > 0:
+        print(f"[ref] {dst.name} already present, skipping copy", flush=True)
+        return dst
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    print(f"[ref] {src} -> {dst} ({dst.stat().st_size} B)", flush=True)
+    return dst
+
+
 def download_images(
     picks: Iterable[tuple[int, dict]], out_dir: Path
 ) -> tuple[list[Path], list[tuple[str, str]]]:
@@ -200,6 +235,7 @@ def write_manifest(
     picks: list[tuple[int, dict]],
     per_class_ids: dict[int, list[int]],
     succeeded: set[str],
+    reference_path: Path | None = None,
 ) -> Path:
     manifest_path = out_dir / "_manifest.json"
 
@@ -222,7 +258,24 @@ def write_manifest(
                 "file_name": rec["file_name"],
                 "width": rec.get("width"),
                 "height": rec.get("height"),
+                "source": "coco_val2017",
                 "categories": sorted(image_cats.get(iid, [])),
+            }
+        )
+
+    # Tack the canonical regression image onto the manifest with a
+    # distinct source tag so downstream consumers can tell it apart
+    # from the COCO picks.
+    if reference_path is not None and reference_path.exists():
+        entries.append(
+            {
+                "image_id": None,
+                "file_name": reference_path.name,
+                "width": None,
+                "height": None,
+                "source": "local_reference",
+                "origin": str(REFERENCE_IMAGE_SRC),
+                "categories": [],
             }
         )
 
@@ -303,7 +356,18 @@ def main(argv: list[str] | None = None) -> int:
     succeeded, failures = download_images(picks, out_dir)
     succeeded_names = {p.name for p in succeeded}
 
-    manifest_path = write_manifest(out_dir, picks, per_class_ids, succeeded_names)
+    # Always also drop the canonical known-good regression image into
+    # the demo dir. It's outside the COCO picks but useful as an
+    # always-available sanity check in the demo GUI.
+    reference_path = copy_reference_image(out_dir)
+    if reference_path is not None:
+        succeeded.append(reference_path)
+        succeeded_names.add(reference_path.name)
+
+    manifest_path = write_manifest(
+        out_dir, picks, per_class_ids, succeeded_names,
+        reference_path=reference_path,
+    )
     print(f"[manifest] wrote {manifest_path}")
 
     summarize(out_dir, succeeded, per_class_ids, succeeded_names, picks)
