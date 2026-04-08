@@ -69,9 +69,14 @@ python hardware/scripts/generate_conv3d_golden.py \
     --model software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite \
     --image software/inference/data/input_image.jpg \
     --golden hardware/weights/hdl/weight_rom_golden.npz \
+    --lut hardware/weights/hdl/silu_lut.mem \
     --out hardware/testbench/inference_hdl/ \
     --num-layers 17
 ```
+
+`--lut` must point at the `silu_lut.mem` file produced by Step 1; the
+reference pipeline replays SiLU activation through the exact same LUT
+bytes that the HDL SiLU ROM loads at elaboration time.
 
 `generate_conv3d_golden.py` runs a pure-Python reference inference whose
 arithmetic mirrors the HDL exactly, and writes into
@@ -195,6 +200,7 @@ python hardware/scripts/generate_conv3d_golden.py \
     --model software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite \
     --image software/inference/data/input_image.jpg \
     --golden hardware/weights/hdl/weight_rom_golden.npz \
+    --lut hardware/weights/hdl/silu_lut.mem \
     --out hardware/testbench/inference_hdl/ \
     --num-layers 17
 
