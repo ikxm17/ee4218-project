@@ -414,8 +414,18 @@ module conv3d #(
             scaled_pix_acc <= ACC_write_data_in * r_m0;
     end
 
+    // Round-half-up nudge for the requantize shift: add 2^(r_n_shift-1)
+    // before the arithmetic right-shift so `(x + nudge) >>> n` performs
+    // round-nearest instead of truncation. Matches TFLite's gemmlowp
+    // RoundingDivideByPOT for positive products (the common case post-SiLU).
+    // Guard against r_n_shift == 0 to avoid `<<< -1` underflow.
+    wire signed [63:0] requant_nudge =
+        (r_n_shift != {SHIFT_BITS{1'b0}}) ?
+            (64'sd1 <<< (r_n_shift - {{(SHIFT_BITS-1){1'b0}}, 1'b1})) :
+            64'sd0;
+
     always @(*) begin
-        q_pix_wide = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
+        q_pix_wide = ((scaled_pix_acc + requant_nudge) >>> r_n_shift) + r_zp_out;
         // Saturate to int8 [-128, 127]
         if (q_pix_wide > 127)
             q_pix = 127;

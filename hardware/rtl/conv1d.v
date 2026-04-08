@@ -270,8 +270,14 @@ module conv1d #(
             scaled_pix_acc <= ACC_write_data_in * r_m0;
     end
 
+    // Round-half-up nudge — see conv3d.v for rationale.
+    wire signed [63:0] requant_nudge =
+        (r_n_shift != {SHIFT_BITS{1'b0}}) ?
+            (64'sd1 <<< (r_n_shift - {{(SHIFT_BITS-1){1'b0}}, 1'b1})) :
+            64'sd0;
+
     always @(*) begin
-        q_pix_wide = (scaled_pix_acc >>> r_n_shift) + r_zp_out;
+        q_pix_wide = ((scaled_pix_acc + requant_nudge) >>> r_n_shift) + r_zp_out;
         if (q_pix_wide > 127)
             q_pix = 127;
         else if (q_pix_wide < -128)
