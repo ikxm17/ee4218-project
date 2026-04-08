@@ -77,6 +77,14 @@ module inference_hdl #(
     output logic [13:0]                      dbg_out_wr_addr_1,
     output logic [13:0]                      dbg_out_wr_addr_2,
     output logic [13:0]                      dbg_out_wr_addr_3,
+    output logic [13:0]                      dbg_pool_out_addr_0,
+    output logic [13:0]                      dbg_pool_out_addr_1,
+    output logic [13:0]                      dbg_pool_out_addr_2,
+    output logic [13:0]                      dbg_pool_out_addr_3,
+    output logic [13:0]                      dbg_rmw_s0_addr_0,
+    output logic [13:0]                      dbg_rmw_s0_addr_1,
+    output logic [13:0]                      dbg_rmw_s0_addr_2,
+    output logic [13:0]                      dbg_rmw_s0_addr_3,
     output logic [3:0]                       dbg_capture_count
 );
 
@@ -820,8 +828,12 @@ module inference_hdl #(
      *  pool space (after max_pool's divide-by-4).
      * ================================================================ */
     logic [1:0] conv_res_cap_idx;
+    logic [1:0] pool_cap_idx;
+    logic [1:0] rmw_s0_cap_idx;
     logic [1:0] out_wr_cap_idx;
     logic       conv_res_done;
+    logic       pool_done;
+    logic       rmw_s0_done;
     logic       out_wr_done;
 
     always_ff @(posedge aclk or negedge aresetn) begin : dbg_capture
@@ -830,22 +842,38 @@ module inference_hdl #(
             dbg_conv_res_addr_1 <= '0;
             dbg_conv_res_addr_2 <= '0;
             dbg_conv_res_addr_3 <= '0;
+            dbg_pool_out_addr_0 <= '0;
+            dbg_pool_out_addr_1 <= '0;
+            dbg_pool_out_addr_2 <= '0;
+            dbg_pool_out_addr_3 <= '0;
+            dbg_rmw_s0_addr_0   <= '0;
+            dbg_rmw_s0_addr_1   <= '0;
+            dbg_rmw_s0_addr_2   <= '0;
+            dbg_rmw_s0_addr_3   <= '0;
             dbg_out_wr_addr_0   <= '0;
             dbg_out_wr_addr_1   <= '0;
             dbg_out_wr_addr_2   <= '0;
             dbg_out_wr_addr_3   <= '0;
             conv_res_cap_idx    <= 2'd0;
+            pool_cap_idx        <= 2'd0;
+            rmw_s0_cap_idx      <= 2'd0;
             out_wr_cap_idx      <= 2'd0;
             conv_res_done       <= 1'b0;
+            pool_done           <= 1'b0;
+            rmw_s0_done         <= 1'b0;
             out_wr_done         <= 1'b0;
         end else if (start) begin
             // Reset on new inference start
             conv_res_cap_idx <= 2'd0;
+            pool_cap_idx     <= 2'd0;
+            rmw_s0_cap_idx   <= 2'd0;
             out_wr_cap_idx   <= 2'd0;
             conv_res_done    <= 1'b0;
+            pool_done        <= 1'b0;
+            rmw_s0_done      <= 1'b0;
             out_wr_done      <= 1'b0;
         end else begin
-            // Capture conv3d/conv1d RES write address (layer 0 only, first 4)
+            // Capture conv_res write address (layer 0 only, first 4)
             if (conv_res_en && !conv_res_done && (curr_layer_idx == 5'd0)) begin
                 case (conv_res_cap_idx)
                     2'd0: dbg_conv_res_addr_0 <= conv_res_addr;
@@ -857,6 +885,34 @@ module inference_hdl #(
                     conv_res_done <= 1'b1;
                 else
                     conv_res_cap_idx <= conv_res_cap_idx + 2'd1;
+            end
+
+            // Capture pool_out_addr (layer 0 only, first 4)
+            if (pool_out_valid && !pool_done && (curr_layer_idx == 5'd0)) begin
+                case (pool_cap_idx)
+                    2'd0: dbg_pool_out_addr_0 <= pool_out_addr[13:0];
+                    2'd1: dbg_pool_out_addr_1 <= pool_out_addr[13:0];
+                    2'd2: dbg_pool_out_addr_2 <= pool_out_addr[13:0];
+                    2'd3: dbg_pool_out_addr_3 <= pool_out_addr[13:0];
+                endcase
+                if (pool_cap_idx == 2'd3)
+                    pool_done <= 1'b1;
+                else
+                    pool_cap_idx <= pool_cap_idx + 2'd1;
+            end
+
+            // Capture rmw_s0_addr (layer 0 only, first 4)
+            if (rmw_s0_valid && !rmw_s0_done && (curr_layer_idx == 5'd0)) begin
+                case (rmw_s0_cap_idx)
+                    2'd0: dbg_rmw_s0_addr_0 <= rmw_s0_addr;
+                    2'd1: dbg_rmw_s0_addr_1 <= rmw_s0_addr;
+                    2'd2: dbg_rmw_s0_addr_2 <= rmw_s0_addr;
+                    2'd3: dbg_rmw_s0_addr_3 <= rmw_s0_addr;
+                endcase
+                if (rmw_s0_cap_idx == 2'd3)
+                    rmw_s0_done <= 1'b1;
+                else
+                    rmw_s0_cap_idx <= rmw_s0_cap_idx + 2'd1;
             end
 
             // Capture out_buf_wr_addr (post-rmw, layer 0 only, first 4)

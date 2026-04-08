@@ -27,11 +27,15 @@ BIT_PATH = pathlib.Path("hardware/output/playground.bit")
 MEM_PATH = pathlib.Path("hardware/testbench/inference_hdl/pixels_layer0.mem")
 
 # Debug register offsets (axil_regs.sv)
-ADDR_DBG_CONV_RES  = 0x030  # packs conv_res[1:0]: {2'd0, a1, 2'd0, a0}
-ADDR_DBG_CONV_RES1 = 0x034  # packs conv_res[3:2]
-ADDR_DBG_OUT_WR    = 0x038  # packs out_wr[1:0]
-ADDR_DBG_OUT_WR1   = 0x03C  # packs out_wr[3:2]
-ADDR_DBG_CAP_CNT   = 0x040  # {out_idx, conv_res_idx}
+ADDR_DBG_CONV_RES  = 0x030
+ADDR_DBG_CONV_RES1 = 0x034
+ADDR_DBG_OUT_WR    = 0x038
+ADDR_DBG_OUT_WR1   = 0x03C
+ADDR_DBG_CAP_CNT   = 0x040
+ADDR_DBG_POOL      = 0x044
+ADDR_DBG_POOL1     = 0x048
+ADDR_DBG_RMW_S0    = 0x04C
+ADDR_DBG_RMW_S01   = 0x050
 
 print(f"=== bitstream md5: {hashlib.md5(BIT_PATH.read_bytes()).hexdigest()} ===")
 
@@ -73,25 +77,52 @@ def unpack_pair(word, label0, label1):
 
 w_conv0 = drv._ip.read(ADDR_DBG_CONV_RES)
 w_conv1 = drv._ip.read(ADDR_DBG_CONV_RES1)
+w_pool0 = drv._ip.read(ADDR_DBG_POOL)
+w_pool1 = drv._ip.read(ADDR_DBG_POOL1)
+w_rmw0  = drv._ip.read(ADDR_DBG_RMW_S0)
+w_rmw1  = drv._ip.read(ADDR_DBG_RMW_S01)
 w_out0  = drv._ip.read(ADDR_DBG_OUT_WR)
 w_out1  = drv._ip.read(ADDR_DBG_OUT_WR1)
 w_cnt   = drv._ip.read(ADDR_DBG_CAP_CNT)
 
-print(f"\nRaw words: conv_res={w_conv0:08x}/{w_conv1:08x}  out_wr={w_out0:08x}/{w_out1:08x}  cnt={w_cnt:08x}")
+print(f"\nRaw words:")
+print(f"  conv_res = {w_conv0:08x}/{w_conv1:08x}")
+print(f"  pool_out = {w_pool0:08x}/{w_pool1:08x}")
+print(f"  rmw_s0   = {w_rmw0:08x}/{w_rmw1:08x}")
+print(f"  out_wr   = {w_out0:08x}/{w_out1:08x}")
+print(f"  cnt      = {w_cnt:08x}")
 
-print("\nconv3d/conv1d RES write addresses (first 4, layer 0 only):")
+print("\n[1] conv_res write addresses (captured at conv_res_en high):")
 cr0, cr1 = unpack_pair(w_conv0, "conv_res[0]", "conv_res[1]")
 cr2, cr3 = unpack_pair(w_conv1, "conv_res[2]", "conv_res[3]")
 
-print("\nout_buf_wr addresses (first 4, post-rmw, layer 0 only):")
+print("\n[2] pool_out_addr (captured at pool_out_valid high):")
+po0, po1 = unpack_pair(w_pool0, "pool_out[0]", "pool_out[1]")
+po2, po3 = unpack_pair(w_pool1, "pool_out[2]", "pool_out[3]")
+
+print("\n[3] rmw_s0_addr (captured at rmw_s0_valid high):")
+rs0, rs1 = unpack_pair(w_rmw0, "rmw_s0[0]", "rmw_s0[1]")
+rs2, rs3 = unpack_pair(w_rmw1, "rmw_s0[2]", "rmw_s0[3]")
+
+print("\n[4] out_buf_wr_addr (captured at out_buf_wr_en high):")
 ow0, ow1 = unpack_pair(w_out0, "out_wr[0]", "out_wr[1]")
 ow2, ow3 = unpack_pair(w_out1, "out_wr[2]", "out_wr[3]")
 
-print(f"\ncapture count: {w_cnt & 0xF} (low = conv_res_idx, high = out_wr_idx)")
+print(f"\ncapture count: {w_cnt & 0xF}")
 
 # Analyze
 conv_res_seq = [cr0, cr1, cr2, cr3]
+pool_out_seq = [po0, po1, po2, po3]
+rmw_s0_seq   = [rs0, rs1, rs2, rs3]
 out_wr_seq   = [ow0, ow1, ow2, ow3]
+
+print("\n=== PIPELINE CAPTURE SUMMARY ===")
+print(f"  conv_res  -> activation -> pool -> rmw_s0 -> out_buf_wr")
+print(f"  conv_res  : {conv_res_seq}")
+print(f"  pool_out  : {pool_out_seq}")
+print(f"  rmw_s0    : {rmw_s0_seq}")
+print(f"  out_wr    : {out_wr_seq}")
+print(f"  Expected  : [0, 1, 2, 3] at each stage")
 
 print("\n=== analysis ===")
 print(f"conv_res sequence: {conv_res_seq}")

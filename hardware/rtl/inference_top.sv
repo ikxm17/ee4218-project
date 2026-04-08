@@ -222,6 +222,19 @@ module inference_top #(
     /* Inference controller outputs — declared here so generate blocks can read them */
     logic [4:0]                  curr_layer_idx;
 
+    /* Debug capture wires — declared here so gen_axi_integration can see them.
+     * Captures layer 0 first 4 conv_res, pool_out, rmw_s0, and out_buf_wr
+     * addresses for the silicon-only +1 URAM shift bug. */
+    logic [13:0] dbg_conv_res_addr_0, dbg_conv_res_addr_1,
+                 dbg_conv_res_addr_2, dbg_conv_res_addr_3;
+    logic [13:0] dbg_pool_out_addr_0, dbg_pool_out_addr_1,
+                 dbg_pool_out_addr_2, dbg_pool_out_addr_3;
+    logic [13:0] dbg_rmw_s0_addr_0,   dbg_rmw_s0_addr_1,
+                 dbg_rmw_s0_addr_2,   dbg_rmw_s0_addr_3;
+    logic [13:0] dbg_out_wr_addr_0,   dbg_out_wr_addr_1,
+                 dbg_out_wr_addr_2,   dbg_out_wr_addr_3;
+    logic [3:0]  dbg_capture_count;
+
     generate if (!TB_MODE) begin : gen_axi_integration
         /* ---- Phase FSM ---- */
         typedef enum logic [2:0] {
@@ -394,6 +407,14 @@ module inference_top #(
             .i_dbg_conv_res_addr_1 (dbg_conv_res_addr_1),
             .i_dbg_conv_res_addr_2 (dbg_conv_res_addr_2),
             .i_dbg_conv_res_addr_3 (dbg_conv_res_addr_3),
+            .i_dbg_pool_out_addr_0 (dbg_pool_out_addr_0),
+            .i_dbg_pool_out_addr_1 (dbg_pool_out_addr_1),
+            .i_dbg_pool_out_addr_2 (dbg_pool_out_addr_2),
+            .i_dbg_pool_out_addr_3 (dbg_pool_out_addr_3),
+            .i_dbg_rmw_s0_addr_0   (dbg_rmw_s0_addr_0),
+            .i_dbg_rmw_s0_addr_1   (dbg_rmw_s0_addr_1),
+            .i_dbg_rmw_s0_addr_2   (dbg_rmw_s0_addr_2),
+            .i_dbg_rmw_s0_addr_3   (dbg_rmw_s0_addr_3),
             .i_dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
             .i_dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
             .i_dbg_out_wr_addr_2   (dbg_out_wr_addr_2),
@@ -542,14 +563,6 @@ module inference_top #(
      *  Benefit: A/B benchmark on the same bitstream — flip the AXI
      *  bit and re-run inference, no rebuild.
      * ================================================================ */
-    // Debug capture wires (layer 0 first 4 writes at conv3d RES and
-    // post-rmw out_buf ports). Routed to axil_regs for MMIO readback.
-    logic [13:0] dbg_conv_res_addr_0, dbg_conv_res_addr_1,
-                 dbg_conv_res_addr_2, dbg_conv_res_addr_3;
-    logic [13:0] dbg_out_wr_addr_0,   dbg_out_wr_addr_1,
-                 dbg_out_wr_addr_2,   dbg_out_wr_addr_3;
-    logic [3:0]  dbg_capture_count;
-
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .K            (3),
@@ -590,6 +603,14 @@ module inference_top #(
         .dbg_conv_res_addr_1 (dbg_conv_res_addr_1),
         .dbg_conv_res_addr_2 (dbg_conv_res_addr_2),
         .dbg_conv_res_addr_3 (dbg_conv_res_addr_3),
+        .dbg_pool_out_addr_0 (dbg_pool_out_addr_0),
+        .dbg_pool_out_addr_1 (dbg_pool_out_addr_1),
+        .dbg_pool_out_addr_2 (dbg_pool_out_addr_2),
+        .dbg_pool_out_addr_3 (dbg_pool_out_addr_3),
+        .dbg_rmw_s0_addr_0   (dbg_rmw_s0_addr_0),
+        .dbg_rmw_s0_addr_1   (dbg_rmw_s0_addr_1),
+        .dbg_rmw_s0_addr_2   (dbg_rmw_s0_addr_2),
+        .dbg_rmw_s0_addr_3   (dbg_rmw_s0_addr_3),
         .dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
         .dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
         .dbg_out_wr_addr_2   (dbg_out_wr_addr_2),

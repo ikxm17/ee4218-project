@@ -76,13 +76,20 @@ module axil_regs #(
      * starting layer N or beyond. */
     output logic [4:0]                o_max_layers,
 
-    /* Debug capture inputs — first 4 conv_res and out_buf_wr addresses
-     * during layer 0. Used to localize the silicon-only +1 URAM shift
-     * bug. Exposed at ADDR_DBG_* so the host can read them via MMIO. */
+    /* Debug capture inputs — first 4 addresses at four capture points
+     * (conv_res, pool_out, rmw_s0, out_buf_wr) during layer 0. */
     input  logic [13:0]               i_dbg_conv_res_addr_0,
     input  logic [13:0]               i_dbg_conv_res_addr_1,
     input  logic [13:0]               i_dbg_conv_res_addr_2,
     input  logic [13:0]               i_dbg_conv_res_addr_3,
+    input  logic [13:0]               i_dbg_pool_out_addr_0,
+    input  logic [13:0]               i_dbg_pool_out_addr_1,
+    input  logic [13:0]               i_dbg_pool_out_addr_2,
+    input  logic [13:0]               i_dbg_pool_out_addr_3,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_0,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_1,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_2,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_3,
     input  logic [13:0]               i_dbg_out_wr_addr_0,
     input  logic [13:0]               i_dbg_out_wr_addr_1,
     input  logic [13:0]               i_dbg_out_wr_addr_2,
@@ -104,10 +111,14 @@ module axil_regs #(
                             ADDR_PIXEL_FIFO    = 13'h020,
                             ADDR_PIXEL_CNT     = 13'h024,
                             // Debug capture registers — readonly, layer 0 only
-                            ADDR_DBG_CONV_RES  = 13'h030, // word 0 packs res[1:0]
-                            ADDR_DBG_CONV_RES1 = 13'h034, // word 1 packs res[3:2]
-                            ADDR_DBG_OUT_WR    = 13'h038, // word 0 packs out[1:0]
-                            ADDR_DBG_OUT_WR1   = 13'h03C, // word 1 packs out[3:2]
+                            ADDR_DBG_CONV_RES  = 13'h030, // conv_res[1:0]
+                            ADDR_DBG_CONV_RES1 = 13'h034, // conv_res[3:2]
+                            ADDR_DBG_POOL      = 13'h044, // pool_out[1:0]
+                            ADDR_DBG_POOL1     = 13'h048, // pool_out[3:2]
+                            ADDR_DBG_RMW_S0    = 13'h04C, // rmw_s0[1:0]
+                            ADDR_DBG_RMW_S01   = 13'h050, // rmw_s0[3:2]
+                            ADDR_DBG_OUT_WR    = 13'h038, // out_wr[1:0]
+                            ADDR_DBG_OUT_WR1   = 13'h03C, // out_wr[3:2]
                             ADDR_DBG_CAP_CNT   = 13'h040, // {out_idx, conv_res_idx}
                             ADDR_RESULT_BASE   = 13'h100,
                             ADDR_RESULT_END    = 13'h14FF;
@@ -321,6 +332,10 @@ module axil_regs #(
                 // Debug capture registers — two 14-bit addresses packed per word
                 ADDR_DBG_CONV_RES:  rd_data_mux = {2'd0, i_dbg_conv_res_addr_1, 2'd0, i_dbg_conv_res_addr_0};
                 ADDR_DBG_CONV_RES1: rd_data_mux = {2'd0, i_dbg_conv_res_addr_3, 2'd0, i_dbg_conv_res_addr_2};
+                ADDR_DBG_POOL:      rd_data_mux = {2'd0, i_dbg_pool_out_addr_1, 2'd0, i_dbg_pool_out_addr_0};
+                ADDR_DBG_POOL1:     rd_data_mux = {2'd0, i_dbg_pool_out_addr_3, 2'd0, i_dbg_pool_out_addr_2};
+                ADDR_DBG_RMW_S0:    rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_1,   2'd0, i_dbg_rmw_s0_addr_0};
+                ADDR_DBG_RMW_S01:   rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_3,   2'd0, i_dbg_rmw_s0_addr_2};
                 ADDR_DBG_OUT_WR:    rd_data_mux = {2'd0, i_dbg_out_wr_addr_1,   2'd0, i_dbg_out_wr_addr_0};
                 ADDR_DBG_OUT_WR1:   rd_data_mux = {2'd0, i_dbg_out_wr_addr_3,   2'd0, i_dbg_out_wr_addr_2};
                 ADDR_DBG_CAP_CNT:   rd_data_mux = {28'd0, i_dbg_capture_count};
