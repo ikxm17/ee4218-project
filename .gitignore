@@ -24,6 +24,7 @@
 xsim.dir/
 *.ip_user_files/
 
+*.tmp/
 worklib.tb.wdb
 fsm_encoding.os
 tab_*/
@@ -75,6 +76,11 @@ hardware/output/*
 # Vivado block design transient files
 *.bda
 **/bd/*/ui/
+
+# Legacy single-channel golden emitted unconditionally by
+# hardware/scripts/generate_conv3d_golden.py. Superseded by the
+# per-layer golden_layerN_uram.mem files which ARE tracked.
+hardware/testbench/inference_hdl/golden_ch_out0.mem
 
 # Python
 __pycache__/

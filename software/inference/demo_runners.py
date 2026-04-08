@@ -45,6 +45,54 @@ from software.overlay.drivers.tinyissimoyolo_accelerator import (
 INPUT_SIZE = 256
 PL_CLOCK_HZ = 100_000_000  # 100 MHz PL clock → 10 ns / cycle
 
+# Static facts about the model that the demo GUI surfaces in its model-info
+# panel. Mirrors notes/project/model-architecture.md — if the model is ever
+# rebuilt with different shapes / parameter counts, both files must be
+# updated together. The quantization scale/zero-point fields are filled at
+# request time by app.py from the live tflite interpreter so they always
+# match the actual loaded model.
+MODEL_INFO = {
+    "architecture": {
+        "model": "TinyissimoYOLO v1-small",
+        "family": "Purely sequential CNN, no skip connections (Conv+BN+SiLU + MaxPool only)",
+        "input_shape": "1 × 256 × 256 × 3 (NHWC, uint8)",
+        "output_shape": "1 × 8 × 8 × 67 (8×8 grid, 64 DFL + 3 class logits per cell)",
+        "stride": "32 px (5 × 2-stride max-pools: 256→128→64→32→16→8)",
+        "param_count": "~401K (~401KB at int8)",
+        "layers": 17,
+        "detect_head": "Parallel branches: cv2 (box regression, DFL 16-bin) + cv3 (classification, sigmoid)",
+        "classes": ["chair", "bowl", "cup"],
+        "training_data": "COCO val2017 subset, filtered to {chair, bowl, cup}, min area 2000 px²",
+        "doc_ref": "notes/project/model-architecture.md",
+    },
+    "quantization": {
+        "scheme": "Full int8 PTQ (TFLite)",
+        # input_quant / output_quant filled at runtime by app.py from
+        # interpreter.get_input_details()/get_output_details()
+        "input_quant": None,
+        "output_quant": None,
+        "calibration": "Post-training quantization on a COCO val2017 subset",
+    },
+    "hardware": {
+        "accelerator": "tinyissimoyolo_accel — custom RTL with AXI-Lite control and AXI-Lite pixel input",
+        "pl_clock_hz": PL_CLOCK_HZ,
+        "pixel_transport": "AXI-Lite FIFO, 65 536 writes per inference (one per pixel)",
+        "cycle_counter_addr": "0x00C",
+        "output_layout": "URAM channel-group-major → unpacked to (8, 8, 67) tensor at scale ≈ 0.10655, zero-point 10",
+    },
+}
+
+
+# Try to load a real TrueType font for bbox labels. DejaVu Sans Bold is
+# almost always present on Debian/Ubuntu/PetaLinux; fall back to PIL's
+# default bitmap font if it isn't.
+try:
+    _LABEL_FONT = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11
+    )
+except (OSError, IOError):
+    _LABEL_FONT = ImageFont.load_default()
+
 
 @dataclass
 class RunnerResult:
@@ -56,6 +104,11 @@ class RunnerResult:
     drawn, suitable for base64-encoding into the response. ``timings`` uses
     ``None`` for metrics that do not apply to a given runner (e.g. TFLite has
     no cycle count).
+
+    ``raw_tensor`` / ``preproc_arr`` are non-JSON-serialisable numpy arrays
+    held for the live re-postprocess cache (see DemoState in app.py). The
+    FastAPI response encoder strips them out before JSON encoding. They are
+    ``None`` for the stub runner which has nothing to cache.
     """
 
     runner: str
@@ -64,6 +117,8 @@ class RunnerResult:
     class_ids: list
     annotated_png: bytes
     timings: dict
+    raw_tensor: Optional[np.ndarray] = None
+    preproc_arr: Optional[np.ndarray] = None
 
 
 # --------------------------------------------------------------------- helpers
@@ -96,10 +151,16 @@ def _draw_detections(
     """Draw bboxes + class labels onto a 256×256 RGB array and return PNG bytes.
 
     ``CLASS_COLORS`` in the driver is stored BGR (OpenCV convention); PIL uses
-    RGB, so we swap per class.
+    RGB, so we swap per class. The label bar uses ``draw.textbbox()`` for
+    exact pixel-width measurement (no magic char-width guess), the polished
+    DejaVuSans-Bold TrueType font when available, and 2 px horizontal /
+    1 px vertical padding around the measured text.
     """
     img = Image.fromarray(rgb_256, mode="RGB").copy()
     draw = ImageDraw.Draw(img)
+
+    pad_x = 2
+    pad_y = 1
 
     for (x, y, w, h), score, cls in zip(boxes, scores, class_ids):
         cls_i = int(cls)
@@ -114,18 +175,66 @@ def _draw_detections(
         draw.rectangle([x1, y1, x2, y2], outline=rgb, width=2)
 
         label = f"{CLASS_NAMES.get(cls_i, f'cls{cls_i}')} {score:.2f}"
-        # Flat label strip — 12 px tall, fixed width, drawn above bbox when
-        # there's room, otherwise just inside the top edge.
-        label_y = y1 - 12 if y1 >= 12 else y1
-        label_w = max(60, min(INPUT_SIZE - x1, 8 * len(label)))
+
+        # Measure label exactly. textbbox returns (l, t, r, b) for the
+        # tightest bounding box around the rendered glyphs at origin (0, 0).
+        try:
+            l, t, r, b = draw.textbbox((0, 0), label, font=_LABEL_FONT)
+            text_w = r - l
+            text_h = b - t
+        except AttributeError:
+            # Fallback for very old PIL versions without textbbox
+            text_w, text_h = draw.textsize(label, font=_LABEL_FONT)
+
+        bar_w = text_w + 2 * pad_x
+        bar_h = text_h + 2 * pad_y
+
+        # Place above the bbox when there's room, otherwise just inside the
+        # top edge. Clamp to image bounds so the bar never gets clipped.
+        if y1 >= bar_h:
+            bar_y = y1 - bar_h
+        else:
+            bar_y = y1
+        bar_x = x1
+        if bar_x + bar_w > INPUT_SIZE:
+            bar_x = INPUT_SIZE - bar_w
+        if bar_x < 0:
+            bar_x = 0
+
         draw.rectangle(
-            [x1, label_y, x1 + label_w, label_y + 12], fill=rgb
+            [bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], fill=rgb
         )
-        draw.text((x1 + 2, label_y + 1), label, fill=(255, 255, 255))
+        draw.text(
+            (bar_x + pad_x, bar_y + pad_y),
+            label,
+            fill=(255, 255, 255),
+            font=_LABEL_FONT,
+        )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def repostprocess(
+    raw_tensor: np.ndarray,
+    preproc_arr: np.ndarray,
+    conf_thresh: float,
+    nms_thresh: float,
+) -> tuple:
+    """Re-run only the postprocessing stage on cached tensors.
+
+    Used by both the full ``run()`` paths (DRY) and the live
+    ``/api/repostprocess`` endpoint that fires when the user drags a
+    threshold slider. Returns ``(boxes, scores, class_ids, annotated_png,
+    postprocess_ms)`` — the post_ms is computed inside the helper so callers
+    don't have to time it themselves.
+    """
+    t0 = time.perf_counter()
+    boxes, scores, class_ids = post_process(raw_tensor, conf_thresh, INPUT_SIZE)
+    boxes, scores, class_ids = nms(boxes, scores, class_ids, nms_thresh)
+    png = _draw_detections(preproc_arr, boxes, scores, class_ids)
+    return boxes, scores, class_ids, png, _ms(time.perf_counter() - t0)
 
 
 def make_ground_truth_png(image_path) -> bytes:
@@ -170,6 +279,9 @@ def _zero_timings() -> dict:
         "total_ms": None,
         "cycles": None,
         "cycle_time_ms": None,
+        "host_walltime_ms": None,  # HDL only — driver wall-clock incl. AXI preload
+        "conf_thresh": None,
+        "nms_thresh": None,
     }
 
 
@@ -182,16 +294,15 @@ class TFLiteRunner:
     Full-int8 models expect uint8 input directly. Float models (e.g.
     ``tinyissimo_ptq_float32.tflite``) expect NHWC float32 in [0, 1]. This
     mirrors the conditional at ``run_inference.py:121-123``.
+
+    Thresholds are passed in per ``run()`` call rather than stored on the
+    instance, so the runner is stateless w.r.t. user input — safe to share
+    across concurrent FastAPI requests.
     """
 
     name = "tflite"
 
-    def __init__(
-        self,
-        model_path,
-        conf_thresh: float = 0.3,
-        nms_thresh: float = 0.45,
-    ):
+    def __init__(self, model_path):
         import tflite_runtime.interpreter as tflite  # noqa: WPS433
 
         self._interpreter = tflite.Interpreter(model_path=str(model_path))
@@ -204,10 +315,34 @@ class TFLiteRunner:
         self._out_idx = out_det["index"]
         self._is_full_int8 = in_det["dtype"] == np.uint8
         self._out_scale, self._out_zp = out_det["quantization"]
-        self._conf_thresh = conf_thresh
-        self._nms_thresh = nms_thresh
 
-    def run(self, image_path) -> RunnerResult:
+    def describe_quant(self) -> dict:
+        """Return human-readable quantization strings from the live interpreter.
+
+        Used by app.py to populate the model-info panel without having the
+        FastAPI layer poke at private interpreter internals.
+        """
+        in_det = self._interpreter.get_input_details()[0]
+        out_det = self._interpreter.get_output_details()[0]
+        in_scale, in_zp = in_det["quantization"]
+        out_scale, out_zp = out_det["quantization"]
+        return {
+            "input_quant": (
+                f"{in_det['dtype'].__name__}, "
+                f"scale {in_scale:.6g}, zero-point {in_zp}"
+            ),
+            "output_quant": (
+                f"{out_det['dtype'].__name__}, "
+                f"scale ≈ {out_scale:.5f}, zero-point {out_zp}"
+            ),
+        }
+
+    def run(
+        self,
+        image_path,
+        conf_thresh: float = 0.3,
+        nms_thresh: float = 0.45,
+    ) -> RunnerResult:
         arr, pre_ms = _load_and_preprocess(image_path)
 
         # --- inference ----------------------------------------------------
@@ -224,7 +359,6 @@ class TFLiteRunner:
         infer_ms = _ms(time.perf_counter() - t0)
 
         # --- post-process -------------------------------------------------
-        t1 = time.perf_counter()
         if self._is_full_int8:
             data = (
                 raw_output[0].astype(np.float32) - self._out_zp
@@ -232,14 +366,9 @@ class TFLiteRunner:
         else:
             data = raw_output[0].astype(np.float32)
 
-        boxes, scores, class_ids = post_process(
-            data, self._conf_thresh, INPUT_SIZE
+        boxes, scores, class_ids, png, post_ms = repostprocess(
+            data, arr, conf_thresh, nms_thresh
         )
-        boxes, scores, class_ids = nms(
-            boxes, scores, class_ids, self._nms_thresh
-        )
-        png = _draw_detections(arr, boxes, scores, class_ids)
-        post_ms = _ms(time.perf_counter() - t1)
 
         return RunnerResult(
             runner=self.name,
@@ -251,10 +380,17 @@ class TFLiteRunner:
                 "preprocess_ms": pre_ms,
                 "inference_ms": infer_ms,
                 "postprocess_ms": post_ms,
+                # End-to-end uses the canonical inference time. For TFLite
+                # there is no separable bus cost — wall-clock is compute.
                 "total_ms": pre_ms + infer_ms + post_ms,
                 "cycles": None,
                 "cycle_time_ms": None,
+                "host_walltime_ms": None,
+                "conf_thresh": conf_thresh,
+                "nms_thresh": nms_thresh,
             },
+            raw_tensor=data,
+            preproc_arr=arr,
         )
 
 
@@ -265,16 +401,18 @@ class HDLRunner:
     wall-clock timing can be split into ``inference`` and ``postprocess``
     phases. The cycle counter (register 0x00C) is read after ``STATUS.done``
     asserts and converted to ms at the 100 MHz PL clock.
+
+    The "Inference Time" displayed in the GUI is the cycle-derived value
+    (``cycles × 10 ns``), not the host wall-clock — the host wall-clock
+    includes the AXI-Lite pixel preload (~150 ms for 65 K writes) which is
+    a bus protocol cost, not inference cost. The host wall-clock is still
+    measured and surfaced in ``timings.host_walltime_ms`` for the notes
+    block / model-info caveat.
     """
 
     name = "hdl"
 
-    def __init__(
-        self,
-        bitstream_path,
-        conf_thresh: float = 0.3,
-        nms_thresh: float = 0.45,
-    ):
+    def __init__(self, bitstream_path):
         from pynq import Overlay  # noqa: WPS433
 
         self._overlay = Overlay(str(bitstream_path), ignore_version=True)
@@ -289,10 +427,13 @@ class HDLRunner:
         self._driver = TinyissimoYoloAcceleratorDriver(
             self._overlay.tinyissimoyolo_accel_0
         )
-        self._conf_thresh = conf_thresh
-        self._nms_thresh = nms_thresh
 
-    def run(self, image_path) -> RunnerResult:
+    def run(
+        self,
+        image_path,
+        conf_thresh: float = 0.3,
+        nms_thresh: float = 0.45,
+    ) -> RunnerResult:
         arr, pre_ms = _load_and_preprocess(image_path)
 
         # --- inference (includes AXI-Lite pixel preload) ------------------
@@ -307,20 +448,14 @@ class HDLRunner:
         cycles = int(self._driver.cycle_count)
         raw_table = self._driver.read_results_raw()
         raw_tensor = self._driver.unpack_detections(raw_table)
-        infer_ms = _ms(time.perf_counter() - t0)
-
-        # --- post-process -------------------------------------------------
-        t1 = time.perf_counter()
-        boxes, scores, class_ids = post_process(
-            raw_tensor, self._conf_thresh, INPUT_SIZE
-        )
-        boxes, scores, class_ids = nms(
-            boxes, scores, class_ids, self._nms_thresh
-        )
-        png = _draw_detections(arr, boxes, scores, class_ids)
-        post_ms = _ms(time.perf_counter() - t1)
+        host_walltime_ms = _ms(time.perf_counter() - t0)
 
         cycle_time_ms = (cycles / PL_CLOCK_HZ) * 1000.0
+
+        # --- post-process via shared helper -------------------------------
+        boxes, scores, class_ids, png, post_ms = repostprocess(
+            raw_tensor, arr, conf_thresh, nms_thresh
+        )
 
         return RunnerResult(
             runner=self.name,
@@ -330,12 +465,24 @@ class HDLRunner:
             annotated_png=png,
             timings={
                 "preprocess_ms": pre_ms,
-                "inference_ms": infer_ms,
+                # "Inference Time" cell in the GUI is cycle-derived, NOT
+                # the host wall-clock. This makes the apples-to-apples
+                # column comparison fair vs TFLite's invoke() wall-clock.
+                "inference_ms": cycle_time_ms,
                 "postprocess_ms": post_ms,
-                "total_ms": pre_ms + infer_ms + post_ms,
+                # End-to-end is computed from the canonical inference time
+                # (cycle-derived), so the table is internally consistent at
+                # every cell. Host wall-clock + AXI overhead live in
+                # host_walltime_ms below for the notes block / caveat.
+                "total_ms": pre_ms + cycle_time_ms + post_ms,
                 "cycles": cycles,
                 "cycle_time_ms": cycle_time_ms,
+                "host_walltime_ms": host_walltime_ms,
+                "conf_thresh": conf_thresh,
+                "nms_thresh": nms_thresh,
             },
+            raw_tensor=raw_tensor,
+            preproc_arr=arr,
         )
 
 
@@ -343,7 +490,9 @@ class HLSStubRunner:
     """Placeholder — returns a grey panel until a real HLS runner lands.
 
     Keeps the 4-panel GUI layout populated so the slot is ready when an HLS
-    bitstream + runner is integrated.
+    bitstream + runner is integrated. Accepts the same threshold params as
+    the other runners (signature-only — they're ignored) so callers don't
+    have to special-case it.
     """
 
     name = "hls"
@@ -351,7 +500,12 @@ class HLSStubRunner:
     def __init__(self):
         self._stub_png = _make_stub_png("HLS not implemented")
 
-    def run(self, image_path) -> RunnerResult:  # noqa: ARG002
+    def run(
+        self,
+        image_path,  # noqa: ARG002
+        conf_thresh: float = 0.3,  # noqa: ARG002
+        nms_thresh: float = 0.45,  # noqa: ARG002
+    ) -> RunnerResult:
         return RunnerResult(
             runner=self.name,
             boxes=[],
@@ -359,4 +513,6 @@ class HLSStubRunner:
             class_ids=[],
             annotated_png=self._stub_png,
             timings=_zero_timings(),
+            raw_tensor=None,
+            preproc_arr=None,
         )
