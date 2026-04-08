@@ -324,8 +324,16 @@ function clearResults() {
 
 function setPanelImage(panel, b64) {
   const img = panelImg(panel);
-  if (b64) img.src = `data:image/png;base64,${b64}`;
-  else     img.removeAttribute("src");
+  if (b64) {
+    img.src = `data:image/png;base64,${b64}`;
+    img.style.visibility = "visible";
+  } else {
+    // Hide the <img> entirely rather than clearing src, so the browser
+    // doesn't fall back to rendering the alt attribute as giant broken-
+    // image text when a runner panel is in an error state.
+    img.removeAttribute("src");
+    img.style.visibility = "hidden";
+  }
 }
 
 function setPanelError(panel, message) {
