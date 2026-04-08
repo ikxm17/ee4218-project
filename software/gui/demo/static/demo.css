@@ -506,17 +506,47 @@ section h2 {
   border: 1px solid #2a2d33;
   border-radius: 6px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
+/* Panel header is now a <summary> for native collapse/expand.
+   Suppresses the default triangle marker and adds a custom caret that
+   rotates when the <details> is open. */
 .panel-title {
   padding: 8px 12px;
   background: #22262d;
   font-size: 0.85rem;
   font-weight: 500;
   color: #a0a4ab;
-  border-bottom: 1px solid #2a2d33;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title::-webkit-details-marker { display: none; }
+
+.panel-title::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.7rem;
+  color: #6b7280;
+  transition: transform 0.15s ease;
+}
+
+.panel[open] .panel-title {
+  border-bottom-color: #2a2d33;
+}
+
+.panel[open] .panel-title::before {
+  transform: rotate(90deg);
+}
+
+.panel-title:hover {
+  background: #262a32;
+  color: #d1d5db;
 }
 
 .panel-img {
