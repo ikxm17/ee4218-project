@@ -16,9 +16,17 @@
 puts "=== rebuild_bitstream.tcl ==="
 open_project hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr
 
-# Identify runs
+# Identify runs. The OOC IP synth run name varies between project versions
+# (sometimes playground_tinyissimoyolo_accel_0_0_synth_1, sometimes absent
+# entirely). Auto-discover any *_synth_* run that isn't synth_1.
 set top_runs [list synth_1 impl_1]
-set ooc_runs [list playground_tinyissimoyolo_accel_0_0_synth_1]
+set ooc_runs [list]
+foreach r [get_runs] {
+    if {[string match "*_synth_*" $r] && $r ne "synth_1"} {
+        lappend ooc_runs $r
+    }
+}
+puts "  discovered OOC runs: $ooc_runs"
 
 # Step 1: refresh BD output products. The accelerator IP is nested
 # inside playground.bd, so we have to regenerate the parent BD to
@@ -58,6 +66,16 @@ foreach r $ooc_runs {
 }
 
 # Step 4: launch top impl_1 (auto-launches synth_1 first)
+#
+# Hold-fix insurance: -tns_cleanup runs an extra hold-fix pass at the end
+# of route_design that inserts LUT1 buffers (or reroutes) on any path with
+# negative or near-zero hold slack. This is essential for the conv3d
+# ACC_write_address -> ACC_write_address_d cone-A delay path which has
+# only ~19 ps of hold margin in the default flow. Without -tns_cleanup,
+# small placement perturbations (e.g. from new RTL features like HLS
+# integration) can re-trigger the silicon-only +1 URAM shift bug.
+puts "\n=== set route_design -tns_cleanup for hold-fix insurance ==="
+set_property -name {STEPS.ROUTE_DESIGN.ARGS.MORE OPTIONS} -value {-tns_cleanup} -objects [get_runs impl_1]
 puts "\n=== launch_runs impl_1 -to_step write_bitstream ==="
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1

@@ -61,7 +61,44 @@ module inference_hdl #(
      * intermediate fmap_a/b state for layer-by-layer debugging.
      * Default 5'd17 = full network. Tied to 5'd17 in TB_MODE=1; driven
      * by axil_regs reg_max_layers in TB_MODE=0. */
-    input  logic [4:0]                       max_layers_run
+    input  logic [4:0]                       max_layers_run,
+
+    /* Debug capture — first 4 conv3d/conv1d RES write addresses during
+     * layer 0. Used to localize the silicon-only +1 URAM shift bug.
+     * If silicon shows addrs 0, 1, 2, 3 here, conv3d is writing to
+     * correct RES addresses and the shift is downstream (rmw writer or
+     * URAM primitive). If it shows 16383, 0, 1, 2 (or similar shifted
+     * sequence), the bug is in conv3d. */
+    output logic [13:0]                      dbg_conv_res_addr_0,
+    output logic [13:0]                      dbg_conv_res_addr_1,
+    output logic [13:0]                      dbg_conv_res_addr_2,
+    output logic [13:0]                      dbg_conv_res_addr_3,
+    output logic [13:0]                      dbg_out_wr_addr_0,
+    output logic [13:0]                      dbg_out_wr_addr_1,
+    output logic [13:0]                      dbg_out_wr_addr_2,
+    output logic [13:0]                      dbg_out_wr_addr_3,
+    output logic [13:0]                      dbg_pool_out_addr_0,
+    output logic [13:0]                      dbg_pool_out_addr_1,
+    output logic [13:0]                      dbg_pool_out_addr_2,
+    output logic [13:0]                      dbg_pool_out_addr_3,
+    output logic [13:0]                      dbg_rmw_s0_addr_0,
+    output logic [13:0]                      dbg_rmw_s0_addr_1,
+    output logic [13:0]                      dbg_rmw_s0_addr_2,
+    output logic [13:0]                      dbg_rmw_s0_addr_3,
+    /* Captures rmw_base_addr (combinational) snapshotted at each
+     * rmw_s0_valid fire. If silicon shows 16383 but sim shows 0, the
+     * issue is in rmw_base_addr computation (pp_wr_offset, ch_out>>4,
+     * or h_out). */
+    output logic [13:0]                      dbg_rmw_base_0,
+    output logic [13:0]                      dbg_rmw_base_1,
+    output logic [13:0]                      dbg_rmw_base_2,
+    output logic [13:0]                      dbg_rmw_base_3,
+    /* Snapshot of the full r_cfg.pp_wr_offset + curr_ch_out at capture 0.
+     * Helps disambiguate where the 16383 is coming from. */
+    output logic [13:0]                      dbg_pp_wr_offset,
+    output logic [7:0]                       dbg_ch_out,
+    output logic [8:0]                       dbg_h_out,
+    output logic [3:0]                       dbg_capture_count
 );
 
     /* ================================================================
@@ -782,5 +819,155 @@ module inference_hdl #(
             out_buf_wr_data <= spliced_word;
         end
     end
+
+    /* ================================================================
+     *  Debug Capture — first 4 conv RES / out_buf writes during layer 0
+     *
+     *  Two capture points, independently indexed:
+     *    conv_res_*: captures the first 4 conv3d/conv1d RES_write_address
+     *                values (mux output) while curr_layer_idx == 0 AND
+     *                conv_res_en == 1.
+     *    out_wr_*:   captures the first 4 out_buf_wr_addr values while
+     *                curr_layer_idx == 0 AND out_buf_wr_en == 1.
+     *
+     *  These let us pinpoint where the silicon-only +1 URAM shift is
+     *  introduced. Expected values in both capture sets for layer 0:
+     *    0, 1, 2, 3  (strictly correct, each cycle increments by 1)
+     *
+     *  NOTE: the conv_res capture is at the PRE-activation/pool/rmw
+     *  output of conv3d (before the 2x maxpool), so for layer 0
+     *  (CONV3_POOL, act_size=256) it counts 0, 1, 2, ... in conv space.
+     *  The out_wr capture is post-rmw so it counts 0, 1, 2, ... in
+     *  pool space (after max_pool's divide-by-4).
+     * ================================================================ */
+    logic [1:0] conv_res_cap_idx;
+    logic [1:0] pool_cap_idx;
+    logic [1:0] rmw_s0_cap_idx;
+    logic [1:0] out_wr_cap_idx;
+    logic       conv_res_done;
+    logic       pool_done;
+    logic       rmw_s0_done;
+    logic       out_wr_done;
+
+    always_ff @(posedge aclk or negedge aresetn) begin : dbg_capture
+        if (!aresetn) begin
+            dbg_conv_res_addr_0 <= '0;
+            dbg_conv_res_addr_1 <= '0;
+            dbg_conv_res_addr_2 <= '0;
+            dbg_conv_res_addr_3 <= '0;
+            dbg_pool_out_addr_0 <= '0;
+            dbg_pool_out_addr_1 <= '0;
+            dbg_pool_out_addr_2 <= '0;
+            dbg_pool_out_addr_3 <= '0;
+            dbg_rmw_s0_addr_0   <= '0;
+            dbg_rmw_s0_addr_1   <= '0;
+            dbg_rmw_s0_addr_2   <= '0;
+            dbg_rmw_s0_addr_3   <= '0;
+            dbg_rmw_base_0      <= '0;
+            dbg_rmw_base_1      <= '0;
+            dbg_rmw_base_2      <= '0;
+            dbg_rmw_base_3      <= '0;
+            dbg_pp_wr_offset    <= '0;
+            dbg_ch_out          <= '0;
+            dbg_h_out           <= '0;
+            dbg_out_wr_addr_0   <= '0;
+            dbg_out_wr_addr_1   <= '0;
+            dbg_out_wr_addr_2   <= '0;
+            dbg_out_wr_addr_3   <= '0;
+            conv_res_cap_idx    <= 2'd0;
+            pool_cap_idx        <= 2'd0;
+            rmw_s0_cap_idx      <= 2'd0;
+            out_wr_cap_idx      <= 2'd0;
+            conv_res_done       <= 1'b0;
+            pool_done           <= 1'b0;
+            rmw_s0_done         <= 1'b0;
+            out_wr_done         <= 1'b0;
+        end else if (start) begin
+            // Reset on new inference start
+            conv_res_cap_idx <= 2'd0;
+            pool_cap_idx     <= 2'd0;
+            rmw_s0_cap_idx   <= 2'd0;
+            out_wr_cap_idx   <= 2'd0;
+            conv_res_done    <= 1'b0;
+            pool_done        <= 1'b0;
+            rmw_s0_done      <= 1'b0;
+            out_wr_done      <= 1'b0;
+        end else begin
+            // Capture conv_res write address (layer 0 only, first 4)
+            if (conv_res_en && !conv_res_done && (curr_layer_idx == 5'd0)) begin
+                case (conv_res_cap_idx)
+                    2'd0: dbg_conv_res_addr_0 <= conv_res_addr;
+                    2'd1: dbg_conv_res_addr_1 <= conv_res_addr;
+                    2'd2: dbg_conv_res_addr_2 <= conv_res_addr;
+                    2'd3: dbg_conv_res_addr_3 <= conv_res_addr;
+                endcase
+                if (conv_res_cap_idx == 2'd3)
+                    conv_res_done <= 1'b1;
+                else
+                    conv_res_cap_idx <= conv_res_cap_idx + 2'd1;
+            end
+
+            // Capture pool_out_addr (layer 0 only, first 4)
+            if (pool_out_valid && !pool_done && (curr_layer_idx == 5'd0)) begin
+                case (pool_cap_idx)
+                    2'd0: dbg_pool_out_addr_0 <= pool_out_addr[13:0];
+                    2'd1: dbg_pool_out_addr_1 <= pool_out_addr[13:0];
+                    2'd2: dbg_pool_out_addr_2 <= pool_out_addr[13:0];
+                    2'd3: dbg_pool_out_addr_3 <= pool_out_addr[13:0];
+                endcase
+                if (pool_cap_idx == 2'd3)
+                    pool_done <= 1'b1;
+                else
+                    pool_cap_idx <= pool_cap_idx + 2'd1;
+            end
+
+            // Capture rmw_s0_addr + rmw_base_addr at rmw_s0_valid transitions.
+            // Also snapshot pp_wr_offset/ch_out/h_out at the first capture
+            // so we can see what the buggy computation inputs are.
+            if (rmw_s0_valid && !rmw_s0_done && (curr_layer_idx == 5'd0)) begin
+                case (rmw_s0_cap_idx)
+                    2'd0: begin
+                        dbg_rmw_s0_addr_0 <= rmw_s0_addr;
+                        dbg_rmw_base_0    <= rmw_base_addr;
+                        dbg_pp_wr_offset  <= curr_pp_wr_offset;
+                        dbg_ch_out        <= curr_ch_out;
+                        dbg_h_out         <= h_out;
+                    end
+                    2'd1: begin
+                        dbg_rmw_s0_addr_1 <= rmw_s0_addr;
+                        dbg_rmw_base_1    <= rmw_base_addr;
+                    end
+                    2'd2: begin
+                        dbg_rmw_s0_addr_2 <= rmw_s0_addr;
+                        dbg_rmw_base_2    <= rmw_base_addr;
+                    end
+                    2'd3: begin
+                        dbg_rmw_s0_addr_3 <= rmw_s0_addr;
+                        dbg_rmw_base_3    <= rmw_base_addr;
+                    end
+                endcase
+                if (rmw_s0_cap_idx == 2'd3)
+                    rmw_s0_done <= 1'b1;
+                else
+                    rmw_s0_cap_idx <= rmw_s0_cap_idx + 2'd1;
+            end
+
+            // Capture out_buf_wr_addr (post-rmw, layer 0 only, first 4)
+            if (out_buf_wr_en && !out_wr_done && (curr_layer_idx == 5'd0)) begin
+                case (out_wr_cap_idx)
+                    2'd0: dbg_out_wr_addr_0 <= out_buf_wr_addr;
+                    2'd1: dbg_out_wr_addr_1 <= out_buf_wr_addr;
+                    2'd2: dbg_out_wr_addr_2 <= out_buf_wr_addr;
+                    2'd3: dbg_out_wr_addr_3 <= out_buf_wr_addr;
+                endcase
+                if (out_wr_cap_idx == 2'd3)
+                    out_wr_done <= 1'b1;
+                else
+                    out_wr_cap_idx <= out_wr_cap_idx + 2'd1;
+            end
+        end
+    end
+
+    assign dbg_capture_count = {out_wr_cap_idx, conv_res_cap_idx};
 
 endmodule

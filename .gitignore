@@ -57,9 +57,20 @@ _ide/
 ##  Build outputs                                                                      ##
 #########################################################################################
 
+# Vivado IP repo — derived cache populated by scripts/sync-ip-src.sh
+# from hardware/rtl/ and hardware/weights/hdl/. Canonical source is rtl/.
+hardware/ip_repo/*
+!hardware/ip_repo/.gitkeep
+
 # Vivado export artifacts
 hardware/output/*
 !hardware/output/.gitkeep
+# Preserved bitstreams — known-working builds kept for forensics.
+# Never auto-overwritten by rebuild_bitstream.tcl (which only touches the
+# top-level hardware/output/playground.* files). Files here should be
+# named with the md5 prefix, e.g. playground_FIXED_5e86ce6c.bit
+!hardware/output/preserved/
+!hardware/output/preserved/**
 
 # Vivado block design transient files
 *.bda

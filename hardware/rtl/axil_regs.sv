@@ -5,8 +5,7 @@
  * Register map:
  *   0x000  CTRL         R/W  [0]=start, [1]=pixel_fifo_rst, [7]=soft_reset
  *   0x004  STATUS       R    [0]=busy, [1]=done, [2]=idle, [3]=preload_done
- *   0x008  MODE         R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine_sel
- *                              0=HDL inference engine, 1=HLS inference engine
+ *   0x008  MODE         R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine (KIV)
  *   0x00C  CYCLE_CNT    R    inference cycle counter
  *   0x010  LAYER_IDX    R    [4:0]=current layer during inference
  *   0x014  RESULT_BASE  R/W  [13:0]=URAM base address the result region reads from
@@ -50,7 +49,6 @@ module axil_regs #(
     /* Control outputs */
     output logic                      o_start,
     output logic [1:0]                o_mode,
-    output logic                      o_engine_sel,
 
     /* Status inputs */
     input  logic                      i_busy,
@@ -76,7 +74,34 @@ module axil_regs #(
      * Default 5'd17 = full network (NUM_LAYERS). Setting to N stops
      * after layer N-1 completes; the FSM goes to S_IDLE without
      * starting layer N or beyond. */
-    output logic [4:0]                o_max_layers
+    output logic [4:0]                o_max_layers,
+
+    /* Debug capture inputs — first 4 addresses at four capture points
+     * (conv_res, pool_out, rmw_s0, out_buf_wr) during layer 0. */
+    input  logic [13:0]               i_dbg_conv_res_addr_0,
+    input  logic [13:0]               i_dbg_conv_res_addr_1,
+    input  logic [13:0]               i_dbg_conv_res_addr_2,
+    input  logic [13:0]               i_dbg_conv_res_addr_3,
+    input  logic [13:0]               i_dbg_pool_out_addr_0,
+    input  logic [13:0]               i_dbg_pool_out_addr_1,
+    input  logic [13:0]               i_dbg_pool_out_addr_2,
+    input  logic [13:0]               i_dbg_pool_out_addr_3,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_0,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_1,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_2,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_3,
+    input  logic [13:0]               i_dbg_rmw_base_0,
+    input  logic [13:0]               i_dbg_rmw_base_1,
+    input  logic [13:0]               i_dbg_rmw_base_2,
+    input  logic [13:0]               i_dbg_rmw_base_3,
+    input  logic [13:0]               i_dbg_pp_wr_offset,
+    input  logic [7:0]                i_dbg_ch_out,
+    input  logic [8:0]                i_dbg_h_out,
+    input  logic [13:0]               i_dbg_out_wr_addr_0,
+    input  logic [13:0]               i_dbg_out_wr_addr_1,
+    input  logic [13:0]               i_dbg_out_wr_addr_2,
+    input  logic [13:0]               i_dbg_out_wr_addr_3,
+    input  logic [3:0]                i_dbg_capture_count
 );
 
     /* ================================================================
@@ -92,6 +117,19 @@ module axil_regs #(
                             ADDR_MAX_LAYERS_R  = 13'h01C,
                             ADDR_PIXEL_FIFO    = 13'h020,
                             ADDR_PIXEL_CNT     = 13'h024,
+                            // Debug capture registers — readonly, layer 0 only
+                            ADDR_DBG_CONV_RES  = 13'h030, // conv_res[1:0]
+                            ADDR_DBG_CONV_RES1 = 13'h034, // conv_res[3:2]
+                            ADDR_DBG_POOL      = 13'h044, // pool_out[1:0]
+                            ADDR_DBG_POOL1     = 13'h048, // pool_out[3:2]
+                            ADDR_DBG_RMW_S0    = 13'h04C, // rmw_s0[1:0]
+                            ADDR_DBG_RMW_S01   = 13'h050, // rmw_s0[3:2]
+                            ADDR_DBG_RMW_BASE  = 13'h054, // rmw_base[1:0]
+                            ADDR_DBG_RMW_BASE1 = 13'h058, // rmw_base[3:2]
+                            ADDR_DBG_INPUTS    = 13'h05C, // {h_out[8:0], ch_out[7:0], pp_wr_offset[13:0]}
+                            ADDR_DBG_OUT_WR    = 13'h038, // out_wr[1:0]
+                            ADDR_DBG_OUT_WR1   = 13'h03C, // out_wr[3:2]
+                            ADDR_DBG_CAP_CNT   = 13'h040, // {out_idx, conv_res_idx}
                             ADDR_RESULT_BASE   = 13'h100,
                             ADDR_RESULT_END    = 13'h14FF;
 
@@ -240,7 +278,6 @@ module axil_regs #(
     rd_state_t rd_state;
 
     logic [ADDR_W-1:0] rd_addr;
-    logic [DATA_W-1:0] rd_data_mux;   // forward declaration; driven below
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -287,6 +324,7 @@ module axil_regs #(
 
     wire [DATA_W-1:0] result_data_slice = i_result_rd_data[rd_addr[3:2] * 32 +: 32];
 
+    logic [DATA_W-1:0] rd_data_mux;
     always_comb begin
         if (is_result_read)
             rd_data_mux = result_data_slice;
@@ -301,6 +339,19 @@ module axil_regs #(
                 ADDR_RESULT_BUF_R:  rd_data_mux = {31'd0, reg_result_buf};
                 ADDR_MAX_LAYERS_R:  rd_data_mux = {27'd0, reg_max_layers};
                 ADDR_PIXEL_CNT:     rd_data_mux = {15'd0, pixel_count};
+                // Debug capture registers — two 14-bit addresses packed per word
+                ADDR_DBG_CONV_RES:  rd_data_mux = {2'd0, i_dbg_conv_res_addr_1, 2'd0, i_dbg_conv_res_addr_0};
+                ADDR_DBG_CONV_RES1: rd_data_mux = {2'd0, i_dbg_conv_res_addr_3, 2'd0, i_dbg_conv_res_addr_2};
+                ADDR_DBG_POOL:      rd_data_mux = {2'd0, i_dbg_pool_out_addr_1, 2'd0, i_dbg_pool_out_addr_0};
+                ADDR_DBG_POOL1:     rd_data_mux = {2'd0, i_dbg_pool_out_addr_3, 2'd0, i_dbg_pool_out_addr_2};
+                ADDR_DBG_RMW_S0:    rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_1,   2'd0, i_dbg_rmw_s0_addr_0};
+                ADDR_DBG_RMW_S01:   rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_3,   2'd0, i_dbg_rmw_s0_addr_2};
+                ADDR_DBG_RMW_BASE:  rd_data_mux = {2'd0, i_dbg_rmw_base_1,      2'd0, i_dbg_rmw_base_0};
+                ADDR_DBG_RMW_BASE1: rd_data_mux = {2'd0, i_dbg_rmw_base_3,      2'd0, i_dbg_rmw_base_2};
+                ADDR_DBG_INPUTS:    rd_data_mux = {1'b0, i_dbg_h_out, i_dbg_ch_out, i_dbg_pp_wr_offset};
+                ADDR_DBG_OUT_WR:    rd_data_mux = {2'd0, i_dbg_out_wr_addr_1,   2'd0, i_dbg_out_wr_addr_0};
+                ADDR_DBG_OUT_WR1:   rd_data_mux = {2'd0, i_dbg_out_wr_addr_3,   2'd0, i_dbg_out_wr_addr_2};
+                ADDR_DBG_CAP_CNT:   rd_data_mux = {28'd0, i_dbg_capture_count};
                 default:            rd_data_mux = 32'hDEAD_BEEF;
             endcase
         end
@@ -309,11 +360,10 @@ module axil_regs #(
     /* ================================================================
      *  Control outputs
      * ================================================================ */
-    assign o_start                 = reg_ctrl[0];
-    assign o_mode                  = reg_mode[1:0];
+    assign o_start            = reg_ctrl[0];
+    assign o_mode             = reg_mode[1:0];
     assign o_result_base_addr = reg_result_base;
     assign o_result_buf_sel   = reg_result_buf;
     assign o_max_layers       = reg_max_layers;
-    assign o_engine_sel = reg_mode[4];   // 0 = HDL engine, 1 = HLS engine
 
 endmodule
