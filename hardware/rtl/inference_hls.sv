@@ -286,9 +286,58 @@ module inference_hls #(
 
     // ─────────────────────────────────────────────────────────────────
     //  fmap_b port mapping (same pattern as fmap_a)
+    //
+    //  PLUS layer-0 RGB unpack: layer 0 input is preloaded into fmap_b
+    //  in 4-pixels-per-128-bit-word format (4 × {8'h0, R, G, B}). The
+    //  HLS C++ reads layer 0 with cin=3 expecting 16-channel-packed
+    //  data, so without intervention it would see 4 packed RGB pixels
+    //  and treat them as 16 channels. This block translates the
+    //  HLS-issued address (= pixel index) to the URAM word address
+    //  (= pixel_idx >> 2), latches the lane (= pixel_idx[1:0]), and
+    //  on the dout return cycle muxes the right 32-bit lane out and
+    //  zero-extends so the HLS sees {0×13, R, G, B} — exactly what
+    //  inference_top.sv:783-790 does for the HDL path. The intercept
+    //  applies only while curr_layer_idx == 0; for later layers fmap_b
+    //  is just another channel-packed buffer and the path is a
+    //  passthrough.
     // ─────────────────────────────────────────────────────────────────
     wire fb_pa_is_wr = fb_en_A_raw &  (|fb_wen_A_raw);
     wire fb_pa_is_rd = fb_en_A_raw & ~(|fb_wen_A_raw);
+
+    wire is_layer_0 = (curr_layer_idx == 5'd0);
+
+    // Active read address: port A read (RW slot in read mode) wins
+    // over port B read in the same cycle, matching the existing mux.
+    wire [FMAP_ADDR_W-1:0] fb_pixel_addr = fb_pa_is_rd
+        ? fb_addr_A_raw[FMAP_ADDR_W+4-1:4]
+        : fb_addr_B_raw[FMAP_ADDR_W+4-1:4];
+
+    // Layer-0 word address = pixel_idx >> 2; lane = pixel_idx[1:0].
+    wire [FMAP_ADDR_W-1:0] fb_uram_word_addr =
+        is_layer_0 ? (fb_pixel_addr >> 2) : fb_pixel_addr;
+    wire [1:0] fb_layer0_lane = fb_pixel_addr[1:0];
+
+    // Latch lane + layer-0 flag for the dout return cycle (URAM
+    // port B has 1-cycle read latency, so the mux on fmap_b_dout_b
+    // must use the values latched the cycle the address was issued).
+    logic [1:0] fb_lane_r;
+    logic       fb_is_l0_r;
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn) begin
+            fb_lane_r  <= 2'd0;
+            fb_is_l0_r <= 1'b0;
+        end else begin
+            fb_lane_r  <= fb_layer0_lane;
+            fb_is_l0_r <= is_layer_0;
+        end
+    end
+
+    // Lane mux on the dout: pick the right 32-bit lane and zero-extend
+    // to 128 bits ({0×13, R, G, B}). HLS C++ consumes only the bottom
+    // 3 bytes (cin=3) and ignores the rest.
+    wire [31:0]             fb_lane_pixel  = fmap_b_dout_b[fb_lane_r * 32 +: 32];
+    wire [FMAP_DATA_W-1:0]  fb_layer0_dout = {{(FMAP_DATA_W-24){1'b0}}, fb_lane_pixel[23:0]};
+    wire [FMAP_DATA_W-1:0]  fb_dout_muxed  = fb_is_l0_r ? fb_layer0_dout : fmap_b_dout_b;
 
     assign fmap_b_en_a   = fb_pa_is_wr;
     assign fmap_b_we_a   = fb_pa_is_wr;
@@ -296,10 +345,9 @@ module inference_hls #(
     assign fmap_b_din_a  = fb_din_A_raw;
 
     assign fmap_b_en_b   = fb_pa_is_rd | fb_en_B_raw;
-    assign fmap_b_addr_b = fb_pa_is_rd ? fb_addr_A_raw[FMAP_ADDR_W+4-1:4]
-                                       : fb_addr_B_raw[FMAP_ADDR_W+4-1:4];
+    assign fmap_b_addr_b = fb_uram_word_addr;
 
-    assign fb_dout_A_raw = fmap_b_dout_b;
-    assign fb_dout_B_raw = fmap_b_dout_b;
+    assign fb_dout_A_raw = fb_dout_muxed;
+    assign fb_dout_B_raw = fb_dout_muxed;
 
 endmodule
