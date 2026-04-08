@@ -57,6 +57,11 @@ _ide/
 ##  Build outputs                                                                      ##
 #########################################################################################
 
+# Vivado IP repo — derived cache populated by scripts/sync-ip-src.sh
+# from hardware/rtl/ and hardware/weights/hdl/. Canonical source is rtl/.
+hardware/ip_repo/*
+!hardware/ip_repo/.gitkeep
+
 # Vivado export artifacts
 hardware/output/*
 !hardware/output/.gitkeep
