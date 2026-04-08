@@ -389,7 +389,16 @@ module inference_top #(
             .o_result_base_addr(result_base_addr),
             .o_result_buf_sel  (result_buf_sel),
             .i_result_rd_data  (result_rd_data),
-            .o_max_layers      (max_layers_run)
+            .o_max_layers      (max_layers_run),
+            .i_dbg_conv_res_addr_0 (dbg_conv_res_addr_0),
+            .i_dbg_conv_res_addr_1 (dbg_conv_res_addr_1),
+            .i_dbg_conv_res_addr_2 (dbg_conv_res_addr_2),
+            .i_dbg_conv_res_addr_3 (dbg_conv_res_addr_3),
+            .i_dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
+            .i_dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
+            .i_dbg_out_wr_addr_2   (dbg_out_wr_addr_2),
+            .i_dbg_out_wr_addr_3   (dbg_out_wr_addr_3),
+            .i_dbg_capture_count   (dbg_capture_count)
         );
 
     end else begin : gen_tb_mode
@@ -533,6 +542,14 @@ module inference_top #(
      *  Benefit: A/B benchmark on the same bitstream — flip the AXI
      *  bit and re-run inference, no rebuild.
      * ================================================================ */
+    // Debug capture wires (layer 0 first 4 writes at conv3d RES and
+    // post-rmw out_buf ports). Routed to axil_regs for MMIO readback.
+    logic [13:0] dbg_conv_res_addr_0, dbg_conv_res_addr_1,
+                 dbg_conv_res_addr_2, dbg_conv_res_addr_3;
+    logic [13:0] dbg_out_wr_addr_0,   dbg_out_wr_addr_1,
+                 dbg_out_wr_addr_2,   dbg_out_wr_addr_3;
+    logic [3:0]  dbg_capture_count;
+
     inference_hdl #(
         .MAX_PARALLEL (MAX_PARALLEL),
         .K            (3),
@@ -568,7 +585,16 @@ module inference_top #(
         .curr_layer_idx    (curr_layer_idx),
         .curr_pp_buf_sel   (curr_pp_buf_sel),
         .curr_pp_rd_offset (curr_pp_rd_offset),
-        .max_layers_run    (max_layers_run)
+        .max_layers_run    (max_layers_run),
+        .dbg_conv_res_addr_0 (dbg_conv_res_addr_0),
+        .dbg_conv_res_addr_1 (dbg_conv_res_addr_1),
+        .dbg_conv_res_addr_2 (dbg_conv_res_addr_2),
+        .dbg_conv_res_addr_3 (dbg_conv_res_addr_3),
+        .dbg_out_wr_addr_0   (dbg_out_wr_addr_0),
+        .dbg_out_wr_addr_1   (dbg_out_wr_addr_1),
+        .dbg_out_wr_addr_2   (dbg_out_wr_addr_2),
+        .dbg_out_wr_addr_3   (dbg_out_wr_addr_3),
+        .dbg_capture_count   (dbg_capture_count)
     );
 
     /* Forward done to output port (testbench mode) */
