@@ -96,28 +96,52 @@ class TinyissimoYoloAcceleratorDriver:
         return self._ip.read(self._PIXEL_CNT)
 
     def set_mode(self, mode: int):
-        """Set input mode: 0 = AXI-Lite FIFO, 1 = S_AXIS camera."""
+        """Set input mode (MODE[0]): 0 = AXI-Lite FIFO, 1 = S_AXIS camera.
+
+        Read-modify-write so the engine-select bit (MODE[4]) is preserved.
+        """
         if mode not in (0, 1):
             raise ValueError(f"mode must be 0 (FIFO) or 1 (S_AXIS), got {mode}")
-        self._ip.write(self._MODE, mode)
+        cur = self._ip.read(self._MODE)
+        self._ip.write(self._MODE, (cur & ~0x1) | (mode & 0x1))
+
+    def set_engine(self, engine: int):
+        """Select inference engine (MODE[4]): 0 = HDL, 1 = HLS.
+
+        Latched at IDLE→PRELOAD inside inference_top.sv (engine_sel_latched
+        guard at lines 325-331), so this must be set BEFORE start() is
+        called for it to take effect on the upcoming run.
+
+        Read-modify-write so the input-source bit (MODE[0]) is preserved.
+        """
+        if engine not in (0, 1):
+            raise ValueError(f"engine must be 0 (HDL) or 1 (HLS), got {engine}")
+        cur = self._ip.read(self._MODE)
+        self._ip.write(self._MODE, (cur & ~(1 << 4)) | (engine << 4))
 
     def soft_reset(self):
         """Pulse CTRL[7] (soft_reset, auto-clearing). Restores phase FSM to IDLE."""
         self._ip.write(self._CTRL, self._CTRL_SOFT_RST)
 
-    def configure(self, mode: int = 0):
+    def configure(self, mode: int = 0, engine: int = 0):
         """Bring the accelerator into a clean configured state.
 
         Issues a soft reset (clears phase FSM, FIFO accumulator, pixel
-        counter) before latching the mode select. Soft reset must come
-        first so MODE writes land into a freshly-reset register file.
+        counter) before latching the mode + engine selects. Soft reset
+        must come first so MODE writes land into a freshly-reset
+        register file.
 
         Args:
-            mode: 0 = AXI-Lite FIFO preload (default for offline test),
-                  1 = S_AXIS camera streaming.
+            mode:   0 = AXI-Lite FIFO preload (default for offline test),
+                    1 = S_AXIS camera streaming.
+            engine: 0 = HDL inference engine (default),
+                    1 = HLS inference engine. Latched at IDLE→PRELOAD by
+                    inference_top.sv:325-331, so it must be set before
+                    start() — calling configure() satisfies that ordering.
         """
         self.soft_reset()
         self.set_mode(mode)
+        self.set_engine(engine)
 
     def read_status(self) -> dict:
         """Decode the STATUS register into a dict.
