@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TinyissimoYOLO Demo</title>
+  <link rel="stylesheet" href="/static/demo.css" />
+</head>
+<body>
+  <header>
+    <h1>TinyissimoYOLO Inference Comparison</h1>
+    <div class="controls">
+      <label for="image-picker">Image:</label>
+      <select id="image-picker"></select>
+      <button id="run-btn" disabled>Run Inference</button>
+      <span id="status-text"></span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h2>Input image (original resolution)</h2>
+    <div class="hero-frame">
+      <img id="hero-img" alt="Select an image" />
+    </div>
+  </section>
+
+  <section class="panels">
+    <h2>Model outputs (256 &times; 256 — what the networks see)</h2>
+    <div class="panel-grid">
+      <div class="panel" id="panel-gt">
+        <div class="panel-title">Ground truth</div>
+        <img class="panel-img" alt="ground truth" />
+        <div class="panel-status">no annotations</div>
+      </div>
+      <div class="panel" id="panel-tflite">
+        <div class="panel-title">TFLite (baseline)</div>
+        <img class="panel-img" alt="tflite" />
+        <div class="panel-status"></div>
+      </div>
+      <div class="panel" id="panel-hdl">
+        <div class="panel-title">HDL accelerator</div>
+        <img class="panel-img" alt="hdl" />
+        <div class="panel-status"></div>
+      </div>
+      <div class="panel" id="panel-hls">
+        <div class="panel-title">HLS accelerator</div>
+        <img class="panel-img" alt="hls" />
+        <div class="panel-status">stub</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="timing">
+    <h2>Timing breakdown</h2>
+    <table id="timing-table">
+      <thead>
+        <tr>
+          <th>Runner</th>
+          <th>Preprocess</th>
+          <th>Inference (wall)</th>
+          <th>Cycles</th>
+          <th>Cycles &rarr; time</th>
+          <th>Post-process</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody id="timing-tbody"></tbody>
+    </table>
+    <p class="note">
+      <strong>Note on HDL inference wall-clock:</strong>
+      the HDL "inference" value includes the AXI-Lite pixel preload (~150 ms
+      for 65 K pixel writes). The accelerator's active compute is reported
+      separately as <em>cycles &rarr; time</em> at 100 MHz.
+    </p>
+  </section>
+
+  <script src="/static/demo.js"></script>
+</body>
+</html>
