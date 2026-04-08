@@ -120,12 +120,31 @@ ipx::infer_bus_interfaces xilinx.com:interface:axis_rtl:1.0  $core
 ipx::associate_bus_interfaces -busif s_axi_lite -clock aclk  $core
 ipx::associate_bus_interfaces -busif s_axis     -clock aclk  $core
 
-# Tag the inferred aclk clock interface with FREQ_HZ so consumers see
-# the IP's expected clock rate (100 MHz target on the Kria PL clock).
-# Without this, [IP_Flow 19-11770] fires and BD validation cannot
-# auto-propagate the clock frequency to internal timing constraints.
+# Tag the inferred aclk clock interface with FREQ_HZ so [IP_Flow 19-11770]
+# is silenced and consumers see a sensible default of 100 MHz.
+#
+# CRITICAL: mark the parameter as user-resolvable (value_resolve_type
+# = user). Without this, the IP locks FREQ_HZ to exactly 100,000,000,
+# and BD validation fails when the source clock is anything else:
+#
+#   [BD 41-237] Bus Interface property FREQ_HZ does not match between
+#               /tinyissimoyolo_accel_0/s_axi_lite(100000000) and
+#               /axi_smc/M00_AXI(99999001)
+#   [BD 41-238] Port/Pin property FREQ_HZ does not match between
+#               /tinyissimoyolo_accel_0/aclk(100000000) and
+#               /zynq_ultra_ps_e_0/pl_clk0(99999001)
+#
+# (The Kria K26 PS PL clock runs at 99,999,001 Hz, not exactly 100 MHz —
+# the PLL divider chain off the 33.333 MHz reference doesn't land
+# precisely on 100M.)
+#
+# With value_resolve_type=user, BD connection automation overrides the
+# 100 MHz default with whatever the source clock actually provides.
 ipx::add_bus_parameter FREQ_HZ \
     [ipx::get_bus_interfaces aclk -of_objects $core]
+set_property value_resolve_type user \
+    [ipx::get_bus_parameters FREQ_HZ \
+        -of_objects [ipx::get_bus_interfaces aclk -of_objects $core]]
 set_property value 100000000 \
     [ipx::get_bus_parameters FREQ_HZ \
         -of_objects [ipx::get_bus_interfaces aclk -of_objects $core]]
