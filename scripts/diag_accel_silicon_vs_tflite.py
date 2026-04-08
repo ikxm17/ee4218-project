@@ -305,10 +305,12 @@ def run_engine_sweep(
     """Drive every layer once on the given engine and diff against TFLite.
 
     The engine is re-asserted via drv.configure(mode=0, engine=eng_id) before
-    each layer because configure() also pulses soft_reset, which is the only
-    way to bring the FSM back to IDLE between back-to-back runs.  The
-    inference_top engine_sel mux latches on the IDLE→PRELOAD transition,
-    so the engine select must be re-applied after every soft_reset.
+    each layer because the inference_top engine_sel mux latches at every
+    entry to PH_PRELOAD (both IDLE→PRELOAD and DONE→PRELOAD), so the MODE
+    register must hold the desired engine_sel BEFORE start() pushes the
+    FSM into PRELOAD. configure() also pulses soft_reset, but contrary to
+    its name that only clears the pixel FIFO inside axil_regs.sv — it
+    does not affect the phase FSM or the latch.
 
     Returns (n_bit_exact, n_failed).
     """
