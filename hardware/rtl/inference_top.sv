@@ -322,12 +322,16 @@ module inference_top #(
         end
         assign inference_start = (phase == PH_RUN) && was_preload;
 
-        // Latch engine_sel at the IDLE -> PRELOAD edge so the choice
-        // stays stable for the entire run.
+        // Latch engine_sel at every entry to PH_PRELOAD so the choice
+        // stays stable for the entire run. Both IDLE→PRELOAD (cold start)
+        // and DONE→PRELOAD (back-to-back run) must update the latch —
+        // limiting it to IDLE→PRELOAD froze the latch at whatever was
+        // selected on the very first run after hard reset, because the
+        // FSM never revisits PH_IDLE on its own.
         always_ff @(posedge aclk or negedge aresetn) begin
             if (!aresetn)
                 engine_sel_latched <= 1'b0;
-            else if (phase == PH_IDLE && phase_next == PH_PRELOAD)
+            else if ((phase == PH_IDLE || phase == PH_DONE) && phase_next == PH_PRELOAD)
                 engine_sel_latched <= engine_sel;
         end
 
