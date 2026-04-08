@@ -23,7 +23,7 @@ static ap_int<8> clip_int8(ap_int<32> x) {
 // ─────────────────────────────────────────────────────────────────────────
 // Helper: Fixed-point rescale  (matches RTL conv3d quantisation)
 //
-//   trunc( acc * m0 / 2^n_shift )  — RETURNS FULL 32-bit value, no clip
+//   round_half_up( acc * m0 / 2^n_shift )  — RETURNS FULL 32-bit value, no clip
 //
 // NOTE: returns the full pre-clip int32 so the caller can add zp_out
 // BEFORE clipping.  An earlier version of this function clipped to
@@ -32,13 +32,22 @@ static ap_int<8> clip_int8(ap_int<32> x) {
 // and Python golden, which both add zp_out first and clip once
 // (hardware/rtl/conv3d.v:375-376,
 //  hardware/scripts/generate_conv3d_golden.py:170-174).
-// Truncating shift, not rounding shift, also matches the HDL.
+//
+// Adds 2^(n_shift-1) before the arithmetic right-shift so the shift
+// performs round-nearest instead of truncation toward -infinity for
+// signed values.  Mirrors the round-half-up nudge in
+// hardware/rtl/conv3d.v:418-426 and conv1d.v:270-279, and TFLite's
+// gemmlowp RoundingDivideByPOT for positive products.  The n_shift==0
+// guard avoids `1 << -1` UB.
 // ─────────────────────────────────────────────────────────────────────────
 static ap_int<32> rescale(ap_int<32> acc, ap_uint<32> m0, ap_uint<8> n_shift) {
 #pragma HLS INLINE
     ap_int<64> product = (ap_int<64>)acc * (ap_int<64>)m0;
 #pragma HLS BIND_OP variable=product op=mul impl=dsp latency=2
-    ap_int<64> shifted = product >> n_shift;
+    ap_int<64> nudge = (n_shift != 0)
+                       ? (ap_int<64>)((ap_uint<64>)1 << (n_shift - 1))
+                       : (ap_int<64>)0;
+    ap_int<64> shifted = (product + nudge) >> n_shift;
     return (ap_int<32>)shifted;
 }
 

@@ -36,12 +36,16 @@ static int8_t clip8(int32_t x) {
     return (int8_t)x;
 }
 
-// Truncating rescale — returns full int32, matches HLS rescale().
+// Round-half-up rescale — returns full int32, matches HLS rescale().
 // The caller adds zp_out and clips ONCE (single-clip) to match the
-// HDL conv3d.v requantization order exactly.
+// HDL conv3d.v requantization order exactly.  Adds 2^(n_shift-1) before
+// the right-shift so the shift performs round-nearest instead of
+// truncation toward -infinity (mirrors conv3d.v:418-426 and the
+// rescale() in tinyissimo_layer.cpp).
 static int32_t ref_rescale(int32_t acc, uint32_t m0, uint8_t n_shift) {
     int64_t product = (int64_t)acc * (int64_t)m0;
-    int64_t shifted = product >> n_shift;
+    int64_t nudge   = (n_shift != 0) ? ((int64_t)1 << (n_shift - 1)) : 0;
+    int64_t shifted = (product + nudge) >> n_shift;
     return (int32_t)shifted;
 }
 
