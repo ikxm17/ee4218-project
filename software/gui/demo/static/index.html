@@ -9,82 +9,290 @@
 <body>
   <header>
     <h1>TinyissimoYOLO Inference Comparison</h1>
+
+    <!-- Class legend: chip colors are populated from /api/config so they
+         match the actual rendered bbox colors (BGR -> RGB swap applied
+         server-side). The color name in parens helps colorblind users and
+         double-checks the cross-reference with the bbox label bar. -->
+    <div class="legend">
+      <span class="legend-label">This Model Is Trained To Detect:</span>
+      <span id="class-legend-chips"></span>
+    </div>
+
+    <!-- Collapsible model breakdown — populated from /api/config on load.
+         Contains two SVG diagrams (architecture + pipeline) and three
+         <dl> blocks for the textual facts. -->
+    <details class="model-info">
+      <summary>Model Architecture &amp; Quantization</summary>
+      <div class="model-info-body">
+
+        <figure class="arch-diagram">
+          <figcaption>Model Architecture (Block-Level Flow)</figcaption>
+          <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="TinyissimoYOLO architecture diagram showing input, four backbone stages, detect head, and output">
+            <defs>
+              <marker id="arrow-arch" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280" />
+              </marker>
+            </defs>
+
+            <!-- Input -->
+            <rect class="input-block" x="5"   y="40" width="100" height="80" rx="4" />
+            <text class="block-title"  x="55"  y="62" text-anchor="middle">Input</text>
+            <text class="block-line"   x="55"  y="80" text-anchor="middle">256×256×3</text>
+            <text class="block-line"   x="55"  y="96" text-anchor="middle">RGB uint8</text>
+
+            <!-- Stage 1 -->
+            <rect class="stage stage-1" x="115" y="40" width="100" height="80" rx="4" />
+            <text class="block-title"   x="165" y="62" text-anchor="middle">Stage 1</text>
+            <text class="block-line"    x="165" y="80" text-anchor="middle">16 ch</text>
+            <text class="block-line"    x="165" y="96" text-anchor="middle">128×128</text>
+
+            <!-- Stage 2 -->
+            <rect class="stage stage-2" x="225" y="40" width="100" height="80" rx="4" />
+            <text class="block-title"   x="275" y="62" text-anchor="middle">Stage 2</text>
+            <text class="block-line"    x="275" y="80" text-anchor="middle">32 ch</text>
+            <text class="block-line"    x="275" y="96" text-anchor="middle">64×64</text>
+
+            <!-- Stage 3 -->
+            <rect class="stage stage-3" x="335" y="40" width="100" height="80" rx="4" />
+            <text class="block-title"   x="385" y="62" text-anchor="middle">Stage 3</text>
+            <text class="block-line"    x="385" y="80" text-anchor="middle">64 ch</text>
+            <text class="block-line"    x="385" y="96" text-anchor="middle">32×32</text>
+
+            <!-- Stage 4 -->
+            <rect class="stage stage-4" x="445" y="40" width="100" height="80" rx="4" />
+            <text class="block-title"   x="495" y="62" text-anchor="middle">Stage 4</text>
+            <text class="block-line"    x="495" y="80" text-anchor="middle">128 ch</text>
+            <text class="block-line"    x="495" y="96" text-anchor="middle">16→8</text>
+
+            <!-- Detect Head -->
+            <rect class="head-block" x="555" y="40" width="100" height="80" rx="4" />
+            <text class="block-title" x="605" y="62" text-anchor="middle">Detect Head</text>
+            <text class="block-line"  x="605" y="80" text-anchor="middle">cv2 + cv3</text>
+            <text class="block-line"  x="605" y="96" text-anchor="middle">DFL + cls</text>
+
+            <!-- Output Tensor -->
+            <rect class="output-block" x="665" y="40" width="90" height="80" rx="4" />
+            <text class="block-title"  x="710" y="62" text-anchor="middle">Output</text>
+            <text class="block-line"   x="710" y="80" text-anchor="middle">8×8×67</text>
+            <text class="block-line"   x="710" y="96" text-anchor="middle">int8</text>
+
+            <!-- Arrows between blocks -->
+            <line class="arrow" x1="105" y1="80" x2="115" y2="80" marker-end="url(#arrow-arch)" />
+            <line class="arrow" x1="215" y1="80" x2="225" y2="80" marker-end="url(#arrow-arch)" />
+            <line class="arrow" x1="325" y1="80" x2="335" y2="80" marker-end="url(#arrow-arch)" />
+            <line class="arrow" x1="435" y1="80" x2="445" y2="80" marker-end="url(#arrow-arch)" />
+            <line class="arrow" x1="545" y1="80" x2="555" y2="80" marker-end="url(#arrow-arch)" />
+            <line class="arrow" x1="655" y1="80" x2="665" y2="80" marker-end="url(#arrow-arch)" />
+
+            <!-- MaxPool annotations under arrows -->
+            <text class="annot" x="110" y="148" text-anchor="middle">MaxPool 2×</text>
+            <text class="annot" x="220" y="148" text-anchor="middle">MaxPool 2×</text>
+            <text class="annot" x="330" y="148" text-anchor="middle">MaxPool 2×</text>
+            <text class="annot" x="440" y="148" text-anchor="middle">MaxPool 2×</text>
+
+            <!-- Footer note: total stride / params -->
+            <text class="footnote" x="380" y="180" text-anchor="middle">
+              17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)
+            </text>
+          </svg>
+        </figure>
+
+        <figure class="pipeline-diagram">
+          <figcaption>Inference Pipeline (TFLite vs HDL Data Flow)</figcaption>
+          <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="Inference pipeline diagram showing image preprocess, parallel TFLite/HDL inference, raw tensor cache, postprocess, annotated output">
+            <defs>
+              <marker id="arrow-pipe" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280" />
+              </marker>
+            </defs>
+
+            <!-- Image (top) -->
+            <rect class="input-block" x="305" y="10" width="150" height="50" rx="4" />
+            <text class="block-title" x="380" y="32" text-anchor="middle">Image</text>
+            <text class="block-line"  x="380" y="50" text-anchor="middle">(any resolution)</text>
+
+            <!-- Pre-Process -->
+            <rect class="stage stage-2" x="305" y="90" width="150" height="50" rx="4" />
+            <text class="block-title"   x="380" y="112" text-anchor="middle">Pre-Process</text>
+            <text class="block-line"    x="380" y="130" text-anchor="middle">PIL resize → 256×256×3</text>
+
+            <!-- TFLite (left branch) -->
+            <rect class="tflite-block" x="125" y="180" width="200" height="60" rx="4" />
+            <text class="block-title"  x="225" y="205" text-anchor="middle">TFLite Runner</text>
+            <text class="block-line"   x="225" y="225" text-anchor="middle">interpreter.invoke() · CPU</text>
+
+            <!-- HDL (right branch) -->
+            <rect class="hdl-block"   x="435" y="180" width="200" height="60" rx="4" />
+            <text class="block-title" x="535" y="205" text-anchor="middle">HDL Accelerator</text>
+            <text class="block-line"  x="535" y="225" text-anchor="middle">AXI-Lite + URAM · FPGA</text>
+
+            <!-- Raw Tensor (cache point) -->
+            <rect class="cache-block" x="280" y="280" width="200" height="65" rx="4" />
+            <text class="block-title" x="380" y="304" text-anchor="middle">Raw Tensor</text>
+            <text class="block-line"  x="380" y="322" text-anchor="middle">8 × 8 × 67 float32</text>
+            <text class="cache-annot" x="380" y="338" text-anchor="middle">← cached for live slider updates</text>
+
+            <!-- Post-Process + NMS -->
+            <rect class="stage stage-3" x="305" y="375" width="150" height="50" rx="4" />
+            <text class="block-title"   x="380" y="397" text-anchor="middle">Post-Process + NMS</text>
+            <text class="block-line"    x="380" y="415" text-anchor="middle">DFL decode · sigmoid · filter</text>
+
+            <!-- Final block label (no separate rect — folded into post-process arrow target) -->
+            <text class="annot" x="380" y="450" text-anchor="middle">→ Annotated Output Panels</text>
+
+            <!-- Arrows -->
+            <!-- Image -> Pre-Process -->
+            <line class="arrow" x1="380" y1="60"  x2="380" y2="90"  marker-end="url(#arrow-pipe)" />
+            <!-- Pre-Process -> TFLite (diagonal down-left) -->
+            <line class="arrow" x1="340" y1="140" x2="240" y2="180" marker-end="url(#arrow-pipe)" />
+            <!-- Pre-Process -> HDL (diagonal down-right) -->
+            <line class="arrow" x1="420" y1="140" x2="520" y2="180" marker-end="url(#arrow-pipe)" />
+            <!-- TFLite -> Raw Tensor (diagonal down-right) -->
+            <line class="arrow" x1="240" y1="240" x2="335" y2="280" marker-end="url(#arrow-pipe)" />
+            <!-- HDL -> Raw Tensor (diagonal down-left) -->
+            <line class="arrow" x1="520" y1="240" x2="425" y2="280" marker-end="url(#arrow-pipe)" />
+            <!-- Raw Tensor -> Post-Process -->
+            <line class="arrow" x1="380" y1="345" x2="380" y2="375" marker-end="url(#arrow-pipe)" />
+            <!-- Post-Process -> Annotated -->
+            <line class="arrow" x1="380" y1="425" x2="380" y2="445" marker-end="url(#arrow-pipe)" />
+          </svg>
+        </figure>
+
+        <!-- Textual model facts — three sub-sections, populated by JS from
+             /api/config model_info.architecture / .quantization / .hardware -->
+        <div id="model-info-text"></div>
+      </div>
+    </details>
+
     <div class="controls">
       <label for="image-picker">Image:</label>
       <select id="image-picker"></select>
+
+      <div class="slider-group">
+        <label for="conf-slider">
+          Confidence
+          <span class="info-icon" tabindex="0"
+                data-tooltip="Minimum per-class confidence (post-sigmoid) to keep a detection. Lower values surface more boxes including weak ones — useful for seeing what the model 'almost' detected. Higher values keep only the most confident predictions. Applied per grid cell before NMS.">i</span>
+        </label>
+        <input id="conf-slider" type="range" min="0" max="1" step="0.01" value="0.30" />
+        <span id="conf-value" class="chip-num">0.30</span>
+      </div>
+
+      <div class="slider-group">
+        <label for="nms-slider">
+          NMS IoU
+          <span class="info-icon" tabindex="0"
+                data-tooltip="Non-Maximum Suppression overlap threshold. When two same-class boxes overlap by more than this fraction (intersection-over-union), the lower-confidence one is dropped. Lower values aggressively prune duplicates; higher values let nearby boxes coexist.">i</span>
+        </label>
+        <input id="nms-slider" type="range" min="0" max="1" step="0.01" value="0.45" />
+        <span id="nms-value" class="chip-num">0.45</span>
+      </div>
+
       <button id="run-btn" disabled>Run Inference</button>
       <span id="status-text"></span>
     </div>
   </header>
 
   <section class="hero">
-    <h2>Input image (original resolution)</h2>
+    <h2>Input Image (Original Resolution)</h2>
     <div class="hero-frame">
       <img id="hero-img" alt="Select an image" />
     </div>
   </section>
 
   <section class="panels">
-    <h2>Model outputs (256 &times; 256 — what the networks see)</h2>
+    <h2>Model Outputs (256 &times; 256 — What the Networks See)</h2>
     <div class="panel-grid">
       <div class="panel" id="panel-gt">
-        <div class="panel-title">Ground truth</div>
+        <div class="panel-title">Ground Truth</div>
         <img class="panel-img" alt="ground truth" />
-        <div class="panel-status">no annotations</div>
+        <div class="panel-status">No Annotations</div>
       </div>
       <div class="panel" id="panel-tflite">
-        <div class="panel-title">TFLite (baseline)</div>
+        <div class="panel-title">TFLite (Baseline)</div>
         <img class="panel-img" alt="tflite" />
         <div class="panel-status"></div>
       </div>
       <div class="panel" id="panel-hdl">
-        <div class="panel-title">HDL accelerator</div>
+        <div class="panel-title">HDL Accelerator</div>
         <img class="panel-img" alt="hdl" />
         <div class="panel-status"></div>
       </div>
       <div class="panel" id="panel-hls">
-        <div class="panel-title">HLS accelerator</div>
+        <div class="panel-title">HLS Accelerator</div>
         <img class="panel-img" alt="hls" />
-        <div class="panel-status">stub</div>
+        <div class="panel-status">Stub</div>
       </div>
     </div>
   </section>
 
   <section class="timing">
-    <h2>Timing breakdown</h2>
+    <h2>Timing Breakdown <span id="config-echo" class="config-echo"></span></h2>
     <table id="timing-table">
       <thead>
         <tr>
           <th>Runner</th>
-          <th>Preprocess</th>
-          <th>Inference (wall)</th>
-          <th>Cycles</th>
-          <th>Cycles &rarr; time</th>
-          <th>Post-process</th>
-          <th>Total</th>
-          <th>FPS (compute)</th>
-          <th>FPS (pipeline)</th>
+          <th>
+            Pre-Process
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Wall-clock for loading the image off disk, converting to RGB, and resizing to 256×256 with PIL bilinear. Same code path for every runner.">i</span>
+          </th>
+          <th>
+            Inference Time
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="The canonical compute time per runner. For TFLite this is interpreter.invoke() wall-clock. For HDL this is the cycle counter (register 0x00C) converted to ms at the 100 MHz PL clock — i.e. the pure on-FPGA compute time, NOT including AXI-Lite pixel preload.">i</span>
+          </th>
+          <th>
+            Inference Cycles
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="HDL only. The exact number of 10 ns cycles the accelerator spent computing this image, read from the cycle counter after STATUS.done asserts. TFLite has no equivalent hardware counter.">i</span>
+          </th>
+          <th>
+            Post-Process
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Time for DFL bbox decode, sigmoid class scoring, confidence filter, NMS, and PIL drawing on the 256×256 panel. Updates live when you drag the threshold sliders.">i</span>
+          </th>
+          <th>
+            End-to-End Latency
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Pre-Process + Inference Time + Post-Process for a single image. Uses the canonical (cycle-derived for HDL) inference time, so the table is internally consistent. The host driver wall-clock (which includes ~150 ms AXI-Lite pixel preload for HDL) is documented in the notes block below.">i</span>
+          </th>
+          <th>
+            FPS (Inference)
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Apples-to-apples engine throughput: 1000 / Inference Time. The fairest comparison between runners — what each engine can do if dispatch and IO costs were eliminated.">i</span>
+          </th>
+          <th>
+            FPS (End-to-End)
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="What a naive single-image loop would observe in practice: 1000 / End-to-End Latency. Lower than FPS (Inference) because it includes pre-process and post-process overhead.">i</span>
+          </th>
         </tr>
       </thead>
       <tbody id="timing-tbody"></tbody>
     </table>
-    <p class="note">
-      <strong>Note on HDL inference wall-clock:</strong>
-      the HDL "inference" value includes the AXI-Lite pixel preload (~150 ms
-      for 65 K pixel writes). The accelerator's active compute is reported
-      separately as <em>cycles &rarr; time</em> at 100 MHz.
-    </p>
-    <p class="note">
-      <strong>FPS columns:</strong>
-      <em>compute</em> is the throughput of the core inference engine
-      alone &mdash; <code>1000 / inference_ms</code> for TFLite (the
-      <code>invoke()</code> wall-clock) and <code>1000 / cycle_time_ms</code>
-      for the HDL (cycles at 100 MHz). This is the apples-to-apples
-      accelerator-vs-CPU comparison. <em>pipeline</em> is
-      <code>1000 / total_ms</code> &mdash; end-to-end throughput including
-      preprocess, bus transfers, and postprocess, i.e. what you would
-      observe in a real streaming loop.
-    </p>
+
+    <dl class="defs">
+      <dt>Inference Time</dt>
+      <dd>For TFLite, the wall-clock of <code>interpreter.invoke()</code>. For the HDL accelerator, the cycle counter (register <code>0x00C</code>) converted to milliseconds at the 100 MHz PL clock — i.e. the pure on-FPGA compute time, with bus transfer overhead excluded.</dd>
+
+      <dt>Inference Cycles</dt>
+      <dd>HDL only. The exact number of 10 ns cycles the accelerator spent computing this image, read from the cycle counter after <code>STATUS.done</code> asserts.</dd>
+
+      <dt>End-to-End Latency</dt>
+      <dd>Pre-Process + Inference Time + Post-Process for a single image. <strong>For HDL the host driver wall-clock is ≈ 150 ms higher than this latency number</strong> — the difference is the AXI-Lite pixel preload (65 K writes over the slow control bus). That overhead is bus protocol cost, not inference cost, so the table excludes it from the End-to-End column to keep the comparison fair. The actual measured host wall-clock is reported in the model-info panel under <em>Hardware</em>.</dd>
+
+      <dt>FPS (Inference) vs FPS (End-to-End)</dt>
+      <dd><em>FPS (Inference)</em> is the apples-to-apples engine throughput (1000 / Inference Time). <em>FPS (End-to-End)</em> is what a naive single-image loop would see in practice (1000 / End-to-End Latency).</dd>
+
+      <dt>Live Slider Updates</dt>
+      <dd>Confidence and NMS IoU are pure post-processing filters — they don't change the model's raw output tensor. After you click <em>Run Inference</em>, the raw tensor is cached and slider drags re-run only the post-process stage on the cached tensor. That's why Pre-Process, Inference Time, and Inference Cycles cells stay frozen while Post-Process / End-to-End / FPS update live.</dd>
+    </dl>
   </section>
 
   <script src="/static/demo.js"></script>
