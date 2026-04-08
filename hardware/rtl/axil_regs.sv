@@ -280,6 +280,10 @@ module axil_regs #(
     rd_state_t rd_state;
 
     logic [ADDR_W-1:0] rd_addr;
+    logic [DATA_W-1:0] rd_data_mux;   // declared here so always_ff (RD_WAIT)
+                                      // can reference it without [Synth 8-6901]
+                                      // forward-use warning; driven by
+                                      // always_comb below.
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -326,7 +330,6 @@ module axil_regs #(
 
     wire [DATA_W-1:0] result_data_slice = i_result_rd_data[rd_addr[3:2] * 32 +: 32];
 
-    logic [DATA_W-1:0] rd_data_mux;
     always_comb begin
         if (is_result_read)
             rd_data_mux = result_data_slice;
