@@ -412,20 +412,48 @@ class HDLRunner:
 
     name = "hdl"
 
+    # Accelerator IP name prefix to look for in overlay.ip_dict. Vivado
+    # appends numeric suffixes based on the block-design hierarchy
+    # (tinyissimoyolo_accel_0, tinyissimoyolo_accel_0_0, etc.) so we
+    # pattern-match the prefix and take the first matching IP, rather
+    # than hardcoding a single suffix that breaks on every rename.
+    _ACCEL_IP_PREFIX = "tinyissimoyolo_accel"
+
     def __init__(self, bitstream_path):
         from pynq import Overlay  # noqa: WPS433
 
-        self._overlay = Overlay(str(bitstream_path), ignore_version=True)
+        # Prefer a sibling .xsa over the .bit path. .xsa is a self-
+        # contained Xilinx archive (bit + hwh + manifest) that every
+        # PYNQ version handles natively. Passing a bare .bit requires
+        # PYNQ to guess where the sibling .hwh lives, and that guess
+        # logic has historically been fragile across versions — the
+        # symptom is `UnknownInputFileExtension: *.bit is not a valid
+        # input` from pynqmetadata. Using the .xsa when available
+        # sidesteps that entirely.
+        p = Path(bitstream_path)
+        xsa_sibling = p.with_suffix(".xsa")
+        load_path = xsa_sibling if xsa_sibling.is_file() else p
 
-        if "tinyissimoyolo_accel_0" not in self._overlay.ip_dict:
+        self._overlay = Overlay(str(load_path), ignore_version=True)
+
+        # Find the accelerator IP by prefix match, not exact name.
+        accel_key = next(
+            (
+                k
+                for k in sorted(self._overlay.ip_dict.keys())
+                if k.startswith(self._ACCEL_IP_PREFIX)
+            ),
+            None,
+        )
+        if accel_key is None:
             available = ", ".join(sorted(self._overlay.ip_dict.keys()))
             raise RuntimeError(
-                "tinyissimoyolo_accel_0 not in overlay.ip_dict; "
-                f"available: {available}"
+                f"no IP starting with '{self._ACCEL_IP_PREFIX}' in "
+                f"overlay.ip_dict; available: {available}"
             )
 
         self._driver = TinyissimoYoloAcceleratorDriver(
-            self._overlay.tinyissimoyolo_accel_0
+            getattr(self._overlay, accel_key)
         )
 
     def run(
