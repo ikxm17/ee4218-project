@@ -1,6 +1,6 @@
 {
   "model": "tinyissimo_ptq_full_integer_quant.tflite",
-  "generated": "2026-04-06T01:33:34.847247",
+  "generated": "2026-04-08T13:16:39.526298",
   "c_par": 16,
   "num_layers": 17,
   "weight_rom_depth": 25654,
