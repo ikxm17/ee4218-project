@@ -1249,7 +1249,7 @@
       },
       "tinyissimoyolo_accel_0": {
         "vlnv": "user.org:user:tinyissimoyolo_accelerator:1.0",
-        "ip_revision": "15",
+        "ip_revision": "16",
         "xci_name": "playground_tinyissimoyolo_accel_0_0",
         "xci_path": "ip/playground_tinyissimoyolo_accel_0_0/playground_tinyissimoyolo_accel_0_0.xci",
         "inst_hier_path": "tinyissimoyolo_accel_0",
