@@ -109,22 +109,38 @@ set core [ipx::current_core]
 set_property name           tinyissimoyolo_accelerator $core
 set_property version        1.0                        $core
 set_property display_name   "TinyissimoYOLO Accelerator (HDL+HLS dual engine)" $core
-set_property description    "Dual-engine 17-layer YOLO inference accelerator. \
-Selects HDL or HLS engine at runtime via AXI-Lite MODE[4]." $core
+set_property description    "17-layer TinyissimoYOLO inference accelerator with both HDL and Vitis-HLS pipelines on silicon. AXI-Lite control + AXI-Stream pixel ingress + level-high interrupt; runtime engine select via MODE[4]." $core
 set_property vendor_display_name "EE4218 Project" $core
 set_property company_url    "https://github.com/" $core
 
-# Auto-infer AXI4-Lite, AXI-Stream, clock, reset, and interrupt interfaces
-# from the standard port-name conventions on tinyissimoyolo_accelerator.
+# Auto-infer AXI4-Lite and AXI-Stream interfaces from the standard
+# port-name conventions on tinyissimoyolo_accelerator.
 ipx::infer_bus_interfaces xilinx.com:interface:aximm_rtl:1.0 $core
 ipx::infer_bus_interfaces xilinx.com:interface:axis_rtl:1.0  $core
 ipx::associate_bus_interfaces -busif s_axi_lite -clock aclk  $core
 ipx::associate_bus_interfaces -busif s_axis     -clock aclk  $core
 
-# Mark irq_done as an interrupt sideband
+# Tag the inferred aclk clock interface with FREQ_HZ so consumers see
+# the IP's expected clock rate (100 MHz target on the Kria PL clock).
+# Without this, [IP_Flow 19-11770] fires and BD validation cannot
+# auto-propagate the clock frequency to internal timing constraints.
+ipx::add_bus_parameter FREQ_HZ \
+    [ipx::get_bus_interfaces aclk -of_objects $core]
+set_property value 100000000 \
+    [ipx::get_bus_parameters FREQ_HZ \
+        -of_objects [ipx::get_bus_interfaces aclk -of_objects $core]]
+
+# Mark irq_done as a Xilinx interrupt sideband.
+#
+# The Xilinx interrupt interface lives under the "signal:" namespace,
+# NOT "interface:" — using the wrong VLNV produces:
+#   [IP_Flow 19-569] Cannot find bus abstraction file ...
+# SENSITIVITY = LEVEL_HIGH because the FSM holds irq_done high during
+# the entire PH_DONE state (see inference_top.sv:306, irq_done assigned
+# from a level-sensitive phase comparison, not edge-detected).
 ipx::add_bus_interface interrupt $core
 set_property interface_mode master [ipx::get_bus_interfaces interrupt -of_objects $core]
-set_property abstraction_type_vlnv xilinx.com:interface:interrupt_rtl:1.0 \
+set_property abstraction_type_vlnv xilinx.com:signal:interrupt_rtl:1.0 \
     [ipx::get_bus_interfaces interrupt -of_objects $core]
 set_property bus_type_vlnv xilinx.com:signal:interrupt:1.0 \
     [ipx::get_bus_interfaces interrupt -of_objects $core]
@@ -132,6 +148,11 @@ ipx::add_port_map INTERRUPT [ipx::get_bus_interfaces interrupt -of_objects $core
 set_property physical_name irq_done \
     [ipx::get_port_maps INTERRUPT -of_objects \
         [ipx::get_bus_interfaces interrupt -of_objects $core]]
+ipx::add_bus_parameter SENSITIVITY \
+    [ipx::get_bus_interfaces interrupt -of_objects $core]
+set_property value LEVEL_HIGH \
+    [ipx::get_bus_parameters SENSITIVITY \
+        -of_objects [ipx::get_bus_interfaces interrupt -of_objects $core]]
 
 ipx::create_xgui_files $core
 ipx::update_checksums  $core
