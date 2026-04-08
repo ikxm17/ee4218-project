@@ -1,10 +1,27 @@
 # playground_SECOND_3fcbe84a — HDL accelerator, first TFLite-faithful build
 
-> **Status: sim-bit-exact AND TFLite-bit-exact.** This is the first build
-> whose weight ROMs and sim goldens were regenerated with round-half-up
+> **Status: sim-bit-exact AND TFLite-box-equivalent.** This is the first
+> build whose weight ROMs and sim goldens were regenerated with round-half-up
 > requantize (commits `275dfe5`, `23ed0cb`, `c411005`), closing the numerics
-> loop end-to-end: TFLite reference → sim golden → RTL silicon all produce
-> identical int8 activations at every layer.
+> loop end-to-end in the sense that matters for detection: **TFLite reference
+> and RTL silicon produce the same bounding boxes and class predictions on
+> the demo input** (verified by `scripts/verify_hdl_vs_tflite_boxes.py` and
+> `scripts/probe_hdl_vs_tflite_raw.py`).
+>
+> **Per-layer int8 activations are NOT bit-identical to TFLite, and the
+> drift is irreducible.** The RTL uses a single-step round-half-up
+> requantize (`(acc*m0 + (1<<(n-1))) >> n`) that the Python golden mirrors
+> bit-exactly. This disagrees with `tflite_runtime` by at most ±8 LSB on a
+> bounded fraction of pixels per layer (compounded through the 17-layer
+> cascade — see `hardware/scripts/README.md` Step 3a). Switching the RTL to
+> the full two-stage gemmlowp `SRDHM + RDP` would NOT close the gap:
+> `notes/deliverables/hdl-accelerator.md` documents an experiment in which
+> a Python implementation of full gemmlowp still showed 1-LSB drift against
+> `tflite_runtime`, because `tflite_runtime`'s optimized NEON/XNNPACK
+> kernels disagree with the gemmlowp *reference spec* on negative-accumulator
+> boundary cases. The drift is absorbed by dequant + sigmoid + DFL softmax +
+> NMS before reaching the detector output, so all on-board `diag_accel_*`
+> diagnostics PASS cleanly against the goldens.
 >
 > **Scope: HDL accelerator only.** PL-side-only build — no camera pipeline,
 > no VDMA, no real-time video path. Preprocessed images must be preloaded
@@ -116,8 +133,9 @@ All on-board silicon diagnostics PASSED on the SECOND bitstream (2026-04-08):
 
 | Check | Result |
 |-------|--------|
-| Per-layer TFLite match (`scripts/probe_hdl_vs_tflite_raw.py`) | **PASS** — every layer's int8 output matches TFLite reference bit-exactly |
-| Sim golden vs TFLite reference | **PASS** — round-half-up requantize aligned, 0 LSB drift |
+| Final-tensor TFLite match (`scripts/probe_hdl_vs_tflite_raw.py`, on-board) | **PASS (bounded)** — HDL silicon int8 output tensor within ±4 LSB of TFLite on the bowl demo image; all detection cells agree on the 0.3 confidence threshold decision |
+| End-to-end box equivalence (`scripts/verify_hdl_vs_tflite_boxes.py`, offline) | **PASS** — HDL goldens and TFLite produce the same `bowl` detection, conf=0.473, box corners within 1 pixel on the 256×256 image; 0/64 grid cells flip the confidence threshold decision |
+| Per-layer int8 TFLite match (`scripts/verify_goldens_vs_tflite.py`, offline) | **DIVERGED (bounded)** — max\|d\| ≤ 8 LSB at every layer; 0.03–40% of positions per layer disagree. Expected and documented: the Python golden mirrors the RTL's single-step round-half-up requantize, which differs from TFLite's two-stage gemmlowp SRDHM+RDP by bounded LSB amounts. The drift vanishes at the detection output (row above). |
 
 ## Files in this directory
 
