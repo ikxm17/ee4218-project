@@ -33,6 +33,38 @@ function fmtCycles(v) {
   return v.toLocaleString();
 }
 
+function fmtFps(v) {
+  if (v === null || v === undefined || !isFinite(v)) return "—";
+  return v.toFixed(1) + " fps";
+}
+
+// "compute" FPS = pure inference-engine throughput.
+//   TFLite: 1000 / inference_ms (interpreter.invoke() wall-clock)
+//   HDL:    1000 / cycle_time_ms (cycles at 100 MHz, excludes AXI preload)
+// Returns null when the relevant metric is missing.
+function computeFps(runnerKey, timings) {
+  if (runnerKey === "hdl") {
+    if (timings.cycle_time_ms && timings.cycle_time_ms > 0) {
+      return 1000.0 / timings.cycle_time_ms;
+    }
+    return null;
+  }
+  // TFLite and any future CPU runner: invoke() wall-clock.
+  if (timings.inference_ms && timings.inference_ms > 0) {
+    return 1000.0 / timings.inference_ms;
+  }
+  return null;
+}
+
+// "pipeline" FPS = end-to-end per-click throughput including
+// preprocess + inference wall-clock + postprocess.
+function pipelineFps(timings) {
+  if (timings.total_ms && timings.total_ms > 0) {
+    return 1000.0 / timings.total_ms;
+  }
+  return null;
+}
+
 // -------- image list --------------------------------------------------
 
 async function loadImages() {
@@ -199,6 +231,11 @@ function renderTiming(results) {
     tr.appendChild(numCell(fmtMs(t.cycle_time_ms),  t.cycle_time_ms == null));
     tr.appendChild(numCell(fmtMs(t.postprocess_ms), t.postprocess_ms== null));
     tr.appendChild(numCell(fmtMs(t.total_ms),       t.total_ms      == null));
+
+    const compute = computeFps(key, t);
+    const pipeline = pipelineFps(t);
+    tr.appendChild(numCell(fmtFps(compute),  compute  == null));
+    tr.appendChild(numCell(fmtFps(pipeline), pipeline == null));
 
     timingBody.appendChild(tr);
   }
