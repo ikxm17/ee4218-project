@@ -431,21 +431,54 @@ def post_process(data: np.ndarray, conf_thresh: float = 0.3,
 
 def nms(boxes: list, scores: list, class_ids: list,
         iou_thresh: float = 0.45) -> tuple:
-    """Non-maximum suppression using OpenCV."""
+    """Non-maximum suppression in pure numpy.
+
+    Greedy NMS: sort detections by score descending, keep the top one,
+    suppress every remaining box whose IoU with it exceeds ``iou_thresh``,
+    repeat. ``boxes`` are in ``(x, y, w, h)`` pixel format (matching
+    ``post_process`` output). Class-agnostic — overlapping detections of
+    different classes still suppress each other; the highest-confidence
+    one wins.
+
+    No cv2 dependency: the original implementation used
+    ``cv2.dnn.NMSBoxes`` which silently no-ops on machines where OpenCV
+    isn't installed (notably the PYNQ venv on the Kria board), making
+    the GUI's IoU slider appear broken.
+    """
     if not boxes:
         return [], [], []
 
-    try:
-        import cv2
-        indices = cv2.dnn.NMSBoxes(boxes, scores, min(scores), iou_thresh)
-        if len(indices) > 0:
-            idx = indices.flatten()
-            return (
-                [boxes[i] for i in idx],
-                [scores[i] for i in idx],
-                [class_ids[i] for i in idx],
-            )
-    except ImportError:
-        pass  # cv2 not available, skip NMS
+    boxes_arr = np.asarray(boxes, dtype=np.float32)
+    scores_arr = np.asarray(scores, dtype=np.float32)
 
-    return boxes, scores, class_ids
+    x1 = boxes_arr[:, 0]
+    y1 = boxes_arr[:, 1]
+    x2 = boxes_arr[:, 0] + boxes_arr[:, 2]
+    y2 = boxes_arr[:, 1] + boxes_arr[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+
+    order = scores_arr.argsort()[::-1]  # highest score first
+    keep: list[int] = []
+    while order.size > 0:
+        i = int(order[0])
+        keep.append(i)
+        if order.size == 1:
+            break
+
+        rest = order[1:]
+        xx1 = np.maximum(x1[i], x1[rest])
+        yy1 = np.maximum(y1[i], y1[rest])
+        xx2 = np.minimum(x2[i], x2[rest])
+        yy2 = np.minimum(y2[i], y2[rest])
+
+        inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
+        union = areas[i] + areas[rest] - inter
+        iou = np.where(union > 0, inter / union, 0.0)
+
+        order = rest[iou <= iou_thresh]
+
+    return (
+        [boxes[i] for i in keep],
+        [scores[i] for i in keep],
+        [class_ids[i] for i in keep],
+    )
