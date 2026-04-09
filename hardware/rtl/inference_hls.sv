@@ -12,8 +12,8 @@
  *    - ap_clk / ap_rst (active-HIGH synchronous reset)
  *    - ap_start / ap_done / ap_idle / ap_ready  block-level handshake
  *    - 5 BRAM-style memory ports
- *        fmap_a   — port A (RW) + port B (R-only)
- *        fmap_b   — port A (RW) + port B (R-only)
+ *        fmap_a   — port A (R-only) + port B (W-only)   (after ram_s2p)
+ *        fmap_b   — port A (R-only) + port B (W-only)   (after ram_s2p)
  *        wt_mem   — port A only (R-only)
  *        qp_mem   — port A only (R-only)
  *        silu_mem — port A only (R-only)
@@ -27,15 +27,23 @@
  *    5. Translates the HLS BRAM-style memory ports onto the SystemVerilog
  *       sdp_ram interface used by inference_top:
  *         - sdp_ram has SIMPLE dual-port: port A is write-only, port B is
- *           read-only.  HLS port A is RW (read-AND-write on the same wire
- *           in different cycles, distinguished by WEN_A).  We split it:
- *             writes  (EN_A &  |WEN_A) -> sdp_ram port A
- *             reads   (EN_A & ~|WEN_A) -> sdp_ram port B
- *         - HLS also exposes a separate read-only port B per fmap; we OR
- *           it onto the same sdp_ram port B (merging the two HLS read
- *           sources).  At any time only one of {HLS port A, HLS port B}
- *           reads — they belong to the unrolled if/else branches and only
- *           one branch runs per layer — so the merge is conflict-free.
+ *           read-only.
+ *         - After the `storage_type=ram_s2p` pragma on fmap_a/fmap_b in
+ *           tinyissimo_layer_top.cpp, the HLS top exposes each fmap as
+ *           clean SDP at the top-level interface:
+ *               HLS port A is READ-ONLY  (WEN_A hardwired to 0 in HLS top)
+ *               HLS port B is WRITE-ONLY (Din_B / WEN_B carry the writes)
+ *           Map:
+ *               HLS port A read   -> sdp_ram port B (read)
+ *               HLS port B write  -> sdp_ram port A (write)
+ *         - The HLS top muxes the per-layer kernel's single read port and
+ *           single write port onto the appropriate top fmap based on the
+ *           ping-pong parity register (cfg_pp_buf_sel_reg_*).  For any
+ *           given fmap, the HLS top NEVER asserts port A (read) and port B
+ *           (write) in the same cycle, because the kernel reads from one
+ *           buffer and writes to the OTHER each layer.  The two SDP ports
+ *           are therefore conflict-free across the entire 17-layer ping-
+ *           pong walk.
  *    6. Strips the byte-aligned shift HLS applies to BRAM addresses
  *       (Addr_A is byte-addressed; we shift right by 4 for 128-bit words
  *       and pass through directly for 8-bit silu_mem).
@@ -164,7 +172,7 @@ module inference_hls #(
         .ap_idle        (ap_idle),
         .ap_ready       (ap_ready),
 
-        // fmap_a port A (RW)
+        // fmap_a port A (R-only after ram_s2p; WEN_A / Din_A unused)
         .fmap_a_Addr_A  (fa_addr_A_raw),
         .fmap_a_EN_A    (fa_en_A_raw),
         .fmap_a_WEN_A   (fa_wen_A_raw),
@@ -172,16 +180,16 @@ module inference_hls #(
         .fmap_a_Dout_A  (fa_dout_A_raw),
         .fmap_a_Clk_A   (),
         .fmap_a_Rst_A   (),
-        // fmap_a port B (R-only)
+        // fmap_a port B (W-only after ram_s2p; Dout_B unused)
         .fmap_a_Addr_B  (fa_addr_B_raw),
         .fmap_a_EN_B    (fa_en_B_raw),
-        .fmap_a_WEN_B   (fa_wen_B_raw),  // tied to 0 inside HLS top
-        .fmap_a_Din_B   (fa_din_B_raw),  // tied to 0 inside HLS top
-        .fmap_a_Dout_B  (fa_dout_B_raw),
+        .fmap_a_WEN_B   (fa_wen_B_raw),
+        .fmap_a_Din_B   (fa_din_B_raw),
+        .fmap_a_Dout_B  (fa_dout_B_raw),  // tied to 0 in wrapper
         .fmap_a_Clk_B   (),
         .fmap_a_Rst_B   (),
 
-        // fmap_b port A (RW)
+        // fmap_b port A (R-only after ram_s2p; WEN_A / Din_A unused)
         .fmap_b_Addr_A  (fb_addr_A_raw),
         .fmap_b_EN_A    (fb_en_A_raw),
         .fmap_b_WEN_A   (fb_wen_A_raw),
@@ -189,12 +197,12 @@ module inference_hls #(
         .fmap_b_Dout_A  (fb_dout_A_raw),
         .fmap_b_Clk_A   (),
         .fmap_b_Rst_A   (),
-        // fmap_b port B (R-only)
+        // fmap_b port B (W-only after ram_s2p; Dout_B unused)
         .fmap_b_Addr_B  (fb_addr_B_raw),
         .fmap_b_EN_B    (fb_en_B_raw),
-        .fmap_b_WEN_B   (fb_wen_B_raw),  // tied to 0 inside HLS top
-        .fmap_b_Din_B   (fb_din_B_raw),  // tied to 0 inside HLS top
-        .fmap_b_Dout_B  (fb_dout_B_raw),
+        .fmap_b_WEN_B   (fb_wen_B_raw),
+        .fmap_b_Din_B   (fb_din_B_raw),
+        .fmap_b_Dout_B  (fb_dout_B_raw),  // tied to 0 in wrapper
         .fmap_b_Clk_B   (),
         .fmap_b_Rst_B   (),
 
@@ -250,63 +258,82 @@ module inference_hls #(
     assign su_dout_raw     = silu_mem_dout_b;
 
     // ─────────────────────────────────────────────────────────────────
-    //  fmap_a port mapping
+    //  fmap_a / fmap_b port mapping  (post-`storage_type=ram_s2p`)
     //
-    //  HLS port A is RW (one wire group, distinguished by WEN_A).
-    //  HLS port B is read-only (WEN_B/Din_B tied to 0 inside HLS top).
+    //  After the ram_s2p pragma in tinyissimo_layer_top.cpp, the HLS
+    //  top exposes each fmap as clean SDP:
+    //      HLS port A is READ-ONLY   (WEN_A hardwired to 0 in HLS top,
+    //                                 Din_A unused)
+    //      HLS port B is WRITE-ONLY  (Din_B / WEN_B carry the writes;
+    //                                 Dout_B never consumed by HLS)
     //  sdp_ram port A is write-only, port B is read-only.
     //
     //  Map:
-    //    HLS  port A write  -> sdp_ram port A
-    //    HLS  port A read   -> sdp_ram port B  (when port B HLS is idle)
-    //    HLS  port B read   -> sdp_ram port B  (when port A HLS is idle)
+    //      HLS port A read   -> sdp_ram port B (read)
+    //      HLS port B write  -> sdp_ram port A (write)
     //
-    //  Because the two HLS ports belong to the unrolled CONV_LOOP /
-    //  CONV_LOOP4 pipelines and only one branch executes per layer,
-    //  port A reads and port B reads can never happen simultaneously.
-    //  We OR-mux them, with port A taking priority when both are
-    //  somehow asserted in the same cycle (they shouldn't be).
+    //  Ping-pong correctness across the 17-layer walk:
+    //  ------------------------------------------------------------------
+    //  The HLS top muxes the per-layer kernel's single read port and
+    //  single write port onto the appropriate top fmap based on the
+    //  parity register `cfg_pp_buf_sel_reg_*`.  For any given fmap,
+    //  port A (read) and port B (write) are NEVER asserted in the same
+    //  cycle, because the kernel reads from one buffer and writes to
+    //  the OTHER each layer:
+    //
+    //    Layer N (parity=1): reads top fmap_a, writes top fmap_b
+    //      -> HLS asserts fa_en_A and fb_en_B / fb_din_B / fb_wen_B
+    //      -> wrapper drives u_fmap_a.en_b (read) and
+    //                        u_fmap_b.en_a + we_a + din_a (write)
+    //
+    //    Layer N+1 (parity=0): reads top fmap_b, writes top fmap_a
+    //      -> HLS asserts fb_en_A and fa_en_B / fa_din_B / fa_wen_B
+    //      -> wrapper drives u_fmap_b.en_b (read) and
+    //                        u_fmap_a.en_a + we_a + din_a (write)
+    //
+    //  The two SDP ports of each URAM are therefore conflict-free.
+    //
+    //  WEN_B from HLS is 16-bit (one byte enable per byte of the 128-bit
+    //  word), but the HLS C++ writes whole `ap_uint<128>` words at the
+    //  OUT_COL_STORE pipeline, so all 16 bits assert together.  We OR-
+    //  reduce to the 1-bit sdp_ram.we_a.  If a future cpp change emits
+    //  partial-word writes, this OR-reduction would silently widen them
+    //  to full-word writes — flag and revisit.
+    //
+    //  Layer 0 RGB unpack: handled end-to-end inside the HLS C++ (see
+    //  tinyissimo_layer.cpp `packed_rgb_input` branch — it computes its
+    //  own `fmap_in[read_addr]` word index and extracts the lane in
+    //  software).  The wrapper does NOT apply a second `>> 2` or
+    //  substitute a zero-padded word.  Layer 0 reads the camera frame
+    //  from u_fmap_b via the standard read path; the AXI preload that
+    //  populated u_fmap_b earlier is masked out by the preload_active
+    //  mux in inference_top.sv before the HLS engine starts.
     // ─────────────────────────────────────────────────────────────────
-    wire fa_pa_is_wr = fa_en_A_raw &  (|fa_wen_A_raw);
-    wire fa_pa_is_rd = fa_en_A_raw & ~(|fa_wen_A_raw);
 
-    assign fmap_a_en_a   = fa_pa_is_wr;
-    assign fmap_a_we_a   = fa_pa_is_wr;
-    assign fmap_a_addr_a = fa_addr_A_raw[FMAP_ADDR_W+4-1:4];
-    assign fmap_a_din_a  = fa_din_A_raw;
+    // fmap_a — HLS port A (read) -> SDP port B; HLS port B (write) -> SDP port A
+    assign fmap_a_en_a   = fa_en_B_raw;
+    assign fmap_a_we_a   = |fa_wen_B_raw;
+    assign fmap_a_addr_a = fa_addr_B_raw[FMAP_ADDR_W+4-1:4];
+    assign fmap_a_din_a  = fa_din_B_raw;
 
-    assign fmap_a_en_b   = fa_pa_is_rd | fa_en_B_raw;
-    assign fmap_a_addr_b = fa_pa_is_rd ? fa_addr_A_raw[FMAP_ADDR_W+4-1:4]
-                                       : fa_addr_B_raw[FMAP_ADDR_W+4-1:4];
+    assign fmap_a_en_b   = fa_en_A_raw;
+    assign fmap_a_addr_b = fa_addr_A_raw[FMAP_ADDR_W+4-1:4];
 
-    // sdp_ram port B output goes BACK to the HLS top.  Both HLS ports
-    // see the same data — only the active port acts on it.
+    // SDP read data returns through HLS port A's Dout.  HLS port B is
+    // write-only and never reads, so its Dout input is tied off.
     assign fa_dout_A_raw = fmap_a_dout_b;
-    assign fa_dout_B_raw = fmap_a_dout_b;
+    assign fa_dout_B_raw = 128'd0;
 
-    // ─────────────────────────────────────────────────────────────────
-    //  fmap_b port mapping — same passthrough pattern as fmap_a.
-    //
-    //  The layer-0 4-pixels-per-128-bit-word RGB layout is handled
-    //  end-to-end inside the HLS C++ (see tinyissimo_layer.cpp:259-291,
-    //  the `packed_rgb_input` branch — it computes its own
-    //  `fmap_in[(linear >> 2)]` word index and extracts the lane in
-    //  software). The wrapper must NOT apply a second >> 2 or splice
-    //  in a 24-bit zero-padded word, or the HLS sees garbage.
-    // ─────────────────────────────────────────────────────────────────
-    wire fb_pa_is_wr = fb_en_A_raw &  (|fb_wen_A_raw);
-    wire fb_pa_is_rd = fb_en_A_raw & ~(|fb_wen_A_raw);
+    // fmap_b — same SDP mapping as fmap_a.
+    assign fmap_b_en_a   = fb_en_B_raw;
+    assign fmap_b_we_a   = |fb_wen_B_raw;
+    assign fmap_b_addr_a = fb_addr_B_raw[FMAP_ADDR_W+4-1:4];
+    assign fmap_b_din_a  = fb_din_B_raw;
 
-    assign fmap_b_en_a   = fb_pa_is_wr;
-    assign fmap_b_we_a   = fb_pa_is_wr;
-    assign fmap_b_addr_a = fb_addr_A_raw[FMAP_ADDR_W+4-1:4];
-    assign fmap_b_din_a  = fb_din_A_raw;
-
-    assign fmap_b_en_b   = fb_pa_is_rd | fb_en_B_raw;
-    assign fmap_b_addr_b = fb_pa_is_rd ? fb_addr_A_raw[FMAP_ADDR_W+4-1:4]
-                                       : fb_addr_B_raw[FMAP_ADDR_W+4-1:4];
+    assign fmap_b_en_b   = fb_en_A_raw;
+    assign fmap_b_addr_b = fb_addr_A_raw[FMAP_ADDR_W+4-1:4];
 
     assign fb_dout_A_raw = fmap_b_dout_b;
-    assign fb_dout_B_raw = fmap_b_dout_b;
+    assign fb_dout_B_raw = 128'd0;
 
 endmodule
