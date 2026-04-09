@@ -26,6 +26,14 @@ preprocessing pipeline.
   proving both accelerator backends produce detections matching the TFLite
   reference.
 
+The most recent integrated build lives under
+[`hardware/output/preserved/playground_FINAL/`](hardware/output/preserved/playground_FINAL/)
+(`playground_hdl_hls_wrapper.{bit,hwh,xsa,dts,dtbo}`) — the first bitstream
+carrying both the HDL and HLS backends together with runtime `engine_sel`.
+See [`hardware/output/preserved/README.md`](hardware/output/preserved/README.md)
+for the full build roster (`FIRST` / `SECOND` / `FINAL`) and restoration
+instructions.
+
 ## Getting started
 
 - **Board bring-up** → [`setup/README.md`](setup/README.md) — Ubuntu flash,
