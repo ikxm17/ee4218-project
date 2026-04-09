@@ -1068,78 +1068,78 @@ static void test8_full_model() {
     printf("  Loaded: %d wt, %d qp, %d silu, %d pixels\n",
            wt_n, qp_n, lut_n, pix_n);
 
-    // ── Run the full top function ──
-    volatile int curr_layer = -1;
-    tinyissimo_layer_top(g_fmap_a, g_fmap_b,
-                         g_wt_full, g_qp_full, g_silu_full,
-                         &curr_layer);
-    printf("  Top function returned, curr_layer=%d (expect 17)\n", curr_layer);
-
-    if (curr_layer != NUM_LAYERS) {
-        printf("  [FAIL] curr_layer != NUM_LAYERS (%d)\n", NUM_LAYERS);
-        g_fail++;
-        return;
-    }
-
-    // ── Compare every layer's fmap output region against its golden ──
+    // ── Per-layer verification: drive each layer manually and snapshot
+    //    the output region BEFORE the next layer overwrites it.
     //
-    // Per-layer table mirrors scripts/diag_accel_silicon_vs_tflite.py:
-    // LAYER_MAP — the authoritative URAM region map shared with the
-    // on-board diag and the offline silicon-vs-golden gate.
+    //    Calling tinyissimo_layer_top() once and reading fmap_a/fmap_b
+    //    afterwards is useless for intermediate-layer verification:
+    //    layer N's region in fmap_a / fmap_b gets clobbered by every
+    //    later layer that writes the same buffer at the same offset.
+    //    The only layers that survive that are the LAST writers to
+    //    each region (10, 12, 13, 15, 16) — exactly the previous
+    //    test's blind spot.
     //
-    // Fields: { idx, buf, base, h_post, w_post, cout }
-    //   buf:    0 = g_fmap_a   1 = g_fmap_b
-    //   base:   word offset within that buffer (detection-head layers
-    //           share fmap regions via pp_wr_offset)
-    //   h/w:    POST-pool spatial dims (== the size of the URAM region
-    //           the layer wrote, not the conv input)
-    //   cout:   live output channels (uneven last tile is handled by
-    //           compare_layer_unpacked via unpack_output's cout slice)
-    struct layer_check {
-        int idx;
-        int buf;
-        int base;
-        int h;
-        int w;
-        int c;
-    };
-    static const layer_check checks[] = {
-        { 0, 0,   0, 128, 128,  16},
-        { 1, 1,   0, 128, 128,  16},
-        { 2, 0,   0,  64,  64,  16},
-        { 3, 1,   0,  64,  64,  32},
-        { 4, 0,   0,  32,  32,  32},
-        { 5, 1,   0,  32,  32,  64},
-        { 6, 0,   0,  16,  16,  64},
-        { 7, 1,   0,  16,  16,  64},
-        { 8, 0,   0,   8,   8, 128},
-        { 9, 1,   0,   8,   8, 128},
-        {10, 0,   0,   8,   8,  24},
-        {11, 1, 256,   8,   8,  64},
-        {12, 0, 256,   8,   8,  64},
-        {13, 1, 256,   8,   8,  64},
-        {14, 1, 512,   8,   8,  24},
-        {15, 0, 512,   8,   8,  24},
-        {16, 1, 512,   8,   8,   3},
-    };
-    int n_layers = sizeof(checks) / sizeof(checks[0]);
-
+    //    Instead, we mirror the body of tinyissimo_layer_top()
+    //    (hardware/hls/tinyissimo_layer_top.cpp:42-89) inline,
+    //    calling tinyissimo_layer() once per LAYER_CFG[] entry, then
+    //    immediately compare_layer_unpacked() against the per-layer
+    //    golden — the same approach scripts/diag_accel_silicon_vs_tflite
+    //    .py uses on silicon (set_max_layers + read URAM after each
+    //    layer).  This is the canonical csim ground truth.
+    //
+    //    A separate tinyissimo_layer_top() call follows at the end of
+    //    this test purely for cosim coverage (so cosim has something
+    //    to wrap when it runs the synthesized top function).
     int total_errors = 0;
     int total_pixels = 0;
     int n_layer_fail = 0;
-    for (int i = 0; i < n_layers; i++) {
-        const layer_check &lc = checks[i];
+    for (int L = 0; L < NUM_LAYERS; L++) {
+        const LayerCfg cfg = LAYER_CFG[L];
+        const bool packed_rgb = (L == 0);
+
+        if (cfg.pp_buf_sel == 0) {
+            tinyissimo_layer(
+                cfg.h_in, cfg.w_in, cfg.cin, cfg.cout,
+                cfg.kh,   cfg.kw,   cfg.pad_h, cfg.pad_w,
+                (bool)cfg.use_maxpool, (bool)cfg.use_silu, L,
+                (ap_int<8>)cfg.zp_in, (ap_int<8>)cfg.zp_out,
+                (int)cfg.wt_base, (int)cfg.qp_base,
+                (int)cfg.pp_rd_offset, (int)cfg.pp_wr_offset,
+                packed_rgb,
+                g_fmap_b, g_fmap_a,
+                g_wt_full, g_qp_full, g_silu_full);
+        } else {
+            tinyissimo_layer(
+                cfg.h_in, cfg.w_in, cfg.cin, cfg.cout,
+                cfg.kh,   cfg.kw,   cfg.pad_h, cfg.pad_w,
+                (bool)cfg.use_maxpool, (bool)cfg.use_silu, L,
+                (ap_int<8>)cfg.zp_in, (ap_int<8>)cfg.zp_out,
+                (int)cfg.wt_base, (int)cfg.qp_base,
+                (int)cfg.pp_rd_offset, (int)cfg.pp_wr_offset,
+                packed_rgb,
+                g_fmap_a, g_fmap_b,
+                g_wt_full, g_qp_full, g_silu_full);
+        }
+
+        // Post-pool spatial dims define the URAM region the layer wrote.
+        const int h_post = cfg.use_maxpool ? cfg.h_in / 2 : cfg.h_in;
+        const int w_post = cfg.use_maxpool ? cfg.w_in / 2 : cfg.w_in;
+        const ap_uint<128> *out_buf =
+            (cfg.pp_buf_sel == 0) ? g_fmap_a : g_fmap_b;
+
         char path[512];
         snprintf(path, sizeof(path),
                  TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer%d_uram.mem",
-                 lc.idx);
-        const ap_uint<128> *buf = (lc.buf == 0) ? g_fmap_a : g_fmap_b;
-        int errors = compare_layer_unpacked(buf, path, lc.base, lc.h, lc.w, lc.c);
-        int pixels = lc.h * lc.w * lc.c;
+                 L);
+        int errors = compare_layer_unpacked(out_buf, path,
+                                             (int)cfg.pp_wr_offset,
+                                             h_post, w_post,
+                                             (int)cfg.cout);
+        int pixels = h_post * w_post * (int)cfg.cout;
         const char *verdict = (errors == 0) ? "OK" : "FAIL";
         printf("  Layer %2d  buf=%c base=%4d  %3dx%3dx%-3d  %6d/%-6d  [%s]\n",
-               lc.idx, (lc.buf == 0) ? 'a' : 'b',
-               lc.base, lc.h, lc.w, lc.c,
+               L, (cfg.pp_buf_sel == 0) ? 'a' : 'b',
+               (int)cfg.pp_wr_offset, h_post, w_post, (int)cfg.cout,
                errors, pixels, verdict);
         if (errors != 0) n_layer_fail++;
         total_errors += errors;
@@ -1147,10 +1147,31 @@ static void test8_full_model() {
     }
     printf("  ----\n");
     printf("  %d / %d layers BIT-EXACT, %d total pixel errors / %d pixels\n\n",
-           n_layers - n_layer_fail, n_layers, total_errors, total_pixels);
+           NUM_LAYERS - n_layer_fail, NUM_LAYERS, total_errors, total_pixels);
 
     g_pass += (total_pixels - total_errors);
     g_fail += total_errors;
+
+    // ── Cosim coverage: run tinyissimo_layer_top() once on a fresh
+    //    buffer state.  The per-layer loop above is the csim ground
+    //    truth; this call exists only so Vitis HLS cosim has the
+    //    synthesized top function exercised in the testbench.  No
+    //    verification — if cosim is enabled, the C-vs-RTL diff handled
+    //    by the cosim runner is the gate.
+    memset(g_fmap_a, 0, sizeof(g_fmap_a));
+    memset(g_fmap_b, 0, sizeof(g_fmap_b));
+    load_packed_rgb(pix_path, g_fmap_b);
+    volatile int curr_layer = -1;
+    tinyissimo_layer_top(g_fmap_a, g_fmap_b,
+                         g_wt_full, g_qp_full, g_silu_full,
+                         &curr_layer);
+    printf("  cosim coverage: tinyissimo_layer_top() returned curr_layer=%d "
+           "(expect %d)\n\n",
+           curr_layer, NUM_LAYERS);
+    if (curr_layer != NUM_LAYERS) {
+        printf("  [FAIL] cosim-coverage curr_layer != NUM_LAYERS\n");
+        g_fail++;
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
