@@ -981,40 +981,52 @@ static int load_packed_rgb(const char *path, ap_uint<128> *fmap)
     return total;
 }
 
-// Compare a slice of an fmap buffer against a golden .mem file.
+// Compare a layer's fmap output region against a golden .mem file by
+// unpacking both sides into the [H × W × cout] flat int8 form.  This
+// matches the slicing in scripts/verify_silicon_vs_goldens.py and
+// scripts/diag_accel_silicon_vs_tflite.py: any residual bytes above
+// the live `cout` channels in an uneven last oc_tile (layers 10, 14,
+// 15, 16) are never read into the flat buffer, so junk in those
+// slots can never cause a false failure or hide a real bug.
 //
-// valid_channels: how many of the 16 channels in each 128-bit word
-//   actually carry meaningful output for this layer.  Channels above
-//   this index hold residual data from earlier layers (which is fine
-//   — host code reads only the first cout bytes per word).  Set to 16
-//   when all channels are valid; for layer 16 (cv3, cout=3) set to 3.
-static int compare_uram_region(const ap_uint<128> *got, const char *golden_path,
-                                int base_addr, int n_words, int valid_channels)
+// h_post / w_post are the *post-pool* spatial dimensions (== the
+// dimensions of the URAM region this layer wrote, not the conv input).
+static int compare_layer_unpacked(const ap_uint<128> *got_fmap,
+                                   const char *golden_path,
+                                   int fmap_offset,
+                                   int h_post, int w_post, int cout)
 {
-    static ap_uint<128> golden[16384];
-    int loaded = load_hex_mem(golden_path, golden, n_words, 128);
+    // Sized for the largest layer (layer 0 post-pool = 16384 words).
+    static ap_uint<128> golden_words[16384];
+    int oc_tiles = (cout + TILE_OC - 1) / TILE_OC;
+    int n_words  = oc_tiles * h_post * w_post;
+    int loaded = load_hex_mem(golden_path, golden_words, n_words, 128);
     if (loaded != n_words) {
-        printf("  WARN: %s loaded %d / %d words\n",
+        printf("    WARN: %s loaded %d / %d words\n",
                golden_path, loaded, n_words);
     }
-    // Build a mask covering only the valid_channels low bytes of each word.
-    ap_uint<128> mask = 0;
-    int valid_bits = valid_channels * 8;
-    if (valid_bits > 0)
-        mask.range(valid_bits - 1, 0) = ((ap_uint<128>)1 << valid_bits) - 1;
+
+    // Sized for the largest layer (layer 0 post-pool = 128*128*16).
+    static int8_t flat_got[128 * 128 * 16];
+    static int8_t flat_ref[128 * 128 * 16];
+    int total = h_post * w_post * cout;
+    if (total > (int)sizeof(flat_got)) {
+        printf("    ERROR: layer too large for flat buffer (%d > %d)\n",
+               total, (int)sizeof(flat_got));
+        return -1;
+    }
+    unpack_output(got_fmap,     flat_got, h_post, w_post, cout, false, fmap_offset);
+    unpack_output(golden_words, flat_ref, h_post, w_post, cout, false, 0);
 
     int errors = 0;
-    for (int i = 0; i < n_words && i < loaded; i++) {
-        ap_uint<128> g = got[base_addr + i] & mask;
-        ap_uint<128> r = golden[i]          & mask;
-        if (g != r) {
+    for (int i = 0; i < total; i++) {
+        if (flat_got[i] != flat_ref[i]) {
             if (errors < 4) {
-                printf("    [FAIL] @%d  got=%016lx%016lx  ref=%016lx%016lx\n",
-                       base_addr + i,
-                       (unsigned long)g.range(127, 64),
-                       (unsigned long)g.range(63, 0),
-                       (unsigned long)r.range(127, 64),
-                       (unsigned long)r.range(63, 0));
+                int row = i / (w_post * cout);
+                int col = (i / cout) % w_post;
+                int ch  = i % cout;
+                printf("    [FAIL] h=%d w=%d c=%d  got=%d  ref=%d\n",
+                       row, col, ch, (int)flat_got[i], (int)flat_ref[i]);
             }
             errors++;
         }
@@ -1043,8 +1055,6 @@ static void test8_full_model() {
     const char *qp_path  = TB_DATA_DIR "hardware/weights/hdl/qp_packed_rom.mem";
     const char *lut_path = TB_DATA_DIR "hardware/weights/hdl/silu_lut.mem";
     const char *pix_path = TB_DATA_DIR "hardware/testbench/inference_hdl/pixels_layer0.mem";
-    const char *g13_path = TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer13_uram.mem";
-    const char *g16_path = TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer16_uram.mem";
 
     int wt_n  = load_hex_mem (wt_path,  g_wt_full, WT_DEPTH, 128);
     int qp_n  = load_hex_mem (qp_path,  g_qp_full, QP_DEPTH, 72);
@@ -1071,30 +1081,76 @@ static void test8_full_model() {
         return;
     }
 
-    // ── Compare detection-head outputs against golden ──
-    // Layer 13 (cv2): pp_buf_sel=1, pp_wr_offset=256, 64 channels x 8x8
-    //   = 4 channel groups x 64 spatial = 256 words at fmap_b[256..511]
-    // Layer 16 (cv3): pp_buf_sel=1, pp_wr_offset=512, 3 channels x 8x8
-    //   = 1 channel group x 64 spatial = 64 words at fmap_b[512..575]
-    // Layer 13 (cv2): cout=64 — full 16 channels per word, all valid.
-    printf("  Verifying layer 13 (cv2, fmap_b[256..511])...\n");
-    int e13 = compare_uram_region(g_fmap_b, g13_path, 256, 256, 16);
+    // ── Compare every layer's fmap output region against its golden ──
+    //
+    // Per-layer table mirrors scripts/diag_accel_silicon_vs_tflite.py:
+    // LAYER_MAP — the authoritative URAM region map shared with the
+    // on-board diag and the offline silicon-vs-golden gate.
+    //
+    // Fields: { idx, buf, base, h_post, w_post, cout }
+    //   buf:    0 = g_fmap_a   1 = g_fmap_b
+    //   base:   word offset within that buffer (detection-head layers
+    //           share fmap regions via pp_wr_offset)
+    //   h/w:    POST-pool spatial dims (== the size of the URAM region
+    //           the layer wrote, not the conv input)
+    //   cout:   live output channels (uneven last tile is handled by
+    //           compare_layer_unpacked via unpack_output's cout slice)
+    struct layer_check {
+        int idx;
+        int buf;
+        int base;
+        int h;
+        int w;
+        int c;
+    };
+    static const layer_check checks[] = {
+        { 0, 0,   0, 128, 128,  16},
+        { 1, 1,   0, 128, 128,  16},
+        { 2, 0,   0,  64,  64,  16},
+        { 3, 1,   0,  64,  64,  32},
+        { 4, 0,   0,  32,  32,  32},
+        { 5, 1,   0,  32,  32,  64},
+        { 6, 0,   0,  16,  16,  64},
+        { 7, 1,   0,  16,  16,  64},
+        { 8, 0,   0,   8,   8, 128},
+        { 9, 1,   0,   8,   8, 128},
+        {10, 0,   0,   8,   8,  24},
+        {11, 1, 256,   8,   8,  64},
+        {12, 0, 256,   8,   8,  64},
+        {13, 1, 256,   8,   8,  64},
+        {14, 1, 512,   8,   8,  24},
+        {15, 0, 512,   8,   8,  24},
+        {16, 1, 512,   8,   8,   3},
+    };
+    int n_layers = sizeof(checks) / sizeof(checks[0]);
 
-    // Layer 16 (cv3): cout=3 — only the low 3 bytes per word carry data.
-    // The high bits hold residual data from layer 14 (which writes 24
-    // channels to fmap_b[512..639]) and are intentionally ignored, just
-    // like the host driver only reads the first cout valid bytes.
-    printf("  Verifying layer 16 (cv3, fmap_b[512..575])...\n");
-    int e16 = compare_uram_region(g_fmap_b, g16_path, 512, 64, 3);
+    int total_errors = 0;
+    int total_pixels = 0;
+    int n_layer_fail = 0;
+    for (int i = 0; i < n_layers; i++) {
+        const layer_check &lc = checks[i];
+        char path[512];
+        snprintf(path, sizeof(path),
+                 TB_DATA_DIR "hardware/testbench/inference_hdl/golden_layer%d_uram.mem",
+                 lc.idx);
+        const ap_uint<128> *buf = (lc.buf == 0) ? g_fmap_a : g_fmap_b;
+        int errors = compare_layer_unpacked(buf, path, lc.base, lc.h, lc.w, lc.c);
+        int pixels = lc.h * lc.w * lc.c;
+        const char *verdict = (errors == 0) ? "OK" : "FAIL";
+        printf("  Layer %2d  buf=%c base=%4d  %3dx%3dx%-3d  %6d/%-6d  [%s]\n",
+               lc.idx, (lc.buf == 0) ? 'a' : 'b',
+               lc.base, lc.h, lc.w, lc.c,
+               errors, pixels, verdict);
+        if (errors != 0) n_layer_fail++;
+        total_errors += errors;
+        total_pixels += pixels;
+    }
+    printf("  ----\n");
+    printf("  %d / %d layers BIT-EXACT, %d total pixel errors / %d pixels\n\n",
+           n_layers - n_layer_fail, n_layers, total_errors, total_pixels);
 
-    int total = 256 + 64;
-    int errors = e13 + e16;
-    printf("  Layer 13 errors: %d / 256\n", e13);
-    printf("  Layer 16 errors: %d / 64\n", e16);
-    printf("  Total errors:    %d / %d\n\n", errors, total);
-
-    g_pass += (total - errors);
-    g_fail += errors;
+    g_pass += (total_pixels - total_errors);
+    g_fail += total_errors;
 }
 
 // ═════════════════════════════════════════════════════════════════════════
