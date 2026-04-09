@@ -246,24 +246,40 @@ void tinyissimo_layer(
                 int h_safe = (h < 0) ? 0 : ((h >= in_h) ? 0 : h);
                 int w_safe = (w < 0) ? 0 : ((w >= in_w) ? 0 : w);
 
-                // ── Packed-RGB special case ─────────────────────────
+                // ── Packed-RGB / standard read (single access site) ─
                 // The HDL preload writes the camera frame to fmap_b as
                 // 4 packed RGB pixels per 128-bit word (16384 words =
                 // 65536 pixels = 256x256).  At 1 word/pixel the frame
                 // would need 65536 words and overflow FMAP_DEPTH=16384.
                 // When packed_rgb_input == true (model layer 0 only)
-                // we unpack the 4-pixels-per-word layout here; all
-                // other callers use the standard 16-channel-packed
-                // layout (one word per spatial position).
-                ap_uint<128> raw;
-                if (packed_rgb_input) {
-                    int linear = h_safe * in_w + w_safe;
-                    raw = fmap_in[fmap_rd_offset + (linear >> 2)];
-                } else {
-                    raw = fmap_in[fmap_rd_offset
-                                  + c_ict * in_h * in_w
-                                  + h_safe * in_w + w_safe];
-                }
+                // we use the (linear >> 2) word index; all other
+                // callers use the standard 16-channel-packed layout
+                // (one word per spatial position).
+                //
+                // CRITICAL — keep this as ONE access site to fmap_in
+                // (single ternary into `read_addr`), NOT an if/else
+                // with `raw = fmap_in[...]` in each branch.  HLS does
+                // if-conversion in the pipelined CONV_LOOP and, given
+                // two literal `fmap_in[...]` sites, will speculatively
+                // issue BOTH reads through ports A and B of the BRAM
+                // every cycle, muxing the result later.  inference_hls
+                // .sv merges both HLS read ports onto a single sdp_ram
+                // read port (URAM is simple-dual-port — one write port
+                // + one read port), so port B's intended address gets
+                // silently dropped on silicon and the wrapper returns
+                // port A's data on both ports.  Cosim does not catch
+                // this because Vitis HLS wraps `INTERFACE bram` ports
+                // with true-dual-port BRAM behavioural models that
+                // serve both reads independently.  Folding both
+                // branches into one ternary keeps the access site
+                // singular, HLS binds it to one BRAM port, and the
+                // wrapper's port-merge stays safe.
+                int read_addr = packed_rgb_input
+                    ? (fmap_rd_offset + ((h_safe * in_w + w_safe) >> 2))
+                    : (fmap_rd_offset
+                       + c_ict * in_h * in_w
+                       + h_safe * in_w + w_safe);
+                ap_uint<128> raw = fmap_in[read_addr];
 
                 // Unpack 16 int8 pixel values (pad channels use zp_in)
                 ap_int<8> pix[TILE_IC];
