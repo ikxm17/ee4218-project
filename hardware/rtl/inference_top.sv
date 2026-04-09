@@ -516,7 +516,21 @@ module inference_top #(
      * address (RESULT_BASE register) is added to result_rd_addr to slide
      * the read window over arbitrary URAM regions for layer-by-layer
      * silicon bisection. Defaults (base=256, buf=1) preserve the original
-     * cv2/cv3 readout behaviour exactly. */
+     * cv2/cv3 readout behaviour exactly.
+     *
+     * HAZARD: result_rd_{a,b} take priority over input_rd_en in the
+     * fmap_{a,b}_en_b / fmap_{a,b}_addr_b muxes below. That means any
+     * AXI-Lite result read issued while inference is still running will
+     * hijack the URAM read port for one cycle, causing conv3d to see
+     * stale pixel data for that cycle. The downstream effect is a
+     * subtle period-5 compute divergence (e.g. period-5 errors on
+     * layer-1 ch_out=0) that looks exactly like an RTL bug.
+     *
+     * Drivers / testbenches MUST NOT issue result-window reads until
+     * STATUS.done is set. The bundled PYNQ driver already respects
+     * this (it polls `done` before reading results); tb sequences that
+     * want to cover the base=0 result-decode path should do so after
+     * the inference_done wait (see tb_tinyissimoyolo_accel Step 5a). */
     wire result_rd_a = result_rd_en && !result_buf_sel;
     wire result_rd_b = result_rd_en &&  result_buf_sel;
 

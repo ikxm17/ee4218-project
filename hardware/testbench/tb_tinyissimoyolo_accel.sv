@@ -330,6 +330,36 @@ module tb_tinyissimoyolo_accel;
                      errors, checked);
     endtask
 
+    // -------------------------------------------------------------------------
+    // Cascade bisection helper: snapshot layer N's output at the first moment
+    // it is safe to read, i.e. immediately after the FSM advances past layer N
+    // but before the ping-pong partner that shares the same (buffer, offset)
+    // slot has started writing.
+    //
+    // Uses `>` (not `==`) so the wait never hangs if we arrive slightly late
+    // after some other blocking step consumed sim time — at worst we read the
+    // buffer after the safe window has closed and the verify fails loudly.
+    //
+    // All reads inside `verify_uram_at_offset` are 0 sim-time procedural URAM
+    // hierarchical accesses, so the snapshot itself cannot race the FSM.
+    // -------------------------------------------------------------------------
+    task automatic snapshot_layer(input int layer_to_check);
+        wait(dut.u_inference_hdl.layer_idx > layer_to_check);
+        @(posedge clk);
+        $display("  [BISECT L%0d] layer %0d boundary (cycle=%0d, layer_idx=%0d)",
+                 layer_to_check, layer_to_check, cycle_count,
+                 dut.u_inference_hdl.layer_idx);
+        load_golden(layer_to_check);
+        if (PP_BUF_SEL[layer_to_check] == 0)
+            verify_uram_at_offset("fmap_a",
+                                  URAM_WORDS[layer_to_check],
+                                  WR_OFFSET[layer_to_check]);
+        else
+            verify_uram_at_offset("fmap_b",
+                                  URAM_WORDS[layer_to_check],
+                                  WR_OFFSET[layer_to_check]);
+    endtask
+
     // =========================================================================
     //  Main Test Sequence
     // =========================================================================
@@ -439,20 +469,56 @@ module tb_tinyissimoyolo_accel;
         //  Limit to the first 32 URAM words to keep xsim runtime reasonable
         //  (each axil_read burns ~5-10 cycles).
         // -----------------------------------------------------------------
-        $display("[STEP 3.6] Verifying layer 0 via AXI-Lite result region (base=0)...");
-        // Test window-sliding: 640 words = 2 chunks of 320 (one set_result_window slide)
-        verify_axil_at_offset(
-            .buf_sel     (PP_BUF_SEL[0]),
-            .num_words   (URAM_WORDS[0]),
-            .offset      (WR_OFFSET[0]),
-            .max_to_check(640)
-        );
+        // -----------------------------------------------------------------
+        //  Step 3.6 was deliberately REMOVED.
+        //
+        //  The prior revision of this file ran AXI-Lite reads of
+        //  `verify_axil_at_offset(PP_BUF_SEL[0], 16384, 0, 640)` here,
+        //  AFTER Step 3.5 and BEFORE Step 3.7. That is unsafe: Step 3.5
+        //  returns at the layer-0 → layer-1 boundary but layer 1 is
+        //  still actively streaming pixel reads from fmap_a port B. In
+        //  inference_top.sv:524-529 the fmap_a read-port mux gives
+        //  `result_rd_a` priority over `input_rd_en`, so every AXI-Lite
+        //  read pulsed by axil_regs hijacks the URAM read port away
+        //  from conv3d for one cycle. The period-5 corruption that
+        //  resulted looked *exactly* like an RTL compute bug at layer 1
+        //  ch_out=0 byte[0] — but the RTL is fine; the testbench was
+        //  poisoning the conv input stream.
+        //
+        //  Base=0 coverage of the axil_regs result-region read decode
+        //  path has been moved to Step 6a below, which runs after
+        //  Step 4 (`done`) when no conv reads are in flight. At that
+        //  point fmap_a[0..127] holds layer 10's output, so we verify
+        //  the base=0 path against `golden_layer10_uram.mem` instead of
+        //  layer 0 (whose fmap_a contents have been overwritten).
+        // -----------------------------------------------------------------
 
-        // Restore result region defaults so Step 6 cv2/cv3 reads work
-        // (Step 6 has no explicit set — it relies on the reset defaults
-        //  result_base=256, result_buf=1 from axil_regs.sv:165-166.)
-        axil_write(ADDR_RESULT_BASE_R, 32'd256);
-        axil_write(ADDR_RESULT_BUF_R,  32'd1);
+        // -----------------------------------------------------------------
+        //  Step 3.7: Per-layer bisection snapshot
+        //
+        //  Layer 0 passes bit-exact (Steps 3.5 & 3.6). Layers 10/12/13/15/16
+        //  fail at Step 5. Walk the cascade and snapshot every intermediate
+        //  layer at its first safe window (after layer N completes, before
+        //  its ping-pong partner at N+2 overwrites the slot).
+        //
+        //  Each snapshot is 0 sim time — the wait() advances the clock to
+        //  the boundary, the URAM hierarchical reads are procedural. The
+        //  total extra sim cost is the time we'd spend waiting for `done`
+        //  anyway.
+        //
+        //  This is a diagnostic block: on a healthy pipeline every layer
+        //  reports PASS. The first FAIL localizes where the HDL diverges
+        //  from `generate_conv3d_golden.py`.
+        // -----------------------------------------------------------------
+        $display("-----------------------------------------");
+        $display("[STEP 3.7] Cascade bisection — snapshot every layer at its boundary...");
+        // Upper bound is NUM_TEST_LAYERS-1 because snapshot_layer waits for
+        // `layer_idx > layer_to_check`, and no layer_idx > 16 ever exists
+        // (the cascade ends at layer 16). Layer 16's final state is
+        // verified separately via Step 5's survivor scan.
+        for (int li = 1; li < NUM_TEST_LAYERS - 1; li++) begin
+            snapshot_layer(li);
+        end
 
         // -----------------------------------------------------------------
         //  Step 4: Wait for inference to complete
@@ -491,6 +557,32 @@ module tb_tinyissimoyolo_accel;
             else
                 verify_uram_at_offset("fmap_b", URAM_WORDS[li], WR_OFFSET[li]);
         end
+
+        // -----------------------------------------------------------------
+        //  Step 5a: AXI-Lite read of layer 10 via result_base = 0
+        //
+        //  This covers the axil_regs result-region address-decode path
+        //  for result_base_addr = 0, which the Step 6 cv2/cv3 checks
+        //  never exercise (cv2 uses base 256, cv3 uses base 512). It
+        //  runs AFTER inference completes so it cannot race the
+        //  conv3d pixel stream on fmap_a's read port. Layer 10's
+        //  output survives at fmap_a[0..127].
+        //
+        //  Restores base=256/buf=1 before Step 6 so that the cv2/cv3
+        //  readout continues to use the reset defaults that the
+        //  on-board driver also relies on.
+        // -----------------------------------------------------------------
+        $display("-----------------------------------------");
+        $display("[STEP 5a] AXI-Lite read of layer 10 via result_base=0...");
+        load_golden(10);
+        verify_axil_at_offset(
+            .buf_sel     (PP_BUF_SEL[10]),
+            .num_words   (URAM_WORDS[10]),
+            .offset      (WR_OFFSET[10]),
+            .max_to_check(URAM_WORDS[10])
+        );
+        axil_write(ADDR_RESULT_BASE_R, 32'd256);
+        axil_write(ADDR_RESULT_BUF_R,  32'd1);
 
         // -----------------------------------------------------------------
         //  Step 6: Read results via AXI-Lite and compare
