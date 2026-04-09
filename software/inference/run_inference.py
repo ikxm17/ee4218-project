@@ -4,6 +4,13 @@ import tflite_runtime.interpreter as tflite
 import json
 import argparse
 import os
+import sys
+
+'''
+run_inference.py is to be run on the KRIA KV260's PS unit. 
+Currently, saves outputs of the Tinyissimo model to the results directory specified as npy files.
+Results can be visualised separately using the script visualise_outputs.py with the cv2 library. 
+'''
 
 def compute_iou(boxA, boxB):
     # box = [x1, y1, w, h]
@@ -103,7 +110,7 @@ def main():
     is_full_int8 =True
 
     # Setup
-    interpreter = tflite.Interpreter(model_path=args.model_path)
+    interpreter = tflite.Interpreter(model_path=args.model_path, experimental_preserve_all_tensors=True)
     interpreter.allocate_tensors()
     in_idx = interpreter.get_input_details()[0]['index']
     out_details = interpreter.get_output_details()

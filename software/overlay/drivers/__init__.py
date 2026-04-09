@@ -16,6 +16,7 @@ from .csi2_rx import Csi2RxDriver
 from .demosaic import DemosaicDriver
 from .gamma_lut import GammaLutDriver
 from .imx219 import Imx219Driver
+from .tinyissimoyolo_accelerator import TinyissimoYoloAcceleratorDriver
 from .vdma import VdmaDriver
 from .vpss import VpssScalerDriver
 
@@ -24,6 +25,7 @@ __all__ = [
     "DemosaicDriver",
     "GammaLutDriver",
     "Imx219Driver",
+    "TinyissimoYoloAcceleratorDriver",
     "VdmaDriver",
     "VpssScalerDriver",
     "DRIVER_REGISTRY",
@@ -36,6 +38,7 @@ _DRIVER_CLASSES = [
     DemosaicDriver,
     GammaLutDriver,
     Imx219Driver,
+    TinyissimoYoloAcceleratorDriver,
     VdmaDriver,
     VpssScalerDriver,
 ]

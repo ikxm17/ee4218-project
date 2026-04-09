@@ -1,0 +1,375 @@
+`timescale 1ns / 1ps
+/*
+ * AXI4-Lite Slave — TinyissimoYOLO Accelerator Registers
+ *
+ * Register map:
+ *   0x000  CTRL         R/W  [0]=start, [1]=pixel_fifo_rst, [7]=soft_reset
+ *   0x004  STATUS       R    [0]=busy, [1]=done, [2]=idle, [3]=preload_done
+ *   0x008  MODE         R/W  [0]=input_src (0=FIFO, 1=S_AXIS), [4]=engine_sel
+ *                              0=HDL inference engine, 1=HLS inference engine
+ *   0x00C  CYCLE_CNT    R    inference cycle counter
+ *   0x010  LAYER_IDX    R    [4:0]=current layer during inference
+ *   0x014  RESULT_BASE  R/W  [13:0]=URAM base address the result region reads from
+ *                            (default 14'd256). Lets the host slide the read window
+ *                            over fmap_a/fmap_b for layer-by-layer bisection.
+ *   0x018  RESULT_BUF   R/W  [0]=buffer select for the result region (0=fmap_a,
+ *                            1=fmap_b, default 1).
+ *   0x020  PIXEL_FIFO   W    sequential pixel write (65536 × 32-bit)
+ *   0x024  PIXEL_CNT    R    number of 32-bit words written to FIFO
+ *   0x100  RESULT       R    detection results (320 × 128-bit = 1280 × 32-bit)
+ *         ...0x14FF       reads from {RESULT_BUF, RESULT_BASE + offset}
+ */
+module axil_regs #(
+    parameter DATA_W     = 32,
+    parameter ADDR_W     = 13,
+    parameter FMAP_DATA_W = 128,
+    parameter FMAP_ADDR_W = 14
+)(
+    input  logic                      clk,
+    input  logic                      rst_n,
+
+    /* AXI-Lite slave */
+    input  logic [ADDR_W-1:0]        s_axi_awaddr,
+    input  logic                      s_axi_awvalid,
+    output logic                      s_axi_awready,
+    input  logic [DATA_W-1:0]        s_axi_wdata,
+    input  logic [DATA_W/8-1:0]      s_axi_wstrb,
+    input  logic                      s_axi_wvalid,
+    output logic                      s_axi_wready,
+    output logic [1:0]                s_axi_bresp,
+    output logic                      s_axi_bvalid,
+    input  logic                      s_axi_bready,
+    input  logic [ADDR_W-1:0]        s_axi_araddr,
+    input  logic                      s_axi_arvalid,
+    output logic                      s_axi_arready,
+    output logic [DATA_W-1:0]        s_axi_rdata,
+    output logic [1:0]                s_axi_rresp,
+    output logic                      s_axi_rvalid,
+    input  logic                      s_axi_rready,
+
+    /* Control outputs */
+    output logic                      o_start,
+    output logic [1:0]                o_mode,
+    output logic                      o_engine_sel,
+
+    /* Status inputs */
+    input  logic                      i_busy,
+    input  logic                      i_done,
+    input  logic [31:0]               i_cycle_count,
+    input  logic [4:0]                i_layer_idx,
+
+    /* Pixel FIFO → preload write */
+    output logic                      o_preload_wr_en,
+    output logic [FMAP_ADDR_W-1:0]    o_preload_wr_addr,
+    output logic [FMAP_DATA_W-1:0]    o_preload_wr_data,
+    output logic                      o_preload_done,
+
+    /* Result read */
+    output logic                      o_result_rd_en,
+    output logic [FMAP_ADDR_W-1:0]    o_result_rd_addr,
+    output logic [FMAP_ADDR_W-1:0]    o_result_base_addr,
+    output logic                      o_result_buf_sel,
+    input  logic [FMAP_DATA_W-1:0]    i_result_rd_data,
+
+    /* Inference loop bound — host can stop inference early to read
+     * intermediate fmap_a/b state for layer-by-layer debugging.
+     * Default 5'd17 = full network (NUM_LAYERS). Setting to N stops
+     * after layer N-1 completes; the FSM goes to S_IDLE without
+     * starting layer N or beyond. */
+    output logic [4:0]                o_max_layers,
+
+    /* Debug capture inputs — first 4 addresses at four capture points
+     * (conv_res, pool_out, rmw_s0, out_buf_wr) during layer 0. */
+    input  logic [13:0]               i_dbg_conv_res_addr_0,
+    input  logic [13:0]               i_dbg_conv_res_addr_1,
+    input  logic [13:0]               i_dbg_conv_res_addr_2,
+    input  logic [13:0]               i_dbg_conv_res_addr_3,
+    input  logic [13:0]               i_dbg_pool_out_addr_0,
+    input  logic [13:0]               i_dbg_pool_out_addr_1,
+    input  logic [13:0]               i_dbg_pool_out_addr_2,
+    input  logic [13:0]               i_dbg_pool_out_addr_3,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_0,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_1,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_2,
+    input  logic [13:0]               i_dbg_rmw_s0_addr_3,
+    input  logic [13:0]               i_dbg_rmw_base_0,
+    input  logic [13:0]               i_dbg_rmw_base_1,
+    input  logic [13:0]               i_dbg_rmw_base_2,
+    input  logic [13:0]               i_dbg_rmw_base_3,
+    input  logic [13:0]               i_dbg_pp_wr_offset,
+    input  logic [7:0]                i_dbg_ch_out,
+    input  logic [8:0]                i_dbg_h_out,
+    input  logic [13:0]               i_dbg_out_wr_addr_0,
+    input  logic [13:0]               i_dbg_out_wr_addr_1,
+    input  logic [13:0]               i_dbg_out_wr_addr_2,
+    input  logic [13:0]               i_dbg_out_wr_addr_3,
+    input  logic [3:0]                i_dbg_capture_count
+);
+
+    /* ================================================================
+     *  Address decode
+     * ================================================================ */
+    localparam [ADDR_W-1:0] ADDR_CTRL          = 13'h000,
+                            ADDR_STATUS        = 13'h004,
+                            ADDR_MODE          = 13'h008,
+                            ADDR_CYCLE_CNT     = 13'h00C,
+                            ADDR_LAYER_IDX     = 13'h010,
+                            ADDR_RESULT_BASE_R = 13'h014,
+                            ADDR_RESULT_BUF_R  = 13'h018,
+                            ADDR_MAX_LAYERS_R  = 13'h01C,
+                            ADDR_PIXEL_FIFO    = 13'h020,
+                            ADDR_PIXEL_CNT     = 13'h024,
+                            // Debug capture registers — readonly, layer 0 only
+                            ADDR_DBG_CONV_RES  = 13'h030, // conv_res[1:0]
+                            ADDR_DBG_CONV_RES1 = 13'h034, // conv_res[3:2]
+                            ADDR_DBG_POOL      = 13'h044, // pool_out[1:0]
+                            ADDR_DBG_POOL1     = 13'h048, // pool_out[3:2]
+                            ADDR_DBG_RMW_S0    = 13'h04C, // rmw_s0[1:0]
+                            ADDR_DBG_RMW_S01   = 13'h050, // rmw_s0[3:2]
+                            ADDR_DBG_RMW_BASE  = 13'h054, // rmw_base[1:0]
+                            ADDR_DBG_RMW_BASE1 = 13'h058, // rmw_base[3:2]
+                            ADDR_DBG_INPUTS    = 13'h05C, // {h_out[8:0], ch_out[7:0], pp_wr_offset[13:0]}
+                            ADDR_DBG_OUT_WR    = 13'h038, // out_wr[1:0]
+                            ADDR_DBG_OUT_WR1   = 13'h03C, // out_wr[3:2]
+                            ADDR_DBG_CAP_CNT   = 13'h040, // {out_idx, conv_res_idx}
+                            ADDR_RESULT_BASE   = 13'h100,
+                            ADDR_RESULT_END    = 13'h14FF;
+
+    /* ================================================================
+     *  Internal registers
+     * ================================================================ */
+    logic [31:0] reg_ctrl;
+    logic [31:0] reg_mode;
+    logic [FMAP_ADDR_W-1:0] reg_result_base;  // URAM base for result read window
+    logic                   reg_result_buf;   // 0=fmap_a, 1=fmap_b
+    logic [4:0]             reg_max_layers;   // inference loop bound (default = NUM_LAYERS)
+
+    logic [FMAP_DATA_W-1:0]  pixel_accum;
+    logic [1:0]              pixel_lane;
+    logic [FMAP_ADDR_W-1:0]  pixel_fmap_addr;
+    logic [16:0]             pixel_count;
+    logic                    preload_done_r;
+
+    /* ================================================================
+     *  Write channel handshake
+     * ================================================================ */
+    logic [ADDR_W-1:0] wr_addr;
+    logic               wr_pending;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s_axi_awready <= 1'b1;
+            s_axi_wready  <= 1'b1;
+            s_axi_bvalid  <= 1'b0;
+            s_axi_bresp   <= 2'b00;
+            wr_addr       <= '0;
+            wr_pending    <= 1'b0;
+        end else begin
+            if (s_axi_bvalid && s_axi_bready) begin
+                s_axi_bvalid  <= 1'b0;
+                s_axi_awready <= 1'b1;
+                s_axi_wready  <= 1'b1;
+            end
+
+            if (s_axi_awvalid && s_axi_awready) begin
+                wr_addr <= s_axi_awaddr;
+                if (s_axi_wvalid && s_axi_wready) begin
+                    s_axi_bvalid  <= 1'b1;
+                    s_axi_awready <= 1'b0;
+                    s_axi_wready  <= 1'b0;
+                end else begin
+                    wr_pending    <= 1'b1;
+                    s_axi_awready <= 1'b0;
+                end
+            end else if (wr_pending && s_axi_wvalid && s_axi_wready) begin
+                s_axi_bvalid <= 1'b1;
+                s_axi_wready <= 1'b0;
+                wr_pending   <= 1'b0;
+            end
+        end
+    end
+
+    /* ================================================================
+     *  Write decode
+     * ================================================================ */
+    wire wr_fire = s_axi_wvalid && s_axi_wready;
+    wire [ADDR_W-1:0] wr_addr_mux = (s_axi_awvalid && s_axi_awready)
+                                     ? s_axi_awaddr : wr_addr;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_ctrl        <= '0;
+            reg_mode        <= '0;
+            // Defaults preserve the original cv2/cv3 result-region behaviour
+            // (window starts at fmap_b[256], length 320 URAM words covers
+            // fmap_b[256..575]). The host can override either register at
+            // any time to slide the window over a different layer's output.
+            reg_result_base <= FMAP_ADDR_W'(256);
+            reg_result_buf  <= 1'b1;
+            reg_max_layers  <= 5'd17;       // NUM_LAYERS — full network
+        end else begin
+            if (reg_ctrl[0]) reg_ctrl[0] <= 1'b0;
+            if (reg_ctrl[1]) reg_ctrl[1] <= 1'b0;
+
+            if (wr_fire) begin
+                case (wr_addr_mux)
+                    ADDR_CTRL:          reg_ctrl        <= s_axi_wdata;
+                    ADDR_MODE:          reg_mode        <= s_axi_wdata;
+                    ADDR_RESULT_BASE_R: reg_result_base <= s_axi_wdata[FMAP_ADDR_W-1:0];
+                    ADDR_RESULT_BUF_R:  reg_result_buf  <= s_axi_wdata[0];
+                    ADDR_MAX_LAYERS_R:  reg_max_layers  <= s_axi_wdata[4:0];
+                    default: ;
+                endcase
+            end
+        end
+    end
+
+    /* ================================================================
+     *  Pixel FIFO — accumulate 4 × 32-bit → 128-bit fmap_b word
+     * ================================================================ */
+    wire pixel_fifo_write = wr_fire && (wr_addr_mux == ADDR_PIXEL_FIFO);
+    wire pixel_fifo_rst   = reg_ctrl[1] || reg_ctrl[7];
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            pixel_accum       <= '0;
+            pixel_lane        <= 2'd0;
+            pixel_fmap_addr   <= '0;
+            pixel_count       <= '0;
+            preload_done_r    <= 1'b0;
+            o_preload_wr_en   <= 1'b0;
+            o_preload_wr_addr <= '0;
+            o_preload_wr_data <= '0;
+        end else begin
+            o_preload_wr_en <= 1'b0;
+
+            if (pixel_fifo_rst) begin
+                pixel_accum     <= '0;
+                pixel_lane      <= 2'd0;
+                pixel_fmap_addr <= '0;
+                pixel_count     <= '0;
+                preload_done_r  <= 1'b0;
+            end else if (pixel_fifo_write) begin
+                pixel_accum[pixel_lane * 32 +: 32] <= s_axi_wdata;
+                pixel_count <= pixel_count + 1;
+                pixel_lane  <= pixel_lane + 1;
+
+                if (pixel_lane == 2'd3) begin
+                    o_preload_wr_en   <= 1'b1;
+                    o_preload_wr_addr <= pixel_fmap_addr;
+                    o_preload_wr_data <= {s_axi_wdata, pixel_accum[95:64], pixel_accum[63:32], pixel_accum[31:0]};
+                    pixel_fmap_addr   <= pixel_fmap_addr + 1;
+                end
+            end
+
+            if (pixel_count == 17'd65536)
+                preload_done_r <= 1'b1;
+        end
+    end
+
+    assign o_preload_done = preload_done_r;
+
+    /* ================================================================
+     *  Read channel handshake — 3-cycle (addr → wait → data)
+     * ================================================================ */
+    typedef enum logic [1:0] {
+        RD_ADDR = 2'd0,
+        RD_WAIT = 2'd1,
+        RD_DATA = 2'd2
+    } rd_state_t;
+    rd_state_t rd_state;
+
+    logic [ADDR_W-1:0] rd_addr;
+    logic [DATA_W-1:0] rd_data_mux;   // declared here so always_ff (RD_WAIT)
+                                      // can reference it without [Synth 8-6901]
+                                      // forward-use warning; driven by
+                                      // always_comb below.
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s_axi_arready <= 1'b1;
+            s_axi_rvalid  <= 1'b0;
+            s_axi_rresp   <= 2'b00;
+            s_axi_rdata   <= '0;
+            rd_state      <= RD_ADDR;
+            rd_addr       <= '0;
+        end else begin
+            case (rd_state)
+                RD_ADDR: begin
+                    if (s_axi_arvalid && s_axi_arready) begin
+                        rd_addr       <= s_axi_araddr;
+                        s_axi_arready <= 1'b0;
+                        rd_state      <= RD_WAIT;
+                    end
+                end
+                RD_WAIT: begin
+                    s_axi_rdata  <= rd_data_mux;
+                    s_axi_rvalid <= 1'b1;
+                    rd_state     <= RD_DATA;
+                end
+                RD_DATA: begin
+                    if (s_axi_rready) begin
+                        s_axi_rvalid  <= 1'b0;
+                        s_axi_arready <= 1'b1;
+                        rd_state      <= RD_ADDR;
+                    end
+                end
+                default: rd_state <= RD_ADDR;
+            endcase
+        end
+    end
+
+    /* ================================================================
+     *  Read decode
+     * ================================================================ */
+    wire is_result_read    = (rd_addr >= ADDR_RESULT_BASE) && (rd_addr <= ADDR_RESULT_END);
+    wire is_result_read_ar = (s_axi_araddr >= ADDR_RESULT_BASE) && (s_axi_araddr <= ADDR_RESULT_END);
+
+    assign o_result_rd_en   = (rd_state == RD_ADDR) && s_axi_arvalid && s_axi_arready && is_result_read_ar;
+    assign o_result_rd_addr = (s_axi_araddr - ADDR_RESULT_BASE) >> 4;
+
+    wire [DATA_W-1:0] result_data_slice = i_result_rd_data[rd_addr[3:2] * 32 +: 32];
+
+    always_comb begin
+        if (is_result_read)
+            rd_data_mux = result_data_slice;
+        else begin
+            case (rd_addr)
+                ADDR_CTRL:          rd_data_mux = reg_ctrl;
+                ADDR_STATUS:        rd_data_mux = {28'd0, preload_done_r, ~i_busy, i_done, i_busy};
+                ADDR_MODE:          rd_data_mux = reg_mode;
+                ADDR_CYCLE_CNT:     rd_data_mux = i_cycle_count;
+                ADDR_LAYER_IDX:     rd_data_mux = {27'd0, i_layer_idx};
+                ADDR_RESULT_BASE_R: rd_data_mux = {{(32-FMAP_ADDR_W){1'b0}}, reg_result_base};
+                ADDR_RESULT_BUF_R:  rd_data_mux = {31'd0, reg_result_buf};
+                ADDR_MAX_LAYERS_R:  rd_data_mux = {27'd0, reg_max_layers};
+                ADDR_PIXEL_CNT:     rd_data_mux = {15'd0, pixel_count};
+                // Debug capture registers — two 14-bit addresses packed per word
+                ADDR_DBG_CONV_RES:  rd_data_mux = {2'd0, i_dbg_conv_res_addr_1, 2'd0, i_dbg_conv_res_addr_0};
+                ADDR_DBG_CONV_RES1: rd_data_mux = {2'd0, i_dbg_conv_res_addr_3, 2'd0, i_dbg_conv_res_addr_2};
+                ADDR_DBG_POOL:      rd_data_mux = {2'd0, i_dbg_pool_out_addr_1, 2'd0, i_dbg_pool_out_addr_0};
+                ADDR_DBG_POOL1:     rd_data_mux = {2'd0, i_dbg_pool_out_addr_3, 2'd0, i_dbg_pool_out_addr_2};
+                ADDR_DBG_RMW_S0:    rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_1,   2'd0, i_dbg_rmw_s0_addr_0};
+                ADDR_DBG_RMW_S01:   rd_data_mux = {2'd0, i_dbg_rmw_s0_addr_3,   2'd0, i_dbg_rmw_s0_addr_2};
+                ADDR_DBG_RMW_BASE:  rd_data_mux = {2'd0, i_dbg_rmw_base_1,      2'd0, i_dbg_rmw_base_0};
+                ADDR_DBG_RMW_BASE1: rd_data_mux = {2'd0, i_dbg_rmw_base_3,      2'd0, i_dbg_rmw_base_2};
+                ADDR_DBG_INPUTS:    rd_data_mux = {1'b0, i_dbg_h_out, i_dbg_ch_out, i_dbg_pp_wr_offset};
+                ADDR_DBG_OUT_WR:    rd_data_mux = {2'd0, i_dbg_out_wr_addr_1,   2'd0, i_dbg_out_wr_addr_0};
+                ADDR_DBG_OUT_WR1:   rd_data_mux = {2'd0, i_dbg_out_wr_addr_3,   2'd0, i_dbg_out_wr_addr_2};
+                ADDR_DBG_CAP_CNT:   rd_data_mux = {28'd0, i_dbg_capture_count};
+                default:            rd_data_mux = 32'hDEAD_BEEF;
+            endcase
+        end
+    end
+
+    /* ================================================================
+     *  Control outputs
+     * ================================================================ */
+    assign o_start            = reg_ctrl[0];
+    assign o_mode             = reg_mode[1:0];
+    assign o_engine_sel       = reg_mode[4];   // 0 = HDL engine, 1 = HLS engine
+    assign o_result_base_addr = reg_result_base;
+    assign o_result_buf_sel   = reg_result_buf;
+    assign o_max_layers       = reg_max_layers;
+
+endmodule

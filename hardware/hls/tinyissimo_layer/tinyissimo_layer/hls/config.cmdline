@@ -1,0 +1,3 @@
+relativeroot=/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer
+original_argv=--mode hls --impl --config /home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/hls_config.cfg --work_dir tinyissimo_layer 
+

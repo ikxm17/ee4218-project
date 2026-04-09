@@ -1,0 +1,736 @@
+/* Demo GUI for TinyissimoYOLO inference comparison.
+   One stylesheet, no frameworks, no build step. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: #0f1115;
+  color: #e6e8eb;
+  line-height: 1.4;
+}
+
+header {
+  max-width: 1100px;
+  margin: 0 auto 24px auto;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #2a2d33;
+}
+
+header h1 {
+  margin: 0 0 12px 0;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+/* ================================================================
+   Class legend (under H1)
+   ================================================================ */
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 12px 0;
+  font-size: 0.85rem;
+  color: #a0a4ab;
+}
+
+.legend-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  /* Dark halo around the white text so chips with light backgrounds
+     (cup is pure red) stay legible. */
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.7), 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ================================================================
+   Model breakdown (collapsible <details>)
+   ================================================================ */
+
+.model-info {
+  margin: 0 0 14px 0;
+  background: #161920;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.model-info summary {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #a0a4ab;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.model-info summary::-webkit-details-marker { display: none; }
+
+.model-info summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  transition: transform 0.15s ease;
+}
+
+.model-info[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.model-info[open] summary {
+  border-bottom: 1px solid #2a2d33;
+  background: #1a1d23;
+}
+
+.model-info-body {
+  padding: 14px;
+}
+
+/* ================================================================
+   SVG diagrams inside the model-info panel
+   ================================================================ */
+
+.arch-diagram,
+.pipeline-diagram {
+  margin: 0 0 18px 0;
+  padding: 12px;
+  background: #0f1115;
+  border: 1px solid #2a2d33;
+  border-radius: 4px;
+}
+
+.arch-diagram svg,
+.pipeline-diagram svg {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  height: auto;
+}
+
+.arch-diagram figcaption,
+.pipeline-diagram figcaption {
+  margin: 0 0 8px 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: #a0a4ab;
+  text-align: center;
+}
+
+/* SVG element styles. All SVG text inherits the body font. */
+.arch-diagram svg text,
+.pipeline-diagram svg text {
+  font-family: inherit;
+  font-size: 11px;
+  fill: #e6e8eb;
+}
+
+.arch-diagram svg text.block-title,
+.pipeline-diagram svg text.block-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.arch-diagram svg text.block-line,
+.pipeline-diagram svg text.block-line {
+  font-size: 10px;
+  fill: #d1d5db;
+}
+
+.arch-diagram svg text.annot,
+.pipeline-diagram svg text.annot {
+  font-size: 10px;
+  font-style: italic;
+  fill: #a0a4ab;
+}
+
+.arch-diagram svg text.footnote {
+  font-size: 9px;
+  font-style: italic;
+  fill: #6b7280;
+}
+
+/* Per-layer diagram: shape tag floated right, Conv/Pool/Detect styling */
+.arch-diagram svg text.shape-tag {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  fill: #fbbf24; /* amber — pops against the blue Conv fills */
+}
+
+.arch-diagram svg text.shape-subtag {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px;
+  fill: #9ca3af;
+}
+
+.arch-diagram svg text.branch-title {
+  font-size: 10px;
+  font-weight: 600;
+  fill: #e6e8eb;
+}
+
+.arch-diagram svg text.branch-line {
+  font-size: 9px;
+  fill: #d1d5db;
+}
+
+.pipeline-diagram svg text.cache-annot {
+  font-size: 9px;
+  font-style: italic;
+  fill: #fbbf24;
+}
+
+/* Block fills — graduated colors signal "deeper layer = darker blue" for
+   the architecture diagram, and runner-specific colors in the pipeline. */
+.arch-diagram svg .input-block,
+.pipeline-diagram svg .input-block {
+  fill: #374151;
+  stroke: #4b5563;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .stage,
+.pipeline-diagram svg .stage {
+  stroke: #2a2d33;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .stage-1 { fill: #1e3a8a; }
+.arch-diagram svg .stage-2 { fill: #1e40af; }
+.arch-diagram svg .stage-3 { fill: #1d4ed8; }
+.arch-diagram svg .stage-4 { fill: #2563eb; }
+
+.pipeline-diagram svg .stage-2 { fill: #1e40af; }
+.pipeline-diagram svg .stage-3 { fill: #1d4ed8; }
+
+/* Per-layer diagram block classes. Conv is deep blue (data flow stays
+   wide), MaxPool is amber with narrower visual width (funnels the data),
+   Detect is green with inner branch sub-boxes, Output stands out orange. */
+.arch-diagram svg .conv-block {
+  fill: #1e40af;
+  stroke: #3b82f6;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .pool-block {
+  fill: #854d0e;
+  stroke: #eab308;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .detect-block {
+  fill: #047857;
+  stroke: #10b981;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .detect-branch {
+  fill: #065f46;
+  stroke: #34d399;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .head-block {
+  fill: #047857;
+  stroke: #10b981;
+  stroke-width: 1;
+}
+
+.arch-diagram svg .output-block {
+  fill: #b45309;
+  stroke: #f59e0b;
+  stroke-width: 1;
+}
+
+.pipeline-diagram svg .tflite-block {
+  fill: #1e40af;
+  stroke: #3b82f6;
+  stroke-width: 1;
+}
+
+.pipeline-diagram svg .hdl-block {
+  fill: #854d0e;
+  stroke: #eab308;
+  stroke-width: 1;
+}
+
+.pipeline-diagram svg .cache-block {
+  fill: #b45309;
+  stroke: #fbbf24;
+  stroke-width: 1.5;
+}
+
+.arch-diagram svg .arrow,
+.pipeline-diagram svg .arrow {
+  stroke: #6b7280;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+/* ================================================================
+   Model-info text section (populated by JS)
+   ================================================================ */
+
+#model-info-text {
+  margin-top: 8px;
+}
+
+#model-info-text .model-info-section {
+  margin-bottom: 14px;
+}
+
+#model-info-text .model-info-section h4 {
+  margin: 0 0 6px 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a0a4ab;
+  font-weight: 600;
+}
+
+#model-info-text dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+#model-info-text dt {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+#model-info-text dd {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #e6e8eb;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ================================================================
+   Controls row (image picker, sliders, run button)
+   ================================================================ */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.controls label {
+  font-size: 0.85rem;
+  color: #a0a4ab;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.controls select {
+  background: #1a1d23;
+  color: #e6e8eb;
+  border: 1px solid #2a2d33;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  min-width: 220px;
+}
+
+#image-picker optgroup {
+  background: #1a1d23;
+  color: #a0a4ab;
+  font-style: italic;
+  font-weight: 500;
+}
+
+#image-picker option {
+  background: #1a1d23;
+  color: #e6e8eb;
+  font-style: normal;
+}
+
+.controls button {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.controls button:hover:not(:disabled) { background: #2563eb; }
+.controls button:disabled { background: #374151; cursor: not-allowed; }
+
+#status-text {
+  font-size: 0.8rem;
+  color: #a0a4ab;
+  font-style: italic;
+}
+
+/* Slider groups (confidence + nms_iou) */
+.slider-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-group input[type="range"] {
+  width: 120px;
+  accent-color: #3b82f6;
+}
+
+.slider-endpoint {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: #6b7280;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.chip-num {
+  display: inline-block;
+  min-width: 38px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #22262d;
+  color: #e6e8eb;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+/* ================================================================
+   Tooltip (info icons next to labels and column headers)
+   ================================================================ */
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #374151;
+  color: #d1d5db;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  cursor: help;
+  user-select: none;
+  position: relative;
+  vertical-align: middle;
+}
+
+.info-icon:hover,
+.info-icon:focus {
+  background: #4b5563;
+  color: #ffffff;
+  outline: none;
+}
+
+.info-icon[data-tooltip]:hover::after,
+.info-icon[data-tooltip]:focus::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: #22262d;
+  color: #e6e8eb;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.info-icon[data-tooltip]:hover::before,
+.info-icon[data-tooltip]:focus::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #22262d;
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Table-header tooltips need to flip downward to avoid clipping */
+#timing-table th .info-icon[data-tooltip]:hover::after,
+#timing-table th .info-icon[data-tooltip]:focus::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+#timing-table th .info-icon[data-tooltip]:hover::before,
+#timing-table th .info-icon[data-tooltip]:focus::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: #22262d;
+}
+
+/* ================================================================
+   Page sections (hero, panels, timing)
+   ================================================================ */
+
+section {
+  max-width: 1100px;
+  margin: 0 auto 32px auto;
+}
+
+section h2 {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #a0a4ab;
+  margin: 0 0 12px 0;
+  letter-spacing: 0.02em;
+}
+
+.config-echo {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #22262d;
+  color: #d1d5db;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+/* Hero image: original-resolution display with aspect-preserving fit. */
+.hero-frame {
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 4 / 3;
+  margin: 0 auto;
+  background: #1a1d23;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#hero-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* 2x2 grid of 256x256 panels. Each panel is displayed at 2x (512x512)
+   for visibility but the actual image is the 256x256 PNG from the server. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.panel {
+  background: #1a1d23;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Panel header is now a <summary> for native collapse/expand.
+   Suppresses the default triangle marker and adds a custom caret that
+   rotates when the <details> is open. */
+.panel-title {
+  padding: 8px 12px;
+  background: #22262d;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #a0a4ab;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title::-webkit-details-marker { display: none; }
+
+.panel-title::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.7rem;
+  color: #6b7280;
+  transition: transform 0.15s ease;
+}
+
+.panel[open] .panel-title {
+  border-bottom-color: #2a2d33;
+}
+
+.panel[open] .panel-title::before {
+  transform: rotate(90deg);
+}
+
+.panel-title:hover {
+  background: #262a32;
+  color: #d1d5db;
+}
+
+.panel-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  image-rendering: pixelated;  /* crisp 256 -> display pixel mapping */
+  background: #0f1115;
+}
+
+.panel-status {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  color: #a0a4ab;
+  border-top: 1px solid #2a2d33;
+  min-height: 1.4em;
+}
+
+.panel-status.error { color: #ef4444; }
+
+/* ================================================================
+   Timing table
+   ================================================================ */
+
+#timing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  background: #1a1d23;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#timing-table th,
+#timing-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid #2a2d33;
+}
+
+#timing-table th {
+  position: relative; /* anchor for tooltip popup */
+}
+
+#timing-table th:first-child,
+#timing-table td:first-child {
+  text-align: left;
+}
+
+#timing-table thead th {
+  background: #22262d;
+  color: #a0a4ab;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+#timing-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+#timing-table td.num { font-family: "SF Mono", Menlo, Consolas, monospace; }
+#timing-table td.na  { color: #6b7280; }
+
+#timing-table tbody tr.best td:first-child {
+  border-left: 3px solid #10b981;
+  padding-left: 9px;
+}
+
+/* Cells that update on live re-postprocess get a brief flash.
+   Triggered by JS adding/removing the .updated class. */
+#timing-table td.live-update {
+  transition: background-color 0.4s ease;
+}
+
+#timing-table td.updated {
+  background-color: rgba(16, 185, 129, 0.18);
+}
+
+/* ================================================================
+   Definitions block (replaces the old <p class="note"> paragraphs)
+   ================================================================ */
+
+.defs {
+  margin: 14px 0 0 0;
+  padding: 14px 16px;
+  background: #161920;
+  border: 1px solid #2a2d33;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.defs dt {
+  margin-top: 8px;
+  font-weight: 600;
+  color: #d1d5db;
+}
+
+.defs dt:first-child { margin-top: 0; }
+
+.defs dd {
+  margin: 2px 0 0 0;
+  color: #a0a4ab;
+}
+
+.defs code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: #22262d;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #e6e8eb;
+}
+
+.defs strong { color: #e6e8eb; }
+.defs em { color: #d1d5db; font-style: italic; }
+
+/* ================================================================
+   Responsive: stack panels on narrow screens
+   ================================================================ */
+
+@media (max-width: 720px) {
+  .panel-grid { grid-template-columns: 1fr; }
+  .controls { flex-direction: column; align-items: stretch; }
+  .slider-group { justify-content: space-between; }
+}

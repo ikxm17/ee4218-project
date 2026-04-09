@@ -1,0 +1,321 @@
+{
+  "source": "COCO val2017",
+  "categories": {
+    "62": "chair",
+    "51": "bowl",
+    "47": "cup"
+  },
+  "min_area_px2": 2000.0,
+  "count": 31,
+  "images": [
+    {
+      "image_id": 57232,
+      "file_name": "000000057232.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 82180,
+      "file_name": "000000082180.jpg",
+      "width": 640,
+      "height": 425,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 44068,
+      "file_name": "000000044068.jpg",
+      "width": 480,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 353970,
+      "file_name": "000000353970.jpg",
+      "width": 640,
+      "height": 426,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 210099,
+      "file_name": "000000210099.jpg",
+      "width": 640,
+      "height": 538,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 540928,
+      "file_name": "000000540928.jpg",
+      "width": 640,
+      "height": 455,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 517832,
+      "file_name": "000000517832.jpg",
+      "width": 640,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 264441,
+      "file_name": "000000264441.jpg",
+      "width": 375,
+      "height": 500,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 513688,
+      "file_name": "000000513688.jpg",
+      "width": 640,
+      "height": 480,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 519764,
+      "file_name": "000000519764.jpg",
+      "width": 500,
+      "height": 375,
+      "source": "coco_val2017",
+      "categories": [
+        "chair"
+      ]
+    },
+    {
+      "image_id": 123321,
+      "file_name": "000000123321.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 350388,
+      "file_name": "000000350388.jpg",
+      "width": 480,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 141328,
+      "file_name": "000000141328.jpg",
+      "width": 640,
+      "height": 480,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 521601,
+      "file_name": "000000521601.jpg",
+      "width": 640,
+      "height": 480,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 459887,
+      "file_name": "000000459887.jpg",
+      "width": 480,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 3501,
+      "file_name": "000000003501.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 209142,
+      "file_name": "000000209142.jpg",
+      "width": 640,
+      "height": 425,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 482719,
+      "file_name": "000000482719.jpg",
+      "width": 640,
+      "height": 480,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 530146,
+      "file_name": "000000530146.jpg",
+      "width": 640,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 50896,
+      "file_name": "000000050896.jpg",
+      "width": 640,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "bowl"
+      ]
+    },
+    {
+      "image_id": 331569,
+      "file_name": "000000331569.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 463283,
+      "file_name": "000000463283.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 311303,
+      "file_name": "000000311303.jpg",
+      "width": 640,
+      "height": 427,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 450100,
+      "file_name": "000000450100.jpg",
+      "width": 480,
+      "height": 640,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 305343,
+      "file_name": "000000305343.jpg",
+      "width": 640,
+      "height": 427,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 157601,
+      "file_name": "000000157601.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 70048,
+      "file_name": "000000070048.jpg",
+      "width": 640,
+      "height": 480,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 54605,
+      "file_name": "000000054605.jpg",
+      "width": 612,
+      "height": 612,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 255824,
+      "file_name": "000000255824.jpg",
+      "width": 640,
+      "height": 478,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": 562843,
+      "file_name": "000000562843.jpg",
+      "width": 500,
+      "height": 375,
+      "source": "coco_val2017",
+      "categories": [
+        "cup"
+      ]
+    },
+    {
+      "image_id": null,
+      "file_name": "reference_image.jpg",
+      "width": null,
+      "height": null,
+      "source": "local_reference",
+      "origin": "software/inference/data/input_image.jpg",
+      "categories": []
+    }
+  ]
+}

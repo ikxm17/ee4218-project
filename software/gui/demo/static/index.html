@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TinyissimoYOLO Demo</title>
+  <link rel="stylesheet" href="/static/demo.css" />
+</head>
+<body>
+  <header>
+    <h1>TinyissimoYOLO Inference Comparison</h1>
+
+    <!-- Class legend: chip colors are populated from /api/config so they
+         match the actual rendered bbox colors (BGR -> RGB swap applied
+         server-side). The color name in parens helps colorblind users and
+         double-checks the cross-reference with the bbox label bar. -->
+    <div class="legend">
+      <span class="legend-label">This Model Is Trained To Detect:</span>
+      <span id="class-legend-chips"></span>
+    </div>
+
+    <!-- Collapsible model breakdown — populated from /api/config on load.
+         Contains two SVG diagrams (architecture + pipeline) and three
+         <dl> blocks for the textual facts. -->
+    <details class="model-info">
+      <summary>Model Architecture &amp; Quantization</summary>
+      <div class="model-info-body">
+
+        <figure class="arch-diagram">
+          <figcaption>Model Architecture (All 17 Layers)</figcaption>
+          <!-- Generated from notes/project/model-architecture.md via
+               scripts/internal gen_arch_svg.py. Vertical flow: one row
+               per layer, Conv blocks full-width blue, MaxPool blocks
+               narrower amber (visually funnelling the data), Detect head
+               double-height with cv2/cv3 sub-boxes. -->
+          <svg viewBox="0 0 640 832" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="TinyissimoYOLO per-layer architecture (17 layers)">
+            <defs>
+              <marker id="arrow-arch" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280" />
+              </marker>
+            </defs>
+            <rect class="input-block" x="40" y="12" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="34">   Input</text>
+            <text class="shape-tag" x="586" y="34" text-anchor="end">256 × 256 × 3</text>
+            <text class="shape-subtag" x="586" y="46" text-anchor="end">RGB uint8</text>
+            <line class="arrow" x1="320" y1="46" x2="320" y2="53" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="54" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="76">L0   Conv 3→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="76" text-anchor="end">256 × 256 × 16</text>
+            <line class="arrow" x1="320" y1="88" x2="320" y2="95" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="96" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="115">L1   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="115" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="124" x2="320" y2="131" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="132" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="154">L2   Conv 16→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="154" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="166" x2="320" y2="173" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="174" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="196">L3   Conv 16→16, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="196" text-anchor="end">128 × 128 × 16</text>
+            <line class="arrow" x1="320" y1="208" x2="320" y2="215" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="216" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="235">L4   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="235" text-anchor="end">64 × 64 × 16</text>
+            <line class="arrow" x1="320" y1="244" x2="320" y2="251" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="252" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="274">L5   Conv 16→32, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="274" text-anchor="end">64 × 64 × 32</text>
+            <line class="arrow" x1="320" y1="286" x2="320" y2="293" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="294" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="316">L6   Conv 32→32, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="316" text-anchor="end">64 × 64 × 32</text>
+            <line class="arrow" x1="320" y1="328" x2="320" y2="335" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="336" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="355">L7   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="355" text-anchor="end">32 × 32 × 32</text>
+            <line class="arrow" x1="320" y1="364" x2="320" y2="371" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="372" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="394">L8   Conv 32→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="394" text-anchor="end">32 × 32 × 64</text>
+            <line class="arrow" x1="320" y1="406" x2="320" y2="413" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="414" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="436">L9   Conv 64→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="436" text-anchor="end">32 × 32 × 64</text>
+            <line class="arrow" x1="320" y1="448" x2="320" y2="455" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="456" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="475">L10   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="475" text-anchor="end">16 × 16 × 64</text>
+            <line class="arrow" x1="320" y1="484" x2="320" y2="491" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="492" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="514">L11   Conv 64→64, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="514" text-anchor="end">16 × 16 × 64</text>
+            <line class="arrow" x1="320" y1="526" x2="320" y2="533" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="534" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="556">L12   Conv 64→128, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="556" text-anchor="end">16 × 16 × 128</text>
+            <line class="arrow" x1="320" y1="568" x2="320" y2="575" marker-end="url(#arrow-arch)" />
+            <rect class="pool-block" x="130" y="576" width="380" height="28" rx="4" />
+            <text class="block-title" x="144" y="595">L13   MaxPool 2×2, s=2   ↓ ½</text>
+            <text class="shape-tag" x="496" y="595" text-anchor="end">8 × 8 × 128</text>
+            <line class="arrow" x1="320" y1="604" x2="320" y2="611" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="612" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="634">L14   Conv 128→128, 3×3  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="634" text-anchor="end">8 × 8 × 128</text>
+            <line class="arrow" x1="320" y1="646" x2="320" y2="653" marker-end="url(#arrow-arch)" />
+            <rect class="conv-block" x="40" y="654" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="676">L15   Conv 128→24, 1×1  +BN +SiLU</text>
+            <text class="shape-tag" x="586" y="676" text-anchor="end">8 × 8 × 24</text>
+            <line class="arrow" x1="320" y1="688" x2="320" y2="695" marker-end="url(#arrow-arch)" />
+            <rect class="detect-block" x="40" y="696" width="560" height="64" rx="4" />
+            <text class="block-title" x="54" y="712">L16   Detect Head</text>
+            <rect class="detect-branch" x="54" y="718" width="259" height="34" rx="3" />
+            <text class="branch-title" x="183" y="734" text-anchor="middle">cv2 · box regression</text>
+            <text class="branch-line"  x="183" y="748" text-anchor="middle">4 × 16 DFL bins = 64</text>
+            <rect class="detect-branch" x="327" y="718" width="259" height="34" rx="3" />
+            <text class="branch-title" x="456" y="734" text-anchor="middle">cv3 · classification</text>
+            <text class="branch-line"  x="456" y="748" text-anchor="middle">3 class logits (sigmoid)</text>
+            <text class="shape-tag" x="586" y="712" text-anchor="end">→ 8 × 8 × 67</text>
+            <line class="arrow" x1="320" y1="760" x2="320" y2="767" marker-end="url(#arrow-arch)" />
+            <rect class="output-block" x="40" y="768" width="560" height="34" rx="4" />
+            <text class="block-title" x="54" y="790">   Output</text>
+            <text class="shape-tag" x="586" y="790" text-anchor="end">8 × 8 × 67</text>
+            <text class="shape-subtag" x="586" y="802" text-anchor="end">int8, scale ≈ 0.107</text>
+            <text class="footnote" x="320" y="826" text-anchor="middle">17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)</text>
+          </svg>
+        </figure>
+
+        <figure class="pipeline-diagram">
+          <figcaption>Inference Pipeline (TFLite vs HDL Data Flow)</figcaption>
+          <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" role="img"
+               aria-label="Inference pipeline diagram showing image preprocess, parallel TFLite/HDL inference, raw tensor cache, postprocess, annotated output">
+            <defs>
+              <marker id="arrow-pipe" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280" />
+              </marker>
+            </defs>
+
+            <!-- Image (top) -->
+            <rect class="input-block" x="305" y="10" width="150" height="50" rx="4" />
+            <text class="block-title" x="380" y="32" text-anchor="middle">Image</text>
+            <text class="block-line"  x="380" y="50" text-anchor="middle">(any resolution)</text>
+
+            <!-- Pre-Process -->
+            <rect class="stage stage-2" x="305" y="90" width="150" height="50" rx="4" />
+            <text class="block-title"   x="380" y="112" text-anchor="middle">Pre-Process</text>
+            <text class="block-line"    x="380" y="130" text-anchor="middle">PIL resize → 256×256×3</text>
+
+            <!-- TFLite (left branch) -->
+            <rect class="tflite-block" x="125" y="180" width="200" height="60" rx="4" />
+            <text class="block-title"  x="225" y="205" text-anchor="middle">TFLite Runner</text>
+            <text class="block-line"   x="225" y="225" text-anchor="middle">interpreter.invoke() · CPU</text>
+
+            <!-- HDL (right branch) -->
+            <rect class="hdl-block"   x="435" y="180" width="200" height="60" rx="4" />
+            <text class="block-title" x="535" y="205" text-anchor="middle">HDL Accelerator</text>
+            <text class="block-line"  x="535" y="225" text-anchor="middle">AXI-Lite + URAM · FPGA</text>
+
+            <!-- Raw Tensor (cache point) -->
+            <rect class="cache-block" x="280" y="280" width="200" height="65" rx="4" />
+            <text class="block-title" x="380" y="304" text-anchor="middle">Raw Tensor</text>
+            <text class="block-line"  x="380" y="322" text-anchor="middle">8 × 8 × 67 float32</text>
+            <text class="cache-annot" x="380" y="338" text-anchor="middle">← cached for live slider updates</text>
+
+            <!-- Post-Process + NMS -->
+            <rect class="stage stage-3" x="305" y="375" width="150" height="50" rx="4" />
+            <text class="block-title"   x="380" y="397" text-anchor="middle">Post-Process + NMS</text>
+            <text class="block-line"    x="380" y="415" text-anchor="middle">DFL decode · sigmoid · filter</text>
+
+            <!-- Final block label (no separate rect — folded into post-process arrow target) -->
+            <text class="annot" x="380" y="450" text-anchor="middle">→ Annotated Output Panels</text>
+
+            <!-- Arrows -->
+            <!-- Image -> Pre-Process -->
+            <line class="arrow" x1="380" y1="60"  x2="380" y2="90"  marker-end="url(#arrow-pipe)" />
+            <!-- Pre-Process -> TFLite (diagonal down-left) -->
+            <line class="arrow" x1="340" y1="140" x2="240" y2="180" marker-end="url(#arrow-pipe)" />
+            <!-- Pre-Process -> HDL (diagonal down-right) -->
+            <line class="arrow" x1="420" y1="140" x2="520" y2="180" marker-end="url(#arrow-pipe)" />
+            <!-- TFLite -> Raw Tensor (diagonal down-right) -->
+            <line class="arrow" x1="240" y1="240" x2="335" y2="280" marker-end="url(#arrow-pipe)" />
+            <!-- HDL -> Raw Tensor (diagonal down-left) -->
+            <line class="arrow" x1="520" y1="240" x2="425" y2="280" marker-end="url(#arrow-pipe)" />
+            <!-- Raw Tensor -> Post-Process -->
+            <line class="arrow" x1="380" y1="345" x2="380" y2="375" marker-end="url(#arrow-pipe)" />
+            <!-- Post-Process -> Annotated -->
+            <line class="arrow" x1="380" y1="425" x2="380" y2="445" marker-end="url(#arrow-pipe)" />
+          </svg>
+        </figure>
+
+        <!-- Textual model facts — three sub-sections, populated by JS from
+             /api/config model_info.architecture / .quantization / .hardware -->
+        <div id="model-info-text"></div>
+      </div>
+    </details>
+
+    <div class="controls">
+      <label for="image-picker">Image:</label>
+      <select id="image-picker"></select>
+
+      <div class="slider-group">
+        <label for="conf-slider">
+          Confidence
+          <span class="info-icon" tabindex="0"
+                data-tooltip="Minimum per-class confidence (post-sigmoid) to keep a detection. Lower values surface weak detections including the 'almost' ones; higher values keep only the most confident predictions. Applied per grid cell before NMS.">i</span>
+        </label>
+        <span class="slider-endpoint">show all</span>
+        <input id="conf-slider" type="range" min="0" max="1" step="0.01" value="0.30" />
+        <span class="slider-endpoint">high conf</span>
+        <span id="conf-value" class="chip-num">0.30</span>
+      </div>
+
+      <div class="slider-group">
+        <label for="nms-slider">
+          NMS IoU
+          <span class="info-icon" tabindex="0"
+                data-tooltip="How much overlap NMS tolerates before calling two boxes duplicates. COUNTERINTUITIVE: higher values keep MORE boxes, because fewer pairs exceed the overlap threshold. At 1.0 nothing is suppressed (IoU > 1 is impossible). At 0.0 even the faintest overlap counts as a duplicate. Default 0.45 follows the YOLO convention.">i</span>
+        </label>
+        <span class="slider-endpoint">merge all</span>
+        <input id="nms-slider" type="range" min="0" max="1" step="0.01" value="0.45" />
+        <span class="slider-endpoint">keep all</span>
+        <span id="nms-value" class="chip-num">0.45</span>
+      </div>
+
+      <button id="run-btn" disabled>Run Inference</button>
+      <span id="status-text"></span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h2>Input Image (Original Resolution)</h2>
+    <div class="hero-frame">
+      <img id="hero-img" alt="Select an image" />
+    </div>
+  </section>
+
+  <section class="panels">
+    <h2>Model Outputs (256 &times; 256 — What the Networks See)</h2>
+    <div class="panel-grid">
+      <details class="panel" id="panel-gt" open>
+        <summary class="panel-title">Ground Truth</summary>
+        <img class="panel-img" alt="ground truth" />
+        <div class="panel-status">No Annotations</div>
+      </details>
+      <details class="panel" id="panel-tflite" open>
+        <summary class="panel-title">TFLite (Baseline)</summary>
+        <img class="panel-img" alt="tflite" />
+        <div class="panel-status"></div>
+      </details>
+      <details class="panel" id="panel-hdl" open>
+        <summary class="panel-title">HDL Accelerator</summary>
+        <img class="panel-img" alt="hdl" />
+        <div class="panel-status"></div>
+      </details>
+      <details class="panel" id="panel-hls" open>
+        <summary class="panel-title">HLS Accelerator</summary>
+        <img class="panel-img" alt="hls" />
+        <div class="panel-status"></div>
+      </details>
+    </div>
+  </section>
+
+  <section class="timing">
+    <h2>Timing Breakdown <span id="config-echo" class="config-echo"></span></h2>
+    <table id="timing-table">
+      <thead>
+        <tr>
+          <th>Runner</th>
+          <th>
+            Pre-Process
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Wall-clock for loading the image off disk, converting to RGB, and resizing to 256×256 with PIL bilinear. Same code path for every runner.">i</span>
+          </th>
+          <th>
+            Inference Time
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="The canonical compute time per runner. For TFLite this is interpreter.invoke() wall-clock. For HDL this is the cycle counter (register 0x00C) converted to ms at the 100 MHz PL clock — i.e. the pure on-FPGA compute time, NOT including AXI-Lite pixel preload.">i</span>
+          </th>
+          <th>
+            Inference Cycles
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="HDL only. The exact number of 10 ns cycles the accelerator spent computing this image, read from the cycle counter after STATUS.done asserts. TFLite has no equivalent hardware counter.">i</span>
+          </th>
+          <th>
+            Post-Process
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Time for DFL bbox decode, sigmoid class scoring, confidence filter, NMS, and PIL drawing on the 256×256 panel. Updates live when you drag the threshold sliders.">i</span>
+          </th>
+          <th>
+            End-to-End Latency
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Pre-Process + Inference Time + Post-Process for a single image. Uses the canonical (cycle-derived for HDL) inference time, so the table is internally consistent. The host driver wall-clock (which includes ~150 ms AXI-Lite pixel preload for HDL) is documented in the notes block below.">i</span>
+          </th>
+          <th>
+            FPS (Inference)
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Apples-to-apples engine throughput: 1000 / Inference Time. The fairest comparison between runners — what each engine can do if dispatch and IO costs were eliminated.">i</span>
+          </th>
+          <th>
+            FPS (End-to-End)
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="What a naive single-image loop would observe in practice: 1000 / End-to-End Latency. Lower than FPS (Inference) because it includes pre-process and post-process overhead.">i</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody id="timing-tbody"></tbody>
+    </table>
+
+    <dl class="defs">
+      <dt>Inference Time</dt>
+      <dd>For TFLite, the wall-clock of <code>interpreter.invoke()</code>. For the HDL accelerator, the cycle counter (register <code>0x00C</code>) converted to milliseconds at the 100 MHz PL clock — i.e. the pure on-FPGA compute time, with bus transfer overhead excluded.</dd>
+
+      <dt>Inference Cycles</dt>
+      <dd>HDL only. The exact number of 10 ns cycles the accelerator spent computing this image, read from the cycle counter after <code>STATUS.done</code> asserts.</dd>
+
+      <dt>End-to-End Latency</dt>
+      <dd>Pre-Process + Inference Time + Post-Process for a single image. <strong>For HDL the host driver wall-clock is ≈ 150 ms higher than this latency number</strong> — the difference is the AXI-Lite pixel preload (65 K writes over the slow control bus). That overhead is bus protocol cost, not inference cost, so the table excludes it from the End-to-End column to keep the comparison fair. The actual measured host wall-clock is reported in the model-info panel under <em>Hardware</em>.</dd>
+
+      <dt>FPS (Inference) vs FPS (End-to-End)</dt>
+      <dd><em>FPS (Inference)</em> is the apples-to-apples engine throughput (1000 / Inference Time). <em>FPS (End-to-End)</em> is what a naive single-image loop would see in practice (1000 / End-to-End Latency).</dd>
+
+      <dt>Live Slider Updates</dt>
+      <dd>Confidence and NMS IoU are pure post-processing filters — they don't change the model's raw output tensor. After you click <em>Run Inference</em>, the raw tensor is cached and slider drags re-run only the post-process stage on the cached tensor. That's why Pre-Process, Inference Time, and Inference Cycles cells stay frozen while Post-Process / End-to-End / FPS update live.</dd>
+
+      <dt>NMS IoU is Counterintuitive</dt>
+      <dd>The NMS IoU slider controls <em>how much overlap is tolerated before two boxes are called duplicates</em>. Higher values therefore keep <strong>more</strong> boxes, not fewer — because fewer pairs exceed the threshold. Dragging to <code>1.0</code> disables suppression entirely (no two boxes have IoU &gt; 1). Dragging toward <code>0.0</code> is the aggressive "merge everything that overlaps at all" end. Default <code>0.45</code> is the standard YOLO/OpenCV convention. The endpoint labels <em>merge all</em> / <em>keep all</em> next to the slider indicate this direction.</dd>
+    </dl>
+  </section>
+
+  <script src="/static/demo.js"></script>
+</body>
+</html>

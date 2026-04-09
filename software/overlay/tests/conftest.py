@@ -4,7 +4,6 @@ Off-board tests use MockIP to exercise driver logic without hardware.
 On-board tests use PYNQ to interact with real IPs on the Kria board.
 """
 
-import os
 import pathlib
 
 import pytest
@@ -78,9 +77,7 @@ _NEVER_START_VLNVS = {"xilinx.com:ip:v_multi_scaler"}
 def overlay():
     """Load the PYNQ overlay (bitstream + hwh). Session-scoped."""
     pynq = pytest.importorskip("pynq", reason="pynq not available")
-    import glob as globmod
 
-    # Find the .bit file
     hw_dir = pathlib.Path(__file__).parents[3] / "hardware" / "output"
     bits = sorted(hw_dir.glob("*.bit"))
     if not bits:
@@ -147,3 +144,38 @@ def vpss_ip(overlay):
     if ip_data is None:
         pytest.skip("v_proc_ss_0 not in overlay")
     return pynq.MMIO(ip_data["phys_addr"], ip_data["addr_range"])
+
+
+# ---------------------------------------------------------------------------
+# Accelerator overlay (separate from `overlay` to avoid disturbing camera tests)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def accel_overlay():
+    """Load the bitstream that contains the TinyissimoYOLO accelerator.
+
+    The default `overlay` fixture picks the alphabetically first .bit in
+    hardware/output/, which resolves to camera_pipeline.bit when both
+    bitstreams coexist. This fixture instead inspects each .bit's sibling
+    .hwh and picks the one referencing the accelerator's IP_VLNV.
+    """
+    pynq = pytest.importorskip("pynq", reason="pynq not available")
+    from software.overlay.tests.checks import find_accel_bitstream
+
+    hw_dir = pathlib.Path(__file__).parents[3] / "hardware" / "output"
+    bit_path = find_accel_bitstream(str(hw_dir))
+    if bit_path is None:
+        pytest.skip("No bitstream containing tinyissimoyolo_accelerator in "
+                    f"{hw_dir}")
+    ol = pynq.Overlay(bit_path, ignore_version=True)
+    yield ol
+    ol.free()
+
+
+@pytest.fixture(scope="session")
+def tinyissimoyolo_accel_ip(accel_overlay):
+    """PYNQ IP handle for tinyissimoyolo_accel_0 from the accelerator overlay."""
+    ip_data = accel_overlay.ip_dict.get("tinyissimoyolo_accel_0")
+    if ip_data is None:
+        pytest.skip("tinyissimoyolo_accel_0 not in overlay")
+    return accel_overlay.tinyissimoyolo_accel_0

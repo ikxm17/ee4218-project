@@ -24,6 +24,7 @@
 xsim.dir/
 *.ip_user_files/
 
+*.tmp/
 worklib.tb.wdb
 fsm_encoding.os
 tab_*/
@@ -57,13 +58,29 @@ _ide/
 ##  Build outputs                                                                      ##
 #########################################################################################
 
+# Vivado IP repo — derived cache populated by scripts/sync-ip-src.sh
+# from hardware/rtl/ and hardware/weights/hdl/. Canonical source is rtl/.
+hardware/ip_repo/*
+!hardware/ip_repo/.gitkeep
+
 # Vivado export artifacts
 hardware/output/*
 !hardware/output/.gitkeep
+# Preserved bitstreams — known-working builds kept for forensics.
+# Never auto-overwritten by rebuild_bitstream.tcl (which only touches the
+# top-level hardware/output/playground.* files). Files here should be
+# named with the md5 prefix, e.g. playground_FIXED_5e86ce6c.bit
+!hardware/output/preserved/
+!hardware/output/preserved/**
 
 # Vivado block design transient files
 *.bda
 **/bd/*/ui/
+
+# Legacy single-channel golden emitted unconditionally by
+# hardware/scripts/generate_conv3d_golden.py. Superseded by the
+# per-layer golden_layerN_uram.mem files which ARE tracked.
+hardware/testbench/inference_hdl/golden_ch_out0.mem
 
 # Python
 __pycache__/
@@ -71,3 +88,6 @@ venv/
 
 # Training data
 coco3/
+
+# Inference outputs
+software/tflite_script/
