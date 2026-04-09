@@ -314,8 +314,7 @@ function clearResults() {
     img.removeAttribute("src");
     const status = panelStatus(PANELS[key]);
     status.classList.remove("error");
-    if (key === "hls") status.textContent = "Stub";
-    else if (key === "gt") status.textContent = "No Annotations";
+    if (key === "gt") status.textContent = "No Annotations";
     else status.textContent = "";
   }
   timingBody.innerHTML = "";
@@ -369,11 +368,7 @@ function renderResults(data) {
       setPanelImage(panel, null);
     } else {
       setPanelImage(panel, result.annotated_png_b64);
-      if (key === "hls") {
-        panelStatus(panel).textContent = "Stub (Not Implemented)";
-      } else {
-        setPanelDetectionSummary(panel, result);
-      }
+      setPanelDetectionSummary(panel, result);
     }
   }
 
