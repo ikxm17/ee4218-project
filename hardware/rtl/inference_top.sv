@@ -608,10 +608,19 @@ module inference_top #(
                          : (!buf_sel ? out_buf_wr_addr_int : '0);
     assign fmap_a_din_a  = engine_sel_latched ? hls_fmap_a_din_a
                          : (!buf_sel ? out_buf_wr_data_int : '0);
-    assign fmap_a_en_b   = engine_sel_latched ? hls_fmap_a_en_b
-                         : (result_rd_a ? 1'b1                                : (!buf_sel ? out_buf_rd_en_int   : input_rd_en));
-    assign fmap_a_addr_b = engine_sel_latched ? hls_fmap_a_addr_b
-                         : (result_rd_a ? (result_base_addr + result_rd_addr) : (!buf_sel ? out_buf_rd_addr_int : input_rd_addr));
+    // result_rd_a (AXI verifier readback) must win over engine_sel_latched
+    // so the fmap_a result window works after both HDL and HLS runs.
+    // Mirrors the fmap_b mux structure at lines 634-639.  Without the
+    // outermost result_rd_a priority, after an HLS run the HLS engine is
+    // idle (hls_fmap_a_en_b == 0) but engine_sel_latched stays at 1, which
+    // gates result_rd_a off entirely — every verifier read returns the
+    // stale registered sdp_ram dout_b from whatever HLS read last.
+    assign fmap_a_en_b   = result_rd_a ? 1'b1
+                         : (engine_sel_latched ? hls_fmap_a_en_b
+                                               : (!buf_sel ? out_buf_rd_en_int : input_rd_en));
+    assign fmap_a_addr_b = result_rd_a ? (result_base_addr + result_rd_addr)
+                         : (engine_sel_latched ? hls_fmap_a_addr_b
+                                               : (!buf_sel ? out_buf_rd_addr_int : input_rd_addr));
 
     // --- fmap_b port allocation (preload + result muxes) ---
     //
