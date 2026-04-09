@@ -145,14 +145,32 @@ module inference_hls #(
     end
     assign ap_start = start & ~start_r;
 
-    // Latch ap_done into level-high done; clear on next start
+    // Latch ap_done into level-high done; clear on next start.
+    //
+    // Combinationally mask `done` with `~ap_start` to break a one-cycle
+    // race with inference_top.sv's PH_RUN FSM check:
+    //
+    //   - For test N+1, the wrapper enters PH_RUN with done_l still high
+    //     from test N (the registered clear-on-ap_start hasn't fired yet
+    //     at the moment the FSM evaluates phase_next combinationally).
+    //   - inference_top sees inference_done == 1 in cycle 0 of PH_RUN
+    //     and immediately transitions to PH_DONE, skipping the actual
+    //     inference (cycle count = 0).
+    //   - Masking with ~ap_start forces `done` to 0 during the cycle
+    //     when ap_start fires, so the FSM sees done == 0 and stays in
+    //     PH_RUN.  done_l clears at the next rising edge and stays at 0
+    //     until the HLS top asserts ap_done at the end of the new run.
+    //
+    // The HDL engine doesn't need this mask because its `done` is a
+    // single-cycle combinational pulse with `done <= 1'b0` as the default
+    // assignment (inference_hdl.sv:503, 526) — no latched state.
     logic done_l;
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn)        done_l <= 1'b0;
         else if (ap_start)   done_l <= 1'b0;
         else if (ap_done)    done_l <= 1'b1;
     end
-    assign done = done_l;
+    assign done = done_l & ~ap_start;
 
     // Latch curr_layer_out on each ap_vld pulse
     always_ff @(posedge aclk or negedge aresetn) begin
