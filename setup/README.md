@@ -176,22 +176,30 @@ PYNQ requires root for `/dev/mem` access (MMIO) and FPGA programming. Use the fu
 sudo /opt/ee4218/ee4218-venv/bin/python3 <script>.py
 ```
 
-### Loading a bitstream (WIP)
+### Loading a bitstream
 
-> Repo structure for bitstreams not finalised yet. General pattern below.
+Bitstreams are exported to `hardware/output/` by the Vivado flow (see
+`hardware/scripts/README.md`). The current designs are:
 
-> **TODO:** Once the project `.bit` + `.hwh` are available, add an overlay-load smoke test to `03-pynq.sh` to validate the full PYNQ → FPGA pipeline end-to-end. Current validation covers import and device enumeration only.
+- `hardware/output/playground.{bit,hwh,xsa}` — accelerator-only (HDL + HLS backends)
+- `hardware/output/camera_pipeline.{bit,hwh,xsa}` — camera preprocessing pipeline
+- `hardware/output/preserved/` — archived forensic builds
 
-Export `.bit` + `.hwh` from Vivado (filenames must match), copy to the board:
+Deploy an XSA to the board with `bash scripts/deploy-overlay.sh`. On the board,
+load the overlay via PYNQ:
 
 ```python
 from pynq import Overlay, allocate
 import numpy as np
 
-ol = Overlay("<design>.bit", download=True)
-ol.<ip_name>.mmio.write(0x0, 0x1)
+ol = Overlay("playground.bit", download=True)
+ol.tinyissimoyolo_accel_0.mmio.write(0x0, 0x1)
 buf = allocate(shape=(64,), dtype=np.uint32)
 ```
+
+> The PYNQ `03-pynq.sh` smoke test currently only validates library import and
+> device enumeration. Adding an overlay-load smoke test to exercise the full
+> PYNQ → FPGA pipeline end-to-end is still pending.
 
 ### Install additional packages
 
