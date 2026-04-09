@@ -57,6 +57,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 from software.inference.demo_runners import (  # noqa: E402
     HDLRunner,
+    HLSRunner,
     HLSStubRunner,
     MODEL_INFO,
     RunnerResult,
@@ -111,7 +112,7 @@ class DemoState:
         self,
         tflite: Optional[TFLiteRunner],
         hdl: Optional[HDLRunner],
-        hls: HLSStubRunner,
+        hls: HLSRunner | HLSStubRunner,
         image_dir: Path,
     ):
         self.tflite = tflite
@@ -270,7 +271,22 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         logger.exception("failed to load hdl runner: %s", exc)
 
-    hls_runner = HLSStubRunner()
+    # HLS runner shares the HDL runner's overlay/driver — there is exactly
+    # one bitstream load and one driver instance for both engines, with
+    # the engine selected per-run by configure(engine=N) before start().
+    # Falls back to the stub if HDL itself failed to load (no overlay to
+    # share) so the GUI's 4-panel layout never breaks on a dev machine.
+    hls_runner: HLSRunner | HLSStubRunner
+    if hdl_runner is not None:
+        try:
+            hls_runner = HLSRunner(hdl_runner.driver)
+            logger.info("hls runner ready (sharing overlay with HDL)")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("failed to load hls runner: %s", exc)
+            hls_runner = HLSStubRunner()
+    else:
+        logger.warning("HDL runner failed to load — HLS will use stub")
+        hls_runner = HLSStubRunner()
 
     state = DemoState(
         tflite=tflite_runner,
@@ -464,8 +480,18 @@ async def run_inference(name: str, body: RunRequest = RunRequest()):
             logger.exception("hdl runner failed")
             results["hdl"] = _error_panel("hdl", str(exc))
 
-    # HLS (stub never fails — also nothing to cache)
-    results["hls"] = _result_to_json(state.hls.run(path))
+    # HLS — shares the HDL overlay/driver; configure(engine=1) picks the
+    # HLS engine for this run.  Cached like HDL so live slider updates
+    # re-postprocess both panels from their own raw tensors.
+    try:
+        hls_res = state.hls.run(
+            path, conf_thresh=body.conf_thresh, nms_thresh=body.nms_thresh
+        )
+        state.cache_run(name, "hls", hls_res)
+        results["hls"] = _result_to_json(hls_res)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("hls runner failed")
+        results["hls"] = _error_panel("hls", str(exc))
 
     return JSONResponse(
         {
