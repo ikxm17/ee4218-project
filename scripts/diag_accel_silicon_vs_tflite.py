@@ -282,59 +282,39 @@ def verdict_for(stats: dict) -> str:
     return "DIVERGED"
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--model",
-        default="software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite",
-        help="Path to the TFLite model",
-    )
-    parser.add_argument(
-        "--pixels-mem",
-        default="hardware/testbench/inference_hdl/pixels_layer0.mem",
-        help="Path to pixels_layer0.mem (channel-major int8)",
-    )
-    parser.add_argument(
-        "--bitstream",
-        default="hardware/output/playground.bit",
-        help="Path to the playground.bit to program the FPGA",
-    )
-    parser.add_argument(
-        "--snapshot",
-        default="silicon_vs_tflite.npz",
-        help="Output .npz with per-layer silicon + TFLite tensors",
-    )
-    args = parser.parse_args()
+def snapshot_path_for(template: pathlib.Path, suffix: str | None) -> pathlib.Path:
+    """Splice an engine suffix before the .npz extension.
 
-    bit_path = pathlib.Path(args.bitstream)
-    print(
-        f"=== bitstream md5: {hashlib.md5(bit_path.read_bytes()).hexdigest()} "
-        f"({bit_path}) ==="
-    )
+    snapshot_path_for(silicon_vs_tflite.npz, "hdl") -> silicon_vs_tflite_hdl.npz
+    snapshot_path_for(silicon_vs_tflite.npz, None)  -> silicon_vs_tflite.npz
+    """
+    if suffix is None:
+        return template
+    return template.with_name(f"{template.stem}_{suffix}{template.suffix}")
 
-    interp = load_interpreter(args.model)
-    image_hwc, tflite_input = image_from_pixels_mem(args.pixels_mem)
 
-    in_idx = interp.get_input_details()[0]["index"]
-    interp.set_tensor(in_idx, tflite_input)
-    interp.invoke()
+def run_engine_sweep(
+    eng_name: str,
+    eng_id: int,
+    drv,
+    mapping,
+    interp,
+    image_hwc,
+    snapshot_path: pathlib.Path,
+) -> tuple[int, int]:
+    """Drive every layer once on the given engine and diff against TFLite.
 
-    mapping = build_hdl_to_tflite_map(interp)
-    print("\n=== HDL layer -> TFLite tensor mapping ===")
-    print(f"{'Layer':>5} | {'op_idx':>6} | {'conv_out':>8} | {'observable':>10} | tail")
-    print("-" * 60)
-    for m in mapping:
-        print(
-            f"{m['hdl_idx']:>5} | {m['conv_op_idx']:>6} | "
-            f"{m['conv_out_tensor']:>8} | {m['observable_tensor']:>10} | {m['tail_kind']}"
-        )
+    The engine is re-asserted via drv.configure(mode=0, engine=eng_id) before
+    each layer because the inference_top engine_sel mux latches at every
+    entry to PH_PRELOAD (both IDLE→PRELOAD and DONE→PRELOAD), so the MODE
+    register must hold the desired engine_sel BEFORE start() pushes the
+    FSM into PRELOAD. configure() also pulses soft_reset, but contrary to
+    its name that only clears the pixel FIFO inside axil_regs.sv — it
+    does not affect the phase FSM or the latch.
 
-    ol = Overlay(str(bit_path), ignore_version=True)
-    drv = TinyissimoYoloAcceleratorDriver(ol.tinyissimoyolo_accel_0)
-
-    snapshots: dict[str, np.ndarray] = {}
-
-    print("\n=== per-layer comparison: silicon URAM vs TFLite ===")
+    Returns (n_bit_exact, n_failed).
+    """
+    print(f"\n=== ENGINE: {eng_name.upper()} (engine_sel={eng_id}) ===")
     header = (
         f"{'Layer':>5} | {'Shape':<18} | {'Mismatch':>14} | "
         f"{'Max|d|':>6} | {'Mean|d|':>8} | {'cyc':>9} | Verdict"
@@ -342,11 +322,12 @@ def main():
     print(header)
     print("-" * len(header))
 
+    snapshots: dict[str, np.ndarray] = {}
     n_bit_exact = 0
     n_failed = 0
     try:
         for (idx, buf, base, words, _vlanes, H, W, C) in LAYER_MAP:
-            drv.configure(mode=0)
+            drv.configure(mode=0, engine=eng_id)
             drv.set_max_layers(idx + 1)
             drv.start()
             drv.write_pixels(image_hwc)
@@ -380,16 +361,116 @@ def main():
                 print(f"        first diffs (h,w,c): {stats['first_pos']}")
     finally:
         if snapshots:
-            np.savez(args.snapshot, **snapshots)
-            print(f"\n=== saved {len(snapshots)} snapshots to {args.snapshot} ===")
-        ol.free()
+            np.savez(str(snapshot_path), **snapshots)
+            print(
+                f"=== saved {len(snapshots)} snapshots to {snapshot_path} ==="
+            )
 
     print("-" * len(header))
     print(
-        f"=== summary: {n_bit_exact}/{len(LAYER_MAP)} bit-exact, "
-        f"{n_failed} failed ==="
+        f"=== {eng_name.upper()} summary: {n_bit_exact}/{len(LAYER_MAP)} "
+        f"bit-exact, {n_failed} failed ==="
     )
-    return 0 if n_failed == 0 else 1
+    return n_bit_exact, n_failed
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--model",
+        default="software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite",
+        help="Path to the TFLite model",
+    )
+    parser.add_argument(
+        "--pixels-mem",
+        default="hardware/testbench/inference_hdl/pixels_layer0.mem",
+        help="Path to pixels_layer0.mem (channel-major int8)",
+    )
+    parser.add_argument(
+        "--bitstream",
+        default="hardware/output/playground.bit",
+        help="Path to the playground.bit to program the FPGA",
+    )
+    parser.add_argument(
+        "--snapshot",
+        default="silicon_vs_tflite.npz",
+        help=(
+            "Output .npz template with per-layer silicon + TFLite tensors. "
+            "When --engine selects more than one engine, the engine name is "
+            "spliced before the extension (e.g. silicon_vs_tflite_hdl.npz, "
+            "silicon_vs_tflite_hls.npz)."
+        ),
+    )
+    parser.add_argument(
+        "--engine",
+        choices=("hdl", "hls", "both"),
+        default="both",
+        help=(
+            "Which inference engine to test. 'both' (default) runs the HDL "
+            "engine then the HLS engine through the same per-layer loop and "
+            "diffs each against TFLite."
+        ),
+    )
+    args = parser.parse_args()
+
+    bit_path = pathlib.Path(args.bitstream)
+    print(
+        f"=== bitstream md5: {hashlib.md5(bit_path.read_bytes()).hexdigest()} "
+        f"({bit_path}) ==="
+    )
+
+    interp = load_interpreter(args.model)
+    image_hwc, tflite_input = image_from_pixels_mem(args.pixels_mem)
+
+    in_idx = interp.get_input_details()[0]["index"]
+    interp.set_tensor(in_idx, tflite_input)
+    interp.invoke()
+
+    mapping = build_hdl_to_tflite_map(interp)
+    print("\n=== HDL layer -> TFLite tensor mapping ===")
+    print(f"{'Layer':>5} | {'op_idx':>6} | {'conv_out':>8} | {'observable':>10} | tail")
+    print("-" * 60)
+    for m in mapping:
+        print(
+            f"{m['hdl_idx']:>5} | {m['conv_op_idx']:>6} | "
+            f"{m['conv_out_tensor']:>8} | {m['observable_tensor']:>10} | {m['tail_kind']}"
+        )
+
+    ol = Overlay(str(bit_path), ignore_version=True)
+    drv = TinyissimoYoloAcceleratorDriver(ol.tinyissimoyolo_accel_0)
+
+    print("\n=== per-layer comparison: silicon URAM vs TFLite ===")
+
+    # Resolve which engines to test, and how to name each engine's snapshot
+    # file.  When only one engine is selected we keep the historical filename
+    # (no suffix) so existing post-mortem tooling keeps working.
+    if args.engine == "both":
+        engines = [("hdl", 0), ("hls", 1)]
+    else:
+        engines = [(args.engine, 0 if args.engine == "hdl" else 1)]
+    snapshot_template = pathlib.Path(args.snapshot)
+    use_suffix = len(engines) > 1
+
+    total_bit_exact = 0
+    total_failed = 0
+    try:
+        for eng_name, eng_id in engines:
+            snap_path = snapshot_path_for(
+                snapshot_template, eng_name if use_suffix else None
+            )
+            n_be, n_fl = run_engine_sweep(
+                eng_name, eng_id, drv, mapping, interp, image_hwc, snap_path
+            )
+            total_bit_exact += n_be
+            total_failed += n_fl
+    finally:
+        ol.free()
+
+    print(
+        f"\n=== overall: {total_bit_exact}/{len(LAYER_MAP) * len(engines)} "
+        f"bit-exact across {len(engines)} engine(s), {total_failed} failed ==="
+    )
+    return 0 if total_failed == 0 else 1
 
 
 if __name__ == "__main__":

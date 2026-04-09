@@ -1,0 +1,158 @@
+<ENTRY>
+{
+ "thisFile": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/tinyissimo_layer.hlsrun_csim_summary",
+ "connectId": "",
+ "serverToken": "",
+ "timestamp": "0"
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_CmdStep",
+ "dateTimestamp": "Wed Apr  8 18:08:49 2026",
+ "timestampMillis": "1775646529664",
+ "buildStep": {
+  "cmdId": "8fbfb119-7b00-4bc1-8421-14720c457b5c",
+  "name": "vitis-run",
+  "logFile": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/logs/tinyissimo_layer.steps.log",
+  "commandLine": "/opt/Xilinx/2025.2/Vitis/bin/unwrapped/lnx64.o/vitis-run  --mode hls --csim --config /home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/hls_config.cfg --work_dir tinyissimo_layer ",
+  "args": [
+   "--mode",
+   "hls",
+   "--csim",
+   "--config",
+   "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/hls_config.cfg",
+   "--work_dir",
+   "tinyissimo_layer"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Wed Apr  8 18:08:49 2026",
+ "timestampMillis": "1775646529664",
+ "status": {
+  "cmdId": "8fbfb119-7b00-4bc1-8421-14720c457b5c",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_FlowMetaData",
+ "dateTimestamp": "Wed Apr  8 18:08:51 2026",
+ "timestampMillis": "1775646531783",
+ "buildSummary": {
+  "hardwarePlatform": "",
+  "hardwareDsa": "",
+  "platformDirectory": "",
+  "runtime": "",
+  "systemConfig": "",
+  "flow": "BF_RUN",
+  "target": "TT_HLS_C_SIM",
+  "kernels": [
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "tinyissimo_layer_top",
+     "file": "",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer_top.cpp",
+     "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer.cpp",
+     "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer.h"
+    ],
+    "psSources": [],
+    "cuNames": [],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   }
+  ],
+  "toolVersion": "2025.2"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Wed Apr  8 18:08:51 2026",
+ "timestampMillis": "1775646531784",
+ "buildStep": {
+  "cmdId": "68a5c1f4-ea62-4dd1-8223-5cd471248afe",
+  "name": "",
+  "logFile": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer/tinyissimo_layer/hls/hls.log",
+  "commandLine": "",
+  "args": [],
+  "iniFiles": [],
+  "cwd": "/home/leeey/Downloads/ee4218-project/hardware/hls/tinyissimo_layer"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Wed Apr  8 18:08:51 2026",
+ "timestampMillis": "1775646531784",
+ "status": {
+  "cmdId": "68a5c1f4-ea62-4dd1-8223-5cd471248afe",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Wed Apr  8 18:11:12 2026",
+ "timestampMillis": "1775646672174",
+ "status": {
+  "cmdId": "68a5c1f4-ea62-4dd1-8223-5cd471248afe",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Wed Apr  8 18:11:12 2026",
+ "timestampMillis": "1775646672257",
+ "status": {
+  "cmdId": "8fbfb119-7b00-4bc1-8421-14720c457b5c",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Wed Apr  8 18:11:12 2026",
+ "timestampMillis": "1775646672257",
+ "report": {
+  "path": "",
+  "name": "",
+  "fileType": "HTML",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Wed Apr  8 18:11:12 2026",
+ "timestampMillis": "1775646672258",
+ "report": {
+  "path": "",
+  "name": "",
+  "fileType": "BINARY_PROTOBUF",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>

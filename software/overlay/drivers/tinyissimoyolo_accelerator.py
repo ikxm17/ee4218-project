@@ -96,28 +96,58 @@ class TinyissimoYoloAcceleratorDriver:
         return self._ip.read(self._PIXEL_CNT)
 
     def set_mode(self, mode: int):
-        """Set input mode: 0 = AXI-Lite FIFO, 1 = S_AXIS camera."""
+        """Set input mode (MODE[0]): 0 = AXI-Lite FIFO, 1 = S_AXIS camera.
+
+        Read-modify-write so the engine-select bit (MODE[4]) is preserved.
+        """
         if mode not in (0, 1):
             raise ValueError(f"mode must be 0 (FIFO) or 1 (S_AXIS), got {mode}")
-        self._ip.write(self._MODE, mode)
+        cur = self._ip.read(self._MODE)
+        self._ip.write(self._MODE, (cur & ~0x1) | (mode & 0x1))
+
+    def set_engine(self, engine: int):
+        """Select inference engine (MODE[4]): 0 = HDL, 1 = HLS.
+
+        Latched at IDLE→PRELOAD inside inference_top.sv (engine_sel_latched
+        guard at lines 325-331), so this must be set BEFORE start() is
+        called for it to take effect on the upcoming run.
+
+        Read-modify-write so the input-source bit (MODE[0]) is preserved.
+        """
+        if engine not in (0, 1):
+            raise ValueError(f"engine must be 0 (HDL) or 1 (HLS), got {engine}")
+        cur = self._ip.read(self._MODE)
+        self._ip.write(self._MODE, (cur & ~(1 << 4)) | (engine << 4))
 
     def soft_reset(self):
-        """Pulse CTRL[7] (soft_reset, auto-clearing). Restores phase FSM to IDLE."""
+        """Pulse CTRL[7], which clears the pixel FIFO accumulator inside
+        axil_regs.sv. Despite the name, this does NOT reset the phase FSM
+        in inference_top.sv or `engine_sel_latched` — those clear only on
+        hard `aresetn`. The bit is also not auto-clearing, but the next
+        write to CTRL (e.g. start()) overwrites the whole register and
+        drops it back to 0.
+        """
         self._ip.write(self._CTRL, self._CTRL_SOFT_RST)
 
-    def configure(self, mode: int = 0):
+    def configure(self, mode: int = 0, engine: int = 0):
         """Bring the accelerator into a clean configured state.
 
         Issues a soft reset (clears phase FSM, FIFO accumulator, pixel
-        counter) before latching the mode select. Soft reset must come
-        first so MODE writes land into a freshly-reset register file.
+        counter) before latching the mode + engine selects. Soft reset
+        must come first so MODE writes land into a freshly-reset
+        register file.
 
         Args:
-            mode: 0 = AXI-Lite FIFO preload (default for offline test),
-                  1 = S_AXIS camera streaming.
+            mode:   0 = AXI-Lite FIFO preload (default for offline test),
+                    1 = S_AXIS camera streaming.
+            engine: 0 = HDL inference engine (default),
+                    1 = HLS inference engine. Latched at IDLE→PRELOAD by
+                    inference_top.sv:325-331, so it must be set before
+                    start() — calling configure() satisfies that ordering.
         """
         self.soft_reset()
         self.set_mode(mode)
+        self.set_engine(engine)
 
     def read_status(self) -> dict:
         """Decode the STATUS register into a dict.
@@ -401,21 +431,54 @@ def post_process(data: np.ndarray, conf_thresh: float = 0.3,
 
 def nms(boxes: list, scores: list, class_ids: list,
         iou_thresh: float = 0.45) -> tuple:
-    """Non-maximum suppression using OpenCV."""
+    """Non-maximum suppression in pure numpy.
+
+    Greedy NMS: sort detections by score descending, keep the top one,
+    suppress every remaining box whose IoU with it exceeds ``iou_thresh``,
+    repeat. ``boxes`` are in ``(x, y, w, h)`` pixel format (matching
+    ``post_process`` output). Class-agnostic — overlapping detections of
+    different classes still suppress each other; the highest-confidence
+    one wins.
+
+    No cv2 dependency: the original implementation used
+    ``cv2.dnn.NMSBoxes`` which silently no-ops on machines where OpenCV
+    isn't installed (notably the PYNQ venv on the Kria board), making
+    the GUI's IoU slider appear broken.
+    """
     if not boxes:
         return [], [], []
 
-    try:
-        import cv2
-        indices = cv2.dnn.NMSBoxes(boxes, scores, min(scores), iou_thresh)
-        if len(indices) > 0:
-            idx = indices.flatten()
-            return (
-                [boxes[i] for i in idx],
-                [scores[i] for i in idx],
-                [class_ids[i] for i in idx],
-            )
-    except ImportError:
-        pass  # cv2 not available, skip NMS
+    boxes_arr = np.asarray(boxes, dtype=np.float32)
+    scores_arr = np.asarray(scores, dtype=np.float32)
 
-    return boxes, scores, class_ids
+    x1 = boxes_arr[:, 0]
+    y1 = boxes_arr[:, 1]
+    x2 = boxes_arr[:, 0] + boxes_arr[:, 2]
+    y2 = boxes_arr[:, 1] + boxes_arr[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+
+    order = scores_arr.argsort()[::-1]  # highest score first
+    keep: list[int] = []
+    while order.size > 0:
+        i = int(order[0])
+        keep.append(i)
+        if order.size == 1:
+            break
+
+        rest = order[1:]
+        xx1 = np.maximum(x1[i], x1[rest])
+        yy1 = np.maximum(y1[i], y1[rest])
+        xx2 = np.minimum(x2[i], x2[rest])
+        yy2 = np.minimum(y2[i], y2[rest])
+
+        inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
+        union = areas[i] + areas[rest] - inter
+        iou = np.where(union > 0, inter / union, 0.0)
+
+        order = rest[iou <= iou_thresh]
+
+    return (
+        [boxes[i] for i in keep],
+        [scores[i] for i in keep],
+        [class_ids[i] for i in keep],
+    )

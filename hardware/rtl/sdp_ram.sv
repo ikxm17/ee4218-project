@@ -22,7 +22,18 @@ module sdp_ram #(
 );  
     (* ram_style = RAM_STYLE *) reg [DATA_WIDTH-1:0] ram [DEPTH-1:0];
 
-    initial if (MEM_FILE != "") $readmemh(MEM_FILE, ram);
+    // Zero-init mirrors silicon URAM/BRAM bitstream programming so xsim
+    // doesn't start with 'x. Without this the HDL engine diverges from
+    // silicon between L1 and L10: the conv kernel reads an address that
+    // wasn't fully written by an earlier layer (padding / RMW edge), gets
+    // 'x in sim but 0 on silicon, and the 'x propagates through the
+    // accumulator into wrong int8 outputs. L0 is unaffected because it
+    // overwrites every word it reads from. Synthesis-safe: URAM init
+    // defaults to 0 in hardware, so this loop is a no-op for the bitstream.
+    initial begin
+        for (int i = 0; i < DEPTH; i++) ram[i] = '0;
+        if (MEM_FILE != "") $readmemh(MEM_FILE, ram);
+    end
 
     /* Write-only Port */
     always_ff @(posedge clk) begin

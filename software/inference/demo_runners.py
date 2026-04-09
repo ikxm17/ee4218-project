@@ -480,6 +480,19 @@ class HDLRunner:
             getattr(self._overlay, accel_key)
         )
 
+    @property
+    def driver(self) -> TinyissimoYoloAcceleratorDriver:
+        """Expose the wrapped driver so a sibling HLSRunner can share it.
+
+        HDL and HLS runners must share ONE overlay (single bitstream load,
+        single hard reset of URAMs).  inference_top.sv:325-335 re-latches
+        engine_sel on every PH_DONE → PH_PRELOAD transition, so back-to-
+        back HDL/HLS calls on the same driver work correctly as long as
+        each run does configure(engine=N) before start().  HLSRunner takes
+        this driver in its constructor instead of a bitstream path.
+        """
+        return self._driver
+
     def run(
         self,
         image_path,
@@ -526,6 +539,92 @@ class HDLRunner:
                 # (cycle-derived), so the table is internally consistent at
                 # every cell. Host wall-clock + AXI overhead live in
                 # host_walltime_ms below for the notes block / caveat.
+                "total_ms": pre_ms + cycle_time_ms + post_ms,
+                "cycles": cycles,
+                "cycle_time_ms": cycle_time_ms,
+                "host_walltime_ms": host_walltime_ms,
+                "conf_thresh": conf_thresh,
+                "nms_thresh": nms_thresh,
+            },
+            raw_tensor=raw_tensor,
+            preproc_arr=arr,
+        )
+
+
+class HLSRunner:
+    """Run the HLS inference engine via the same accelerator IP as HDL.
+
+    Shares an overlay/driver with an existing HDLRunner — there is exactly
+    ONE bitstream load and ONE TinyissimoYoloAcceleratorDriver instance,
+    and the engine is selected per-run by writing MODE[4] before start().
+    Construction therefore takes a driver, not a bitstream path:
+
+        hdl_runner = HDLRunner(bitstream_path)
+        hls_runner = HLSRunner(hdl_runner.driver)
+
+    The two runners can be invoked back-to-back on the same image without
+    a bitstream reload because inference_top.sv:325-335 re-latches
+    engine_sel on every PH_DONE → PH_PRELOAD transition, and the driver's
+    configure(engine=N) writes MODE[4] before start() triggers that
+    transition.
+
+    Verified bit-exact against goldens at every layer (private-range
+    analysis in scripts/diag_accel_per_layer_sweep.py --engine hls), so
+    the postprocess path is identical to HDL — same URAM detection-head
+    layout, same unpack_detections, same post_process / nms.
+
+    Same wall-clock split as HDLRunner: "Inference Time" in the GUI is
+    the cycle-derived value (cycles × 10 ns), not the host wall-clock.
+    """
+
+    name = "hls"
+
+    def __init__(self, driver: TinyissimoYoloAcceleratorDriver):
+        self._driver = driver
+
+    def run(
+        self,
+        image_path,
+        conf_thresh: float = 0.3,
+        nms_thresh: float = 0.45,
+    ) -> RunnerResult:
+        arr, pre_ms = _load_and_preprocess(image_path)
+
+        # --- inference (includes AXI-Lite pixel preload) ------------------
+        # configure(engine=1) writes MODE[4]=1 BEFORE start(), so the
+        # PH_DONE → PH_PRELOAD transition that follows latches the HLS
+        # engine for this run.  Safe back-to-back with HDL runs because
+        # the latch updates on every PRELOAD entry.
+        t0 = time.perf_counter()
+        self._driver.configure(mode=0, engine=1)
+        self._driver.start()
+        self._driver.write_pixels(arr)
+        if not self._driver.wait_done(timeout_s=2.0):
+            raise TimeoutError(
+                "HLS accelerator did not assert STATUS.done within 2s"
+            )
+        cycles = int(self._driver.cycle_count)
+        raw_table = self._driver.read_results_raw()
+        raw_tensor = self._driver.unpack_detections(raw_table)
+        host_walltime_ms = _ms(time.perf_counter() - t0)
+
+        cycle_time_ms = (cycles / PL_CLOCK_HZ) * 1000.0
+
+        # --- post-process via shared helper -------------------------------
+        boxes, scores, class_ids, png, post_ms = repostprocess(
+            raw_tensor, arr, conf_thresh, nms_thresh
+        )
+
+        return RunnerResult(
+            runner=self.name,
+            boxes=list(boxes),
+            scores=[float(s) for s in scores],
+            class_ids=[int(c) for c in class_ids],
+            annotated_png=png,
+            timings={
+                "preprocess_ms": pre_ms,
+                "inference_ms": cycle_time_ms,
+                "postprocess_ms": post_ms,
                 "total_ms": pre_ms + cycle_time_ms + post_ms,
                 "cycles": cycles,
                 "cycle_time_ms": cycle_time_ms,
