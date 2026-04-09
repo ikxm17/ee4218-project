@@ -508,10 +508,9 @@ const RUNNER_ORDER = [
 function renderTiming(results) {
   timingBody.innerHTML = "";
 
-  // Track best FPS rows for highlighting (excludes the stub).
+  // Track best FPS rows for highlighting.
   let bestInfFps = -Infinity, bestInfKey = null;
   for (const { key } of RUNNER_ORDER) {
-    if (key === "hls") continue;
     const r = results[key];
     if (!r || r.error || !r.timings) continue;
     const f = inferenceFps(r.timings);
@@ -557,7 +556,6 @@ function renderTiming(results) {
 // untouched. Adds a brief flash class to make the change visible.
 function updateTimingLive(results) {
   for (const { key } of RUNNER_ORDER) {
-    if (key === "hls") continue;
     const tr = timingBody.querySelector(`tr[data-runner="${key}"]`);
     if (!tr) continue;
     const result = results[key];
