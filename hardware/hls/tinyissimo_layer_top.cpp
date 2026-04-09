@@ -29,8 +29,15 @@ void tinyissimo_layer_top(
 #pragma HLS INTERFACE mode=ap_ctrl_hs port=return
 
     // ── Memory interfaces ───────────────────────────────────────────────
-#pragma HLS INTERFACE mode=bram port=fmap_a
-#pragma HLS INTERFACE mode=bram port=fmap_b
+    // fmap_a / fmap_b are simple-dual-port URAMs in inference_top.sv
+    // (one read port + one write port).  The bare `mode=bram` default is
+    // true-dual-port BRAM, which makes HLS think it has two read ports per
+    // cycle and lets it speculate dual-port reads inside CONV_LOOP — see
+    // the long comment at the fmap_in read site in tinyissimo_layer.cpp.
+    // `storage_type=ram_s2p` tells HLS the truth about the wrapper's
+    // topology so it cannot schedule two reads in the same cycle.
+#pragma HLS INTERFACE mode=bram port=fmap_a storage_type=ram_s2p
+#pragma HLS INTERFACE mode=bram port=fmap_b storage_type=ram_s2p
 #pragma HLS INTERFACE mode=bram port=wt_mem
 #pragma HLS INTERFACE mode=bram port=qp_mem
 #pragma HLS INTERFACE mode=bram port=silu_mem
