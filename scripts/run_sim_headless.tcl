@@ -14,6 +14,12 @@ puts "=========================================="
 puts " run_sim_headless.tcl  flow=$flow"
 puts "=========================================="
 
+# Auto-recreate the project if .xpr is missing.
+if {![file exists hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr]} {
+    puts "==> XPR not found — recreating project..."
+    source scripts/recreate_project.tcl
+}
+
 open_project hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr
 
 # Make sure the sim top is what we expect

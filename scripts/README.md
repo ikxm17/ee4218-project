@@ -8,12 +8,31 @@ For the **weight-gen and golden-gen pipeline** (TFLite → ROM → golden), see
 [`hardware/scripts/README.md`](../hardware/scripts/README.md). This README
 covers the runtime / diagnostic side.
 
+## Vivado project management
+
+The `.xpr` project file and `.xci` IP instance configs are **not tracked in
+git** — they are regenerated from the tracked `.bd` block design files.  After
+cloning or pulling, run one of:
+
+```bash
+./scripts/vivado-setup.sh              # full setup + open GUI
+./scripts/vivado-setup.sh --batch      # setup only, no GUI
+./scripts/vivado-setup.sh --build      # setup + synth/impl/bitstream
+./scripts/vivado-setup.sh --sim behav  # setup + behavioral sim
+```
+
+| Script | Purpose |
+|--------|---------|
+| `vivado-setup.sh`       | Unified entry point: clean → sync → package → validate → recreate → open/build/sim |
+| `recreate_project.tcl`  | Regenerate `.xpr` from `.bd` + RTL sources (called by vivado-setup.sh) |
+| `validate-ip-repo.sh`   | Pre-flight IP repo health check — catches missing files, pollution, staleness (no Vivado needed) |
+
 ## Deployment
 
 | Script | Purpose |
 |--------|---------|
 | `deploy-overlay.sh` | Extract `.bit` / `.hwh` from a `.xsa`, generate the I2C-only camera DTBO, rsync everything to the board |
-| `sync-ip-src.sh`    | Mirror `hardware/rtl/*.{v,sv}` into `hardware/ip_repo/src/` before a Vivado build (does NOT sync `.mem` / `.coe` — those must be copied manually) |
+| `sync-ip-src.sh`    | Mirror `hardware/rtl/*.{v,sv,dat}` + weight `.mem` into `hardware/ip_repo/src/`, with cleanup of polluting files |
 | `generate-dtbo.py`  | Build the camera-pipeline device tree overlay (I2C node only — ZOCL/AFI come from `pynq.dtbo` at boot) |
 | `inspect-hwh.sh`    | Pretty-print the IPs declared in a `.hwh` file for debugging address maps |
 
@@ -68,8 +87,9 @@ echo <passwd> | sudo -S XILINX_XRT=/usr /opt/ee4218/ee4218-venv/bin/python3 \
 
 | Script | Purpose |
 |--------|---------|
-| `rebuild_bitstream.tcl` | Full headless synth + impl + bitstream rebuild (OOC-aware). **Heavy** — takes tens of minutes |
-| `run_sim_headless.tcl`  | Launch `xsim` on the default simulation top without opening the GUI |
+| `rebuild_bitstream.tcl` | Full headless synth + impl + bitstream rebuild (OOC-aware). Auto-recreates `.xpr` if missing. **Heavy** — takes tens of minutes |
+| `run_sim_headless.tcl`  | Launch `xsim` on the default simulation top without opening the GUI. Auto-recreates `.xpr` if missing |
+| `recreate_project.tcl`  | Regenerate `.xpr` from `.bd` block designs + RTL sources. Called by `vivado-setup.sh` or sourceable from other Tcl scripts |
 | `uram_attr_check.tcl`   | Inspect URAM attributes post-PAR to verify placement and configuration |
 | `uram_path_check.tcl`   | Verify URAM connectivity in the routed design |
 | `probe_uram_hier.tcl`   | Hierarchy debug for URAM placement |

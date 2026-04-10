@@ -74,6 +74,8 @@ add_files -norecurse -fileset sources_1 [list \
     $hdr_dir/weight_rom.mem \
     $hdr_dir/qp_packed_rom.mem \
     $hdr_dir/silu_lut.mem \
+    $hdr_dir/zp_in_rom.mem \
+    $hdr_dir/zp_out_rom.mem \
 ]
 
 # ─────────────────────────────────────────────────────────────────────

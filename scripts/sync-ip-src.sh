@@ -92,6 +92,8 @@ WEIGHTS_FILES=(
     "weight_rom.mem"
     "qp_packed_rom.mem"
     "silu_lut.mem"
+    "zp_in_rom.mem"
+    "zp_out_rom.mem"
 )
 
 if [[ ! -d "$RTL_DIR" ]]; then
@@ -110,6 +112,46 @@ fi
 
 shopt -s nullglob
 
+# ─── Cleanup pass ────────────────────────────────────────────────────
+# Remove files from ip_repo/src/ that don't belong: golden .mem,
+# testbenches, BD artifacts, constraint files, sim-only data, and
+# subdirectories.  These accumulate from earlier manual packaging
+# operations and pollute the IP if left in place.
+
+removed=0
+
+cleanup_one() {
+    local path="$1"
+    echo "  REMOVED: $(basename "$path")"
+    rm -rf "$path"
+    removed=$((removed + 1))
+}
+
+echo "Cleaning ip_repo/src/ ..."
+
+# Remove subdirectories (BD IP instances that don't belong)
+for d in "$SRC_DIR"/*/; do
+    [[ -d "$d" ]] && cleanup_one "$d"
+done
+
+# Remove known pollution patterns
+for f in "$SRC_DIR"/golden_*.mem \
+         "$SRC_DIR"/tb_*.sv "$SRC_DIR"/tb_*.v \
+         "$SRC_DIR"/bd_*.v \
+         "$SRC_DIR"/playground*.v \
+         "$SRC_DIR"/pixels*.mem \
+         "$SRC_DIR"/*.xdc; do
+    [[ -f "$f" ]] && cleanup_one "$f"
+done
+
+if (( removed > 0 )); then
+    echo "  Removed $removed polluting file(s)/dir(s)."
+else
+    echo "  No pollution found."
+fi
+echo
+
+# ─── Sync pass ───────────────────────────────────────────────────────
 copied=0
 skipped=0
 

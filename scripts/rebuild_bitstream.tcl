@@ -14,6 +14,14 @@
 # exhausting machine memory.
 
 puts "=== rebuild_bitstream.tcl ==="
+
+# Auto-recreate the project if .xpr is missing (e.g. after git clone
+# or after git rm --cached removed it from tracking).
+if {![file exists hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr]} {
+    puts "==> XPR not found — recreating project..."
+    source scripts/recreate_project.tcl
+}
+
 open_project hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr
 
 # Identify runs. The OOC IP synth run name varies between project versions
