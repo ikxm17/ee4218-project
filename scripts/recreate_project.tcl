@@ -42,13 +42,14 @@ if {[llength $component_files] == 0} {
 }
 puts "  Found IP: [lindex $component_files 0]"
 
-# ─── Pre-check: BD file must exist ────────────────────────────────────
-set bd_src $proj_dir/$proj_name.srcs/sources_1/bd/playground/playground.bd
-if {![file exists $bd_src]} {
-    puts "ERROR: playground.bd not found at $bd_src"
-    puts "       This file should be tracked in git."
-    error "Block design not found"
+# ─── Pre-check: at least one BD file must exist ──────────────────────
+set bd_check [glob -nocomplain $proj_dir/$proj_name.srcs/sources_1/bd/*/*.bd]
+if {[llength $bd_check] == 0} {
+    puts "ERROR: No .bd files found under $proj_dir/$proj_name.srcs/sources_1/bd/"
+    puts "       These files should be tracked in git."
+    error "No block designs found"
 }
+puts "  Found [llength $bd_check] block design(s): [join [lmap f $bd_check {file tail $f}] {, }]"
 
 # ─── Guard: refuse to clobber an open project ─────────────────────────
 set lock_files [glob -nocomplain $proj_dir/.Xil/Vivado-*-lock]
@@ -56,6 +57,21 @@ if {[llength $lock_files] > 0} {
     puts "ERROR: Vivado appears to have this project open (lock file found)."
     puts "       Close Vivado first, then re-run."
     error "Project is locked by another Vivado instance"
+}
+
+# ─── Back up .bd files ────────────────────────────────────────────────
+# create_project -force wipes the .srcs/ directory, which destroys the
+# tracked .bd files.  Save them to a temp location and restore after.
+set bd_backup_dir [file join $proj_dir .bd_backup]
+file mkdir $bd_backup_dir
+
+# Auto-discover all .bd files to back up
+set bd_pairs [list]
+foreach bd_path [glob -nocomplain $proj_dir/$proj_name.srcs/sources_1/bd/*/*.bd] {
+    set backup [file join $bd_backup_dir [file tail $bd_path]]
+    file copy -force $bd_path $backup
+    lappend bd_pairs [list $backup $bd_path]
+    puts "  Backed up [file tail $bd_path]"
 }
 
 if {[file exists $proj_dir/$proj_name.xpr]} {
@@ -75,6 +91,16 @@ foreach d {.cache .gen .runs .hw .sim .ip_user_files} {
 # ─── 1. Create project ────────────────────────────────────────────────
 puts "\n=== Creating project ==="
 create_project $proj_name $proj_dir -part xck26-sfvc784-2LV-c -force
+
+# ─── Restore .bd files ────────────────────────────────────────────────
+foreach pair $bd_pairs {
+    set backup [lindex $pair 0]
+    set target [lindex $pair 1]
+    file mkdir [file dirname $target]
+    file copy -force $backup $target
+    puts "  Restored [file tail $target]"
+}
+file delete -force $bd_backup_dir
 set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
 set_property target_language Verilog [current_project]
 
@@ -101,16 +127,15 @@ if {[llength $rtl_files] > 0} {
 }
 puts "  Added [llength $rtl_files] RTL source files"
 
-# ─── 4. Add global include header ─────────────────────────────────────
-set svh_file $repo_root/hardware/weights/hdl/layer_config.svh
-if {[file exists $svh_file]} {
-    add_files -norecurse -fileset sources_1 $svh_file
-    set_property file_type "Verilog Header" \
-        [get_files -of_objects [get_filesets sources_1] */layer_config.svh]
-    set_property is_global_include true \
-        [get_files -of_objects [get_filesets sources_1] */layer_config.svh]
-    puts "  Added layer_config.svh as global include"
-}
+# ─── 4. Set include path for layer_config.svh ─────────────────────────
+# Don't add layer_config.svh as a source file — xvlog will try to
+# compile it as standalone Verilog and fail on SystemVerilog constructs.
+# Instead, set the include directory so `include "layer_config.svh"
+# resolves correctly during both synthesis and simulation.
+set include_path [list $repo_root/hardware/weights/hdl]
+set_property include_dirs $include_path [get_filesets sources_1]
+set_property include_dirs $include_path [get_filesets sim_1]
+puts "  Set include path: $include_path"
 
 # ─── 5. Add weight/ROM .mem and HLS .dat files ────────────────────────
 set mem_files [list]
@@ -130,47 +155,63 @@ if {[llength $dat_files] > 0} {
 }
 
 # ─── 6. Add block designs ─────────────────────────────────────────────
-# playground.bd must live inside the project's .srcs/ tree (the BD's
-# internal gen_directory field uses a relative path).  It is tracked
-# in git at this exact location.
-add_files -norecurse -fileset sources_1 $bd_src
-puts "  Added playground.bd"
+# Auto-discover all .bd files in the .srcs/ tree.  Each BD's internal
+# gen_directory uses a relative path, so the files must stay here.
+set all_bds [glob -nocomplain $proj_dir/$proj_name.srcs/sources_1/bd/*/*.bd]
+puts "  Found [llength $all_bds] block design(s)"
 
-# tinyissimoyolo.bd — disabled secondary camera pipeline BD
-set bd2_src $proj_dir/$proj_name.srcs/sources_1/bd/tinyissimoyolo/tinyissimoyolo.bd
-if {[file exists $bd2_src]} {
-    add_files -norecurse -fileset sources_1 $bd2_src
-    set_property USER_DISABLED 1 [get_files */tinyissimoyolo.bd]
-    puts "  Added tinyissimoyolo.bd (disabled)"
+foreach bd $all_bds {
+    add_files -norecurse -fileset sources_1 $bd
+    puts "    Added [file tail $bd]"
 }
 
 # ─── 7. Generate BD output products ───────────────────────────────────
-# This is the critical step: Vivado reads the BD JSON, resolves all IP
-# references against the catalog, and generates the .xci files + wrappers.
-# The Zynq PS config is embedded in the BD JSON, so it comes out
-# correctly with no extra Tcl.
-puts "\n=== Generating output products for playground.bd ==="
-set bd_file [get_files playground.bd -filter {IS_BLOCK_DESIGN == 1}]
-generate_target all $bd_file
-puts "  BD output products generated"
+# For each BD, resolve IP references against the catalog and generate
+# .xci files + wrappers.  If a BD references IPs not in the catalog
+# (e.g. camera pipeline IPs), generate_target will fail — catch the
+# error and continue so one broken BD doesn't kill the whole setup.
+puts "\n=== Generating BD output products ==="
 
-# Create the HDL wrapper for the BD
-make_wrapper -files $bd_file -top
-set wrapper_file [glob -nocomplain \
-    $proj_dir/$proj_name.gen/sources_1/bd/playground/hdl/playground_wrapper.v]
-if {$wrapper_file ne ""} {
-    add_files -norecurse -fileset sources_1 $wrapper_file
-    puts "  Added playground_wrapper.v"
+set primary_bd ""
+foreach bd $all_bds {
+    set bd_name [file rootname [file tail $bd]]
+    set bd_file [get_files $bd]
+    puts "  Generating targets for $bd_name ..."
+    if {[catch {generate_target all $bd_file} err]} {
+        puts "  WARNING: generate_target failed for $bd_name — skipping"
+        puts "           ($err)"
+        continue
+    }
+    puts "    OK"
+
+    # The first successfully generated BD becomes the primary (for the wrapper)
+    if {$primary_bd eq ""} {
+        set primary_bd $bd_file
+    }
+}
+
+# Create the HDL wrapper for the primary BD
+if {$primary_bd ne ""} {
+    make_wrapper -files $primary_bd -top
+    set primary_name [file rootname [file tail $primary_bd]]
+    set wrapper_file [glob -nocomplain \
+        $proj_dir/$proj_name.gen/sources_1/bd/$primary_name/hdl/${primary_name}_wrapper.v]
+    if {$wrapper_file ne ""} {
+        add_files -norecurse -fileset sources_1 $wrapper_file
+        puts "  Added ${primary_name}_wrapper.v"
+    }
 }
 
 # ─── 8. Add constraints ───────────────────────────────────────────────
+# camera.xdc is not added — it's only used with the camera pipeline BD
+# which is not part of the recreated project.
 set xdc_files [glob -nocomplain $repo_root/hardware/constraints/*.xdc]
 foreach xdc $xdc_files {
-    add_files -norecurse -fileset constrs_1 $xdc
-    # Camera XDC is disabled by default (only used with camera pipeline)
     if {[string match "*camera*" [file tail $xdc]]} {
-        set_property USER_DISABLED 1 [get_files */[file tail $xdc]]
+        puts "  Skipped constraint: [file tail $xdc] (camera pipeline only)"
+        continue
     }
+    add_files -norecurse -fileset constrs_1 $xdc
     puts "  Added constraint: [file tail $xdc]"
 }
 
@@ -188,14 +229,10 @@ if {[llength $sim_mem_files] > 0} {
     puts "  Added [llength $sim_mem_files] simulation .mem data files"
 }
 
-# Add layer_config.svh to sim fileset too (needed by testbenches)
-if {[file exists $svh_file]} {
-    add_files -norecurse -fileset sim_1 $svh_file
-    set_property file_type "Verilog Header" \
-        [get_files -of_objects [get_filesets sim_1] */layer_config.svh]
-    set_property is_global_include true \
-        [get_files -of_objects [get_filesets sim_1] */layer_config.svh]
-}
+# layer_config.svh is already set as a global include in sources_1,
+# which applies to simulation too — no need to add it to sim_1
+# separately (doing so causes xvlog to compile it as a standalone
+# Verilog file, triggering "root scope declaration not allowed" errors).
 
 # ─── 10. Set design tops ──────────────────────────────────────────────
 set_property top playground_wrapper [current_fileset]
@@ -212,13 +249,15 @@ set_property -name {STEPS.ROUTE_DESIGN.ARGS.MORE OPTIONS} \
     -value {-tns_cleanup} -objects [get_runs impl_1]
 puts "  Set impl_1 route_design -tns_cleanup"
 
-# ─── 12. Validate the BD ──────────────────────────────────────────────
-puts "\n=== Validating block design ==="
-open_bd_design $bd_file
-validate_bd_design -force
-save_bd_design
-close_bd_design [current_bd_design]
-puts "  Block design validated OK"
+# ─── 12. Validate the primary BD ──────────────────────────────────────
+if {$primary_bd ne ""} {
+    puts "\n=== Validating block design ==="
+    open_bd_design $primary_bd
+    validate_bd_design -force
+    save_bd_design
+    close_bd_design [current_bd_design]
+    puts "  Block design validated OK"
+}
 
 # ─── Done ──────────────────────────────────────────────────────────────
 puts "\n=========================================="
