@@ -12,18 +12,18 @@ covers the runtime / diagnostic side.
 
 The `.xpr` project file and `.xci` IP instance configs are **not tracked in
 git** — they are regenerated from the tracked `.bd` block design files.  After
-cloning or pulling, run one of:
+cloning, pulling, or merging, run:
 
 ```bash
-./scripts/vivado-setup.sh              # full setup + open GUI
-./scripts/vivado-setup.sh --batch      # setup only, no GUI
-./scripts/vivado-setup.sh --build      # setup + synth/impl/bitstream
-./scripts/vivado-setup.sh --sim behav  # setup + behavioral sim
+./scripts/vivado-setup.sh          # prepare the project
+./scripts/vivado-setup.sh --force  # force full rebuild from scratch
 ```
+
+Then open in the GUI or use the headless Tcl scripts as usual.
 
 | Script | Purpose |
 |--------|---------|
-| `vivado-setup.sh`       | Unified entry point: clean → sync → package → validate → recreate → open/build/sim |
+| `vivado-setup.sh`       | Prepare the project: clean → sync → package → validate → recreate `.xpr` |
 | `recreate_project.tcl`  | Regenerate `.xpr` from `.bd` + RTL sources (called by vivado-setup.sh) |
 | `validate-ip-repo.sh`   | Pre-flight IP repo health check — catches missing files, pollution, staleness (no Vivado needed) |
 
