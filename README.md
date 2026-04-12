@@ -41,8 +41,48 @@ instructions.
 - **Weight generation + HDL build pipeline** →
   [`hardware/scripts/README.md`](hardware/scripts/README.md) — TFLite → ROM →
   golden → verify flow
-- **Demo GUI** → [`software/gui/README.md`](software/gui/README.md) — FastAPI
-  WebSocket frame streamer
+- **Camera streamer** → [`software/gui/README.md`](software/gui/README.md) —
+  FastAPI WebSocket frame streamer
+
+## Running the demo GUI
+
+The demo GUI is a browser-based inference comparison app that runs all three
+backends (TFLite, HDL, HLS) on selectable images and displays bounding-box
+overlays side-by-side with per-runner timing breakdowns.
+
+### On the Kria board
+
+Run from the **repository root**:
+
+```bash
+sudo XILINX_XRT=/usr \
+    /opt/ee4218/ee4218-venv/bin/python3 \
+    software/gui/demo/app.py \
+    --bitstream hardware/output/preserved/playground_FINAL/playground_hdl_hls_wrapper.bit \
+    --model-path software/models/tflite/tinyissimo_ptq_full_integer_quant.tflite \
+    --image-dir software/models/demo_images \
+    --host 0.0.0.0 --port 8000
+```
+
+Then open `http://kria-01:8000` (or `http://<board-ip>:8000`) in a browser on
+the same LAN.
+
+### CLI options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--bitstream` | *(required)* | Path to `.bit` file (with matching `.hwh` alongside) |
+| `--model-path` | *(required)* | TFLite full-integer quantized model |
+| `--image-dir` | *(required)* | Directory of test images to select from in the UI |
+| `--host` | `0.0.0.0` | Bind address |
+| `--port` | `8000` | Bind port |
+
+### Notes
+
+- **`sudo` is required** — PYNQ needs `/dev/mem` access to program the FPGA.
+- **`XILINX_XRT=/usr`** must be set for PYNQ device discovery under sudo.
+- The overlay and TFLite interpreter load once at startup; per-click latency is
+  inference + post-processing only.
 
 ## Repository layout
 
