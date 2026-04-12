@@ -287,7 +287,12 @@
           <th>
             Post-Process
             <span class="info-icon" tabindex="0"
-                  data-tooltip="Time for DFL bbox decode, sigmoid class scoring, confidence filter, NMS, and PIL drawing on the 256×256 panel. Updates live when you drag the threshold sliders.">i</span>
+                  data-tooltip="DFL bbox decode, sigmoid class scoring, confidence filter, and NMS. Updates live when you drag the threshold sliders.">i</span>
+          </th>
+          <th>
+            Render
+            <span class="info-icon" tabindex="0"
+                  data-tooltip="Server-side PIL drawing + PNG encoding. Not part of the inference pipeline — excluded from End-to-End Latency and FPS.">i</span>
           </th>
           <th>
             End-to-End Latency

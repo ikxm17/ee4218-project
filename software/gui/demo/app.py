@@ -358,6 +358,7 @@ def _error_panel(runner: str, message: str) -> dict:
             "preprocess_ms": None,
             "inference_ms": None,
             "postprocess_ms": None,
+            "render_ms": None,
             "total_ms": None,
             "cycles": None,
             "cycle_time_ms": None,

@@ -227,7 +227,7 @@ def repostprocess(
     Used by the full ``run()`` paths (DRY) — the ``_draw_detections`` call
     is the authoritative server-side rendering that's verified against the
     TFLite/HDL bit-exact goldens. Returns ``(boxes, scores, class_ids,
-    annotated_png, postprocess_ms)``.
+    annotated_png, postprocess_ms, render_ms)``.
 
     For live slider updates via ``/api/repostprocess``, use
     ``repostprocess_boxes_only`` instead — that path skips PIL drawing and
@@ -236,8 +236,13 @@ def repostprocess(
     t0 = time.perf_counter()
     boxes, scores, class_ids = post_process(raw_tensor, conf_thresh, INPUT_SIZE)
     boxes, scores, class_ids = nms(boxes, scores, class_ids, nms_thresh)
+    post_ms = _ms(time.perf_counter() - t0)
+
+    t1 = time.perf_counter()
     png = _draw_detections(preproc_arr, boxes, scores, class_ids)
-    return boxes, scores, class_ids, png, _ms(time.perf_counter() - t0)
+    render_ms = _ms(time.perf_counter() - t1)
+
+    return boxes, scores, class_ids, png, post_ms, render_ms
 
 
 def repostprocess_boxes_only(
@@ -300,6 +305,7 @@ def _zero_timings() -> dict:
         "preprocess_ms": None,
         "inference_ms": None,
         "postprocess_ms": None,
+        "render_ms": None,
         "total_ms": None,
         "cycles": None,
         "cycle_time_ms": None,
@@ -417,7 +423,7 @@ class TFLiteRunner:
         else:
             data = raw_output[0].astype(np.float32)
 
-        boxes, scores, class_ids, png, post_ms = repostprocess(
+        boxes, scores, class_ids, png, post_ms, render_ms = repostprocess(
             data, arr, conf_thresh, nms_thresh
         )
 
@@ -431,8 +437,9 @@ class TFLiteRunner:
                 "preprocess_ms": pre_ms,
                 "inference_ms": infer_ms,
                 "postprocess_ms": post_ms,
-                # End-to-end uses the canonical inference time. For TFLite
-                # there is no separable bus cost — wall-clock is compute.
+                "render_ms": render_ms,
+                # End-to-end excludes render — PIL drawing is a GUI cost,
+                # not part of the inference pipeline.
                 "total_ms": pre_ms + infer_ms + post_ms,
                 "cycles": None,
                 "cycle_time_ms": None,
@@ -546,7 +553,7 @@ class HDLRunner:
         cycle_time_ms = (cycles / PL_CLOCK_HZ) * 1000.0
 
         # --- post-process via shared helper -------------------------------
-        boxes, scores, class_ids, png, post_ms = repostprocess(
+        boxes, scores, class_ids, png, post_ms, render_ms = repostprocess(
             raw_tensor, arr, conf_thresh, nms_thresh
         )
 
@@ -563,10 +570,8 @@ class HDLRunner:
                 # column comparison fair vs TFLite's invoke() wall-clock.
                 "inference_ms": cycle_time_ms,
                 "postprocess_ms": post_ms,
-                # End-to-end is computed from the canonical inference time
-                # (cycle-derived), so the table is internally consistent at
-                # every cell. Host wall-clock + AXI overhead live in
-                # host_walltime_ms below for the notes block / caveat.
+                "render_ms": render_ms,
+                # End-to-end excludes render (PIL drawing is GUI cost).
                 "total_ms": pre_ms + cycle_time_ms + post_ms,
                 "cycles": cycles,
                 "cycle_time_ms": cycle_time_ms,
@@ -639,7 +644,7 @@ class HLSRunner:
         cycle_time_ms = (cycles / PL_CLOCK_HZ) * 1000.0
 
         # --- post-process via shared helper -------------------------------
-        boxes, scores, class_ids, png, post_ms = repostprocess(
+        boxes, scores, class_ids, png, post_ms, render_ms = repostprocess(
             raw_tensor, arr, conf_thresh, nms_thresh
         )
 
@@ -653,6 +658,7 @@ class HLSRunner:
                 "preprocess_ms": pre_ms,
                 "inference_ms": cycle_time_ms,
                 "postprocess_ms": post_ms,
+                "render_ms": render_ms,
                 "total_ms": pre_ms + cycle_time_ms + post_ms,
                 "cycles": cycles,
                 "cycle_time_ms": cycle_time_ms,

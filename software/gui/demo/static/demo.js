@@ -577,6 +577,8 @@ function renderTiming(results) {
     // Live-updated cells (post-process / end-to-end / fps)
     tr.appendChild(numCell(fmtMs(t.postprocess_ms),   t.postprocess_ms == null,
                            ["live-update", "col-post"]));
+    tr.appendChild(numCell(fmtMs(t.render_ms),        t.render_ms == null,
+                           ["live-frozen", "col-render"]));
     tr.appendChild(numCell(fmtMs(t.total_ms),         t.total_ms == null,
                            ["live-update", "col-total"]));
 
