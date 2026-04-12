@@ -309,25 +309,48 @@
       <tbody id="timing-tbody"></tbody>
     </table>
 
-    <dl class="defs">
-      <dt>Inference Time</dt>
-      <dd>For TFLite, the wall-clock of <code>interpreter.invoke()</code>. For the HDL accelerator, the cycle counter (register <code>0x00C</code>) converted to milliseconds at the 100 MHz PL clock — i.e. the pure on-FPGA compute time, with bus transfer overhead excluded.</dd>
+    <div class="defs">
+      <h3>Inference Time</h3>
+      <ul>
+        <li><strong>TFLite:</strong> wall-clock of <code>interpreter.invoke()</code></li>
+        <li><strong>HDL / HLS:</strong> cycle counter (register <code>0x00C</code>) converted to ms at the 100 MHz PL clock — pure on-FPGA compute time, bus transfer overhead excluded</li>
+        <li>Thread dropdown on the TFLite row lets you compare 1 / 2 / 4 CPU threads</li>
+      </ul>
 
-      <dt>Inference Cycles</dt>
-      <dd>HDL only. The exact number of 10 ns cycles the accelerator spent computing this image, read from the cycle counter after <code>STATUS.done</code> asserts.</dd>
+      <h3>Inference Cycles</h3>
+      <ul>
+        <li>HDL / HLS only — the exact number of 10 ns PL cycles spent computing this image</li>
+        <li>Read from the hardware cycle counter after <code>STATUS.done</code> asserts</li>
+      </ul>
 
-      <dt>End-to-End Latency</dt>
-      <dd>Pre-Process + Inference Time + Post-Process for a single image. <strong>For HDL the host driver wall-clock is ≈ 150 ms higher than this latency number</strong> — the difference is the AXI-Lite pixel preload (65 K writes over the slow control bus). That overhead is bus protocol cost, not inference cost, so the table excludes it from the End-to-End column to keep the comparison fair. The actual measured host wall-clock is reported in the model-info panel under <em>Hardware</em>.</dd>
+      <h3>End-to-End Latency</h3>
+      <ul>
+        <li>Pre-Process + Inference Time + Post-Process for a single image</li>
+        <li><strong>HDL host wall-clock is ~150 ms higher</strong> than this number — the gap is the AXI-Lite pixel preload (65 K writes over the slow control bus)</li>
+        <li>That overhead is bus protocol cost, not inference cost, so the table excludes it to keep the comparison fair</li>
+      </ul>
 
-      <dt>FPS (Inference) vs FPS (End-to-End)</dt>
-      <dd><em>FPS (Inference)</em> is the apples-to-apples engine throughput (1000 / Inference Time). <em>FPS (End-to-End)</em> is what a naive single-image loop would see in practice (1000 / End-to-End Latency).</dd>
+      <h3>FPS (Inference) vs FPS (End-to-End)</h3>
+      <ul>
+        <li><strong>FPS (Inference):</strong> apples-to-apples engine throughput — <code>1000 / Inference Time</code></li>
+        <li><strong>FPS (End-to-End):</strong> what a single-image loop observes in practice — <code>1000 / E2E Latency</code></li>
+      </ul>
 
-      <dt>Live Slider Updates</dt>
-      <dd>Confidence and NMS IoU are pure post-processing filters — they don't change the model's raw output tensor. After you click <em>Run Inference</em>, the raw tensor is cached and slider drags re-run only the post-process stage on the cached tensor. That's why Pre-Process, Inference Time, and Inference Cycles cells stay frozen while Post-Process / End-to-End / FPS update live.</dd>
+      <h3>Live Slider Updates</h3>
+      <ul>
+        <li>Confidence and NMS IoU are post-processing filters — they don't change the model's raw output tensor</li>
+        <li>After <em>Run Inference</em>, the raw tensor is cached; slider drags re-run only post-processing</li>
+        <li>Pre-Process, Inference Time, and Cycles stay frozen; Post-Process / E2E / FPS update live</li>
+      </ul>
 
-      <dt>NMS IoU is Counterintuitive</dt>
-      <dd>The NMS IoU slider controls <em>how much overlap is tolerated before two boxes are called duplicates</em>. Higher values therefore keep <strong>more</strong> boxes, not fewer — because fewer pairs exceed the threshold. Dragging to <code>1.0</code> disables suppression entirely (no two boxes have IoU &gt; 1). Dragging toward <code>0.0</code> is the aggressive "merge everything that overlaps at all" end. Default <code>0.45</code> is the standard YOLO/OpenCV convention. The endpoint labels <em>merge all</em> / <em>keep all</em> next to the slider indicate this direction.</dd>
-    </dl>
+      <h3>NMS IoU is Counterintuitive</h3>
+      <ul>
+        <li>Controls how much overlap is tolerated before two boxes are called duplicates</li>
+        <li>Higher values keep <strong>more</strong> boxes (fewer pairs exceed the threshold)</li>
+        <li><code>1.0</code> = no suppression; <code>0.0</code> = merge everything that overlaps</li>
+        <li>Default <code>0.45</code> follows the YOLO / OpenCV convention</li>
+      </ul>
+    </div>
   </section>
 
   <script src="/static/demo.js"></script>

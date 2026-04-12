@@ -715,17 +715,23 @@ section h2 {
   line-height: 1.55;
 }
 
-.defs dt {
-  margin-top: 8px;
+.defs h3 {
+  margin: 12px 0 4px 0;
+  font-size: 0.82rem;
   font-weight: 600;
   color: #d1d5db;
 }
 
-.defs dt:first-child { margin-top: 0; }
+.defs h3:first-child { margin-top: 0; }
 
-.defs dd {
-  margin: 2px 0 0 0;
+.defs ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.defs li {
   color: #a0a4ab;
+  margin-bottom: 2px;
 }
 
 .defs code {
