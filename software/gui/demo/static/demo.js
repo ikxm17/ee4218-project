@@ -38,6 +38,13 @@ let CLASS_COLORS_RGB = [[0, 0, 255], [0, 255, 0], [255, 0, 0]];
 // only fire repostprocess when this matches the picker selection.
 let cachedImage = null;
 
+// TFLite thread-scaling data cached from the last /api/run response.
+// Keys are thread counts (as strings from JSON), values are {inference_ms}.
+let cachedThreadTimings = null;
+// Base timings from the TFLite run (pre/post), needed to recompute totals
+// when the thread dropdown changes.
+let cachedTfliteBase = null;
+
 // Cached ground-truth 256×256 image as an HTMLImageElement — source of
 // truth for client-side Canvas drawing during live slider updates.
 let cachedGroundTruth = null;
@@ -508,6 +515,16 @@ const RUNNER_ORDER = [
 function renderTiming(results) {
   timingBody.innerHTML = "";
 
+  // Cache TFLite thread-scaling data for the dropdown.
+  const tfliteResult = results.tflite;
+  if (tfliteResult && !tfliteResult.error && tfliteResult.timings) {
+    cachedThreadTimings = tfliteResult.timings.thread_timings || null;
+    cachedTfliteBase = {
+      preprocess_ms: tfliteResult.timings.preprocess_ms,
+      postprocess_ms: tfliteResult.timings.postprocess_ms,
+    };
+  }
+
   // Track best FPS rows for highlighting.
   let bestInfFps = -Infinity, bestInfKey = null;
   for (const { key } of RUNNER_ORDER) {
@@ -525,7 +542,28 @@ function renderTiming(results) {
     if (key === bestInfKey) tr.classList.add("best");
 
     const name = document.createElement("td");
-    name.textContent = label;
+    if (key === "tflite" && cachedThreadTimings) {
+      name.innerHTML = "";
+      const span = document.createElement("span");
+      span.textContent = label + " ";
+      name.appendChild(span);
+      const sel = document.createElement("select");
+      sel.id = "thread-select";
+      sel.className = "thread-dropdown";
+      const counts = Object.keys(cachedThreadTimings).map(Number).sort((a, b) => a - b);
+      for (const n of counts) {
+        const opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = `${n} thread${n > 1 ? "s" : ""}`;
+        sel.appendChild(opt);
+      }
+      // Default to highest thread count
+      sel.value = Math.max(...counts);
+      sel.addEventListener("change", onThreadDropdownChange);
+      name.appendChild(sel);
+    } else {
+      name.textContent = label;
+    }
     tr.appendChild(name);
 
     // Static (frozen on live updates) cells
@@ -551,6 +589,56 @@ function renderTiming(results) {
   }
 }
 
+// When the TFLite thread dropdown changes, swap inference_ms and recompute
+// total / FPS cells from cached data.
+function onThreadDropdownChange() {
+  if (!cachedThreadTimings || !cachedTfliteBase) return;
+  const sel = document.getElementById("thread-select");
+  const n = sel.value;
+  const entry = cachedThreadTimings[n];
+  if (!entry) return;
+
+  const tr = timingBody.querySelector('tr[data-runner="tflite"]');
+  if (!tr) return;
+
+  const infMs = entry.inference_ms;
+  const preMs = cachedTfliteBase.preprocess_ms || 0;
+  // Use the currently displayed post_ms (may have been updated by slider)
+  const postCell = tr.querySelector("td.col-post");
+  const postMs = postCell ? parseFloat(postCell.textContent) || 0 : (cachedTfliteBase.postprocess_ms || 0);
+  const totalMs = preMs + infMs + postMs;
+
+  const infCell = tr.querySelector("td.col-inf");
+  const totalCell = tr.querySelector("td.col-total");
+  const fpsiCell = tr.querySelector("td.col-fpsinf");
+  const fpseCell = tr.querySelector("td.col-fpse2e");
+
+  if (infCell)   { infCell.textContent   = fmtMs(infMs);  flash(infCell); }
+  if (totalCell) { totalCell.textContent = fmtMs(totalMs); flash(totalCell); }
+  if (fpsiCell)  { fpsiCell.textContent  = fmtFps(infMs > 0 ? 1000 / infMs : null); flash(fpsiCell); }
+  if (fpseCell)  { fpseCell.textContent  = fmtFps(totalMs > 0 ? 1000 / totalMs : null); flash(fpseCell); }
+
+  // Update best-row highlighting across the table
+  updateBestRow();
+}
+
+function updateBestRow() {
+  let bestFps = -Infinity, bestKey = null;
+  for (const { key } of RUNNER_ORDER) {
+    const tr = timingBody.querySelector(`tr[data-runner="${key}"]`);
+    if (!tr) continue;
+    const cell = tr.querySelector("td.col-fpsinf");
+    if (!cell) continue;
+    const val = parseFloat(cell.textContent);
+    if (!isNaN(val) && val > bestFps) { bestFps = val; bestKey = key; }
+  }
+  for (const { key } of RUNNER_ORDER) {
+    const tr = timingBody.querySelector(`tr[data-runner="${key}"]`);
+    if (!tr) continue;
+    tr.classList.toggle("best", key === bestKey);
+  }
+}
+
 // Update only the live-updated cells (post-process / end-to-end / fps)
 // of the existing rows. Pre-process / inference time / cycles cells
 // untouched. Adds a brief flash class to make the change visible.
@@ -568,9 +656,24 @@ function updateTimingLive(results) {
     const fpse = tr.querySelector("td.col-fpse2e");
 
     if (post)  { post.textContent  = fmtMs(t.postprocess_ms); flash(post); }
-    if (total) { total.textContent = fmtMs(t.total_ms); flash(total); }
-    const inf = inferenceFps(t);
-    const e2e = e2eFps(t);
+
+    // For TFLite, use the currently selected thread count's inference_ms
+    // to compute total and FPS (the server always returns 4-thread values).
+    let infMs = t.inference_ms;
+    if (key === "tflite" && cachedThreadTimings) {
+      const sel = document.getElementById("thread-select");
+      if (sel) {
+        const entry = cachedThreadTimings[sel.value];
+        if (entry) infMs = entry.inference_ms;
+      }
+      // Also update the cached base postprocess for future dropdown changes.
+      cachedTfliteBase.postprocess_ms = t.postprocess_ms;
+    }
+    const pre = t.preprocess_ms || 0;
+    const totalMs = pre + (infMs || 0) + (t.postprocess_ms || 0);
+    if (total) { total.textContent = fmtMs(totalMs); flash(total); }
+    const inf = (infMs && infMs > 0) ? 1000 / infMs : null;
+    const e2e = totalMs > 0 ? 1000 / totalMs : null;
     if (fpsi)  { fpsi.textContent  = fmtFps(inf); flash(fpsi); }
     if (fpse)  { fpse.textContent  = fmtFps(e2e); flash(fpse); }
 

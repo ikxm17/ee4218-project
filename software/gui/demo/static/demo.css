@@ -671,6 +671,21 @@ section h2 {
 #timing-table td.num { font-family: "SF Mono", Menlo, Consolas, monospace; }
 #timing-table td.na  { color: #6b7280; }
 
+/* Thread-count dropdown inside the TFLite runner name cell */
+.thread-dropdown {
+  background: #22262d;
+  color: #d1d5db;
+  border: 1px solid #374151;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+.thread-dropdown:hover { border-color: #4b5563; }
+.thread-dropdown:focus { outline: 1px solid #3b82f6; border-color: #3b82f6; }
+
 #timing-table tbody tr.best td:first-child {
   border-left: 3px solid #10b981;
   padding-left: 9px;

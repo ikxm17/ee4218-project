@@ -325,11 +325,25 @@ class TFLiteRunner:
     """
 
     name = "tflite"
+    THREAD_COUNTS = (1, 2, 4)
 
     def __init__(self, model_path):
         import tflite_runtime.interpreter as tflite  # noqa: WPS433
 
-        self._interpreter = tflite.Interpreter(model_path=str(model_path))
+        self._model_path = str(model_path)
+
+        # One interpreter per thread count so thread-scaling benchmarks
+        # don't pay interpreter allocation on every run.
+        self._interpreters: dict[int, object] = {}
+        for n in self.THREAD_COUNTS:
+            interp = tflite.Interpreter(
+                model_path=self._model_path, num_threads=n
+            )
+            interp.allocate_tensors()
+            self._interpreters[n] = interp
+
+        # Main interpreter uses the highest thread count (best perf).
+        self._interpreter = self._interpreters[max(self.THREAD_COUNTS)]
         self._interpreter.allocate_tensors()
 
         in_det = self._interpreter.get_input_details()[0]
@@ -369,18 +383,31 @@ class TFLiteRunner:
     ) -> RunnerResult:
         arr, pre_ms = _load_and_preprocess(image_path)
 
-        # --- inference ----------------------------------------------------
-        t0 = time.perf_counter()
+        # --- prepare input ------------------------------------------------
         if self._is_full_int8:
             input_data = np.expand_dims(arr, axis=0)  # uint8
         else:
             input_data = (
                 np.expand_dims(arr, axis=0).astype(np.float32) / 255.0
             )
-        self._interpreter.set_tensor(self._in_idx, input_data)
-        self._interpreter.invoke()
+
+        # --- inference at every thread count ------------------------------
+        # Main (highest thread count) runs first so its output tensor is
+        # used for post-processing.  Lower thread counts run afterwards
+        # for the timing comparison only.
+        thread_timings: dict[int, dict] = {}
+        for n_threads in sorted(self.THREAD_COUNTS, reverse=True):
+            interp = self._interpreters[n_threads]
+            in_idx = interp.get_input_details()[0]["index"]
+            interp.set_tensor(in_idx, input_data)
+            t0 = time.perf_counter()
+            interp.invoke()
+            thread_timings[n_threads] = {
+                "inference_ms": _ms(time.perf_counter() - t0),
+            }
+
         raw_output = self._interpreter.get_tensor(self._out_idx)
-        infer_ms = _ms(time.perf_counter() - t0)
+        infer_ms = thread_timings[max(self.THREAD_COUNTS)]["inference_ms"]
 
         # --- post-process -------------------------------------------------
         if self._is_full_int8:
@@ -412,6 +439,7 @@ class TFLiteRunner:
                 "host_walltime_ms": None,
                 "conf_thresh": conf_thresh,
                 "nms_thresh": nms_thresh,
+                "thread_timings": thread_timings,
             },
             raw_tensor=data,
             preproc_arr=arr,
