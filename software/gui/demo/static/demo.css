@@ -177,7 +177,7 @@ header h1 {
 .arch-diagram svg text.shape-tag {
   font-family: "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
-  fill: #fbbf24; /* amber — pops against the blue Conv fills */
+  fill: #e5e7eb; /* light neutral — readable on every block color */
 }
 
 .arch-diagram svg text.shape-subtag {
