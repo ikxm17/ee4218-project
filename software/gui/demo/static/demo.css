@@ -110,10 +110,14 @@ header h1 {
 .arch-diagram,
 .pipeline-diagram {
   margin: 0 0 18px 0;
-  padding: 12px;
-  background: #0f1115;
-  border: 1px solid #2a2d33;
-  border-radius: 4px;
+  padding: 16px;
+  background-color: #0c0e12;
+  background-image: radial-gradient(circle, #1a1d23 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  border: 1px solid #1e2228;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .arch-diagram svg,
@@ -127,10 +131,12 @@ header h1 {
 
 .arch-diagram figcaption,
 .pipeline-diagram figcaption {
-  margin: 0 0 8px 0;
-  font-size: 0.8rem;
-  font-style: italic;
-  color: #a0a4ab;
+  margin: 0 0 12px 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
   text-align: center;
 }
 
@@ -224,19 +230,19 @@ header h1 {
    wide), MaxPool is amber with narrower visual width (funnels the data),
    Detect is green with inner branch sub-boxes, Output stands out orange. */
 .arch-diagram svg .conv-block {
-  fill: #1e40af;
+  fill: url(#ga-conv);
   stroke: #3b82f6;
   stroke-width: 1;
 }
 
 .arch-diagram svg .pool-block {
-  fill: #854d0e;
+  fill: url(#ga-pool);
   stroke: #eab308;
   stroke-width: 1;
 }
 
 .arch-diagram svg .detect-block {
-  fill: #047857;
+  fill: url(#ga-detect);
   stroke: #10b981;
   stroke-width: 1;
 }
@@ -248,13 +254,13 @@ header h1 {
 }
 
 .arch-diagram svg .head-block {
-  fill: #047857;
+  fill: url(#ga-detect);
   stroke: #10b981;
   stroke-width: 1;
 }
 
 .arch-diagram svg .output-block {
-  fill: #b45309;
+  fill: url(#ga-output);
   stroke: #f59e0b;
   stroke-width: 1;
 }
@@ -282,6 +288,15 @@ header h1 {
   stroke: #6b7280;
   stroke-width: 1.5;
   fill: none;
+}
+
+/* Stage grouping backgrounds in the architecture diagram — a very faint
+   blue-tinted panel sits behind each cluster of conv layers between pool
+   operations, visually chunking the 17 layers into 6 stride-stages. */
+.arch-diagram svg .stage-bg {
+  fill: rgba(59, 130, 246, 0.035);
+  stroke: rgba(59, 130, 246, 0.08);
+  stroke-width: 0.5;
 }
 
 /* ================================================================
