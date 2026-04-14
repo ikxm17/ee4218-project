@@ -33,7 +33,7 @@
                per layer, Conv blocks full-width blue, MaxPool blocks
                narrower amber (visually funnelling the data), Detect head
                double-height with cv2/cv3 sub-boxes. -->
-          <svg viewBox="0 0 640 832" xmlns="http://www.w3.org/2000/svg" role="img"
+          <svg viewBox="0 0 640 844" xmlns="http://www.w3.org/2000/svg" role="img"
                aria-label="TinyissimoYOLO per-layer architecture (17 layers)">
             <defs>
               <marker id="arrow-arch" viewBox="0 0 10 10" refX="9" refY="5"
@@ -64,8 +64,8 @@
 
             <rect class="input-block" x="40" y="12" width="560" height="34" rx="4" />
             <text class="block-title" x="54" y="34">   Input</text>
-            <text class="shape-tag" x="586" y="34" text-anchor="end">256 × 256 × 3</text>
-            <text class="shape-subtag" x="586" y="46" text-anchor="end">RGB uint8</text>
+            <text class="shape-tag" x="586" y="28" text-anchor="end">256 × 256 × 3</text>
+            <text class="shape-subtag" x="586" y="40" text-anchor="end">RGB uint8</text>
             <line class="arrow" x1="320" y1="46" x2="320" y2="53" marker-end="url(#arrow-arch)" />
             <rect class="conv-block" x="40" y="54" width="560" height="34" rx="4" />
             <text class="block-title" x="54" y="76">L0   Conv 3→16, 3×3  +BN +SiLU</text>
@@ -142,10 +142,10 @@
             <text class="shape-tag" x="586" y="712" text-anchor="end">→ 8 × 8 × 67</text>
             <line class="arrow" x1="320" y1="760" x2="320" y2="767" marker-end="url(#arrow-arch)" />
             <rect class="output-block" x="40" y="768" width="560" height="34" rx="4" />
-            <text class="block-title" x="54" y="790">   Output</text>
-            <text class="shape-tag" x="586" y="790" text-anchor="end">8 × 8 × 67</text>
-            <text class="shape-subtag" x="586" y="802" text-anchor="end">int8, scale ≈ 0.107</text>
-            <text class="footnote" x="320" y="826" text-anchor="middle">17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)</text>
+            <text class="block-title" x="54" y="784">   Output</text>
+            <text class="shape-tag" x="586" y="784" text-anchor="end">8 × 8 × 67</text>
+            <text class="shape-subtag" x="586" y="796" text-anchor="end">int8, scale ≈ 0.107</text>
+            <text class="footnote" x="320" y="838" text-anchor="middle">17 layers · ~401 K params (~401 KB int8) · stride 32 · purely sequential (no skip connections)</text>
           </svg>
         </figure>
 
@@ -160,7 +160,7 @@
       <div class="model-info-body">
         <figure class="pipeline-diagram">
           <figcaption>Inference Pipeline (TFLite vs HDL vs HLS Data Flow)</figcaption>
-          <svg viewBox="0 0 760 500" xmlns="http://www.w3.org/2000/svg" role="img"
+          <svg viewBox="0 0 760 520" xmlns="http://www.w3.org/2000/svg" role="img"
                aria-label="Inference pipeline: image preprocess, parallel TFLite / HDL / HLS inference, raw tensor cache, postprocess">
             <defs>
               <marker id="arrow-pipe" viewBox="0 0 10 10" refX="9" refY="5"
@@ -220,8 +220,9 @@
             <text class="block-title"   x="380" y="427" text-anchor="middle">Post-Process + NMS</text>
             <text class="block-line"    x="380" y="445" text-anchor="middle">DFL decode · sigmoid · filter</text>
 
-            <!-- Output label -->
-            <text class="annot" x="380" y="490" text-anchor="middle">→ Annotated Output Panels</text>
+            <!-- Output label — extra vertical gap so the italic text doesn't
+                 crowd the arrow tip (10px-italic top sits ~7px above baseline) -->
+            <text class="annot" x="380" y="505" text-anchor="middle">→ Annotated Output Panels</text>
 
             <!-- Arrows -->
             <line class="arrow" x1="380" y1="60"  x2="380" y2="95"  marker-end="url(#arrow-pipe)" />
