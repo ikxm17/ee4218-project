@@ -4,8 +4,11 @@
 /*
  *  cycle_monitor — observational per-(layer, stage) cycle accounting.
  *
- *  Bound into inference_top (see tb_tinyissimoyolo_accel.sv) so that all
- *  observed signals are passed in through the bind port map. No RTL is
+ *  Instantiated inside tb_tinyissimoyolo_accel as a regular module; all
+ *  observed signals are passed via the port map using `dut.…` hierarchical
+ *  refs.  (Earlier `bind` attempts hit xsim's port expression resolution
+ *  quirk — VRFC 10-9543 created implicit 1-bit wires for `phase` and
+ *  `cycle_count` instead of binding to the DUT's signals.)  No RTL is
  *  modified; this module only reads.
  *
  *  Primary buckets (mutually exclusive — partition the inference window):
@@ -79,11 +82,23 @@ module cycle_monitor (
 
     wire inference_running = (phase == PH_RUN);
 
-    /* Per-cycle accumulation. Gated by inference_running so the sum
-     * across all primary buckets matches the existing cycle_count
-     * register exactly (both are gated by the same condition). */
+    /* inference_running_d trails by one cycle.  Used both to (a) detect
+     * the falling edge of inference_running for CSV dump, and (b) gate
+     * accumulation so we skip the very first PH_RUN cycle — that's the
+     * cycle on which `inference_start` pulses inside inference_top and
+     * cycle_count is *reset* rather than incremented (see
+     * inference_top.sv:386-387).  Without this gate, sum(per_layer_total)
+     * runs one cycle ahead of cycle_count. */
+    logic inference_running_d;
     always @(posedge clk) begin
-        if (rstn && inference_running && layer_idx < N_LAYERS) begin
+        if (!rstn) inference_running_d <= 1'b0;
+        else      inference_running_d <= inference_running;
+    end
+
+    /* Per-cycle accumulation. Gated by both edges so the sum across all
+     * primary buckets exactly matches cycle_count. */
+    always @(posedge clk) begin
+        if (rstn && inference_running && inference_running_d && layer_idx < N_LAYERS) begin
             unique case (hdl_state)
                 S_LOAD:       per_layer[layer_idx][BKT_LOAD]++;
                 S_COMPUTE:    per_layer[layer_idx][BKT_COMPUTE]++;
@@ -101,12 +116,6 @@ module cycle_monitor (
     end
 
     /* Edge detect on inference_running falling — dump CSV and check parity. */
-    logic inference_running_d;
-    always @(posedge clk) begin
-        if (!rstn) inference_running_d <= 1'b0;
-        else      inference_running_d <= inference_running;
-    end
-
     always @(posedge clk) begin
         if (rstn && inference_running_d && !inference_running) begin
             dump_csv();
