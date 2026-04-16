@@ -125,6 +125,29 @@ module tb_tinyissimoyolo_accel;
     );
 
     // =========================================================================
+    //  Cycle Monitor (sim-only observational instrumentation)
+    //
+    //  Bound to every inference_top instance — we only have `dut`, so this
+    //  attaches one cycle_monitor per inference_top.  All signals are passed
+    //  through the bind port map (no upward refs).  Counts are gated by
+    //  phase == PH_RUN so they exactly partition the existing cycle_count
+    //  register; CSV is dumped on phase falling out of PH_RUN.
+    // =========================================================================
+    bind inference_top cycle_monitor u_cycle_mon (
+        .clk             (aclk),
+        .rstn            (aresetn),
+        .phase           (phase),
+        .cycle_count     (cycle_count),
+        .hdl_state       (u_inference_hdl.state),
+        .layer_idx       (u_inference_hdl.layer_idx),
+        .ch_out          (u_inference_hdl.ch_out),
+        .act_out_valid   (u_inference_hdl.act_out_valid),
+        .pool_out_valid  (u_inference_hdl.pool_out_valid),
+        .rmw_s0_valid    (u_inference_hdl.rmw_s0_valid),
+        .out_buf_wr_en   (u_inference_hdl.out_buf_wr_en)
+    );
+
+    // =========================================================================
     //  Register addresses (must match axil_regs.sv)
     // =========================================================================
     localparam [AXI_ADDR_W-1:0] ADDR_CTRL          = 13'h000,

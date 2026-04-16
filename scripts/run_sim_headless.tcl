@@ -22,6 +22,19 @@ if {![file exists hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr]} {
 
 open_project hardware/vivado/tinyissimoyolo/tinyissimoyolo.xpr
 
+# Pick up any new testbench files dropped under hardware/testbench/ since
+# the project was last recreated. recreate_project.tcl globs the same
+# directory; this keeps incremental sim runs in sync without a full rebuild.
+set tb_dir [file normalize hardware/testbench]
+set existing_tb [lsort [get_files -of [get_filesets sim_1] -filter {FILE_TYPE == SystemVerilog} -quiet]]
+foreach f [glob -nocomplain $tb_dir/*.sv] {
+    if {[lsearch $existing_tb $f] < 0} {
+        puts "==> adding new TB source to sim_1: [file tail $f]"
+        add_files -norecurse -fileset sim_1 $f
+    }
+}
+update_compile_order -fileset sim_1 -quiet
+
 # Make sure the sim top is what we expect
 set top [get_property top [get_filesets sim_1]]
 puts "=> sim_1 top: $top"
@@ -52,5 +65,12 @@ run all
 
 puts "=> closing simulation"
 close_sim -quiet
+
+# If cycle_monitor produced a CSV, surface its location
+set csv_candidates [glob -nocomplain hardware/vivado/tinyissimoyolo/tinyissimoyolo.sim/sim_1/*/xsim/cycle_breakdown.csv]
+foreach csv $csv_candidates {
+    puts "=> cycle breakdown CSV: [file normalize $csv]"
+}
+
 puts "=> done"
 exit
