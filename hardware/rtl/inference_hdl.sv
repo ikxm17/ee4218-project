@@ -2,7 +2,8 @@
 `include "layer_config.svh"
 
 module inference_hdl #(
-    parameter C_PAR = C_PARALLEL,
+    parameter C_PAR        = C_PARALLEL,
+    parameter MAX_COUT_PAR = 4,  // physical replica count for conv3d's downstream pipeline
     parameter K            = 3,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
@@ -13,7 +14,8 @@ module inference_hdl #(
     parameter QP_ADDR_W    = $clog2(1024),
     parameter LUT_ADDR_W   = $clog2(ACT_LUT_DEPTH),
     parameter FMAP_DATA_W  = C_PAR * N_BITS,
-    parameter FMAP_ADDR_W  = $clog2(16384)
+    parameter FMAP_ADDR_W  = $clog2(16384),
+    parameter ACC_DATA_W   = MAX_COUT_PAR * ACC_BITS  // packed per-lane ACC word
 )(
     input  logic                             aclk,
     input  logic                             aresetn,
@@ -214,30 +216,32 @@ module inference_hdl #(
     logic [DEPTH_BITS-1:0] conv3d_pixel_addr, conv1_pixel_addr;
     logic                  conv3d_pixel_en,   conv1_pixel_en;
 
-    /* Per-engine ACC interface */
-    logic                      conv3d_acc_wr_en,   conv1_acc_wr_en;
-    logic [DEPTH_BITS-1:0]     conv3d_acc_wr_addr, conv1_acc_wr_addr;
-    logic signed [ACC_BITS-1:0] conv3d_acc_wr_data, conv1_acc_wr_data;
-    logic                      conv3d_acc_rd_en,   conv1_acc_rd_en;
-    logic [DEPTH_BITS-1:0]     conv3d_acc_rd_addr, conv1_acc_rd_addr;
+    /* Per-engine ACC interface (packed MAX_COUT_PAR-wide) */
+    logic                                 conv3d_acc_wr_en,   conv1_acc_wr_en;
+    logic [DEPTH_BITS-1:0]                conv3d_acc_wr_addr, conv1_acc_wr_addr;
+    logic signed [ACC_DATA_W-1:0]         conv3d_acc_wr_data, conv1_acc_wr_data;
+    logic                                 conv3d_acc_rd_en,   conv1_acc_rd_en;
+    logic [DEPTH_BITS-1:0]                conv3d_acc_rd_addr, conv1_acc_rd_addr;
 
-    /* Per-engine RES interface */
-    logic                      conv3d_res_en,   conv1_res_en;
-    logic [DEPTH_BITS-1:0]     conv3d_res_addr, conv1_res_addr;
-    logic signed [N_BITS-1:0]  conv3d_res_data, conv1_res_data;
+    /* Per-engine RES interface (packed MAX_COUT_PAR-wide; per-lane write enable) */
+    logic [MAX_COUT_PAR-1:0]              conv3d_res_en,   conv1_res_en;
+    logic [DEPTH_BITS-1:0]                conv3d_res_addr, conv1_res_addr;
+    logic signed [MAX_COUT_PAR*N_BITS-1:0] conv3d_res_data, conv1_res_data;
 
-    /* Muxed conv RES output (now internal — feeds activation stage) */
+    /* Muxed conv RES output — in this revision, only lane 0 propagates to
+       the activation stage. The packed output of the selected engine is
+       narrowed to its lane 0 slice below. */
     logic                      conv_res_en;
     logic [DEPTH_BITS-1:0]     conv_res_addr;
     logic signed [N_BITS-1:0]  conv_res_data;
 
-    /* Muxed ACC BRAM signals */
-    logic                      acc_wr_en;
-    logic [DEPTH_BITS-1:0]     acc_wr_addr;
-    logic signed [ACC_BITS-1:0] acc_wr_data;
-    logic                      acc_rd_en;
-    logic [DEPTH_BITS-1:0]     acc_rd_addr;
-    logic signed [ACC_BITS-1:0] acc_rd_data;
+    /* Muxed ACC URAM signals (packed MAX_COUT_PAR-wide) */
+    logic                                 acc_wr_en;
+    logic [DEPTH_BITS-1:0]                acc_wr_addr;
+    logic signed [ACC_DATA_W-1:0]         acc_wr_data;
+    logic                                 acc_rd_en;
+    logic [DEPTH_BITS-1:0]                acc_rd_addr;
+    logic signed [ACC_DATA_W-1:0]         acc_rd_data;
 
     assign in_buf_rd_addr = is_conv1 ? conv1_pixel_addr : conv3d_pixel_addr;
     assign in_buf_rd_en   = is_conv1 ? conv1_pixel_en   : conv3d_pixel_en;
@@ -248,9 +252,9 @@ module inference_hdl #(
     assign acc_rd_en   = is_conv1 ? conv1_acc_rd_en    : conv3d_acc_rd_en;
     assign acc_rd_addr = is_conv1 ? conv1_acc_rd_addr  : conv3d_acc_rd_addr;
 
-    assign conv_res_en   = is_conv1 ? conv1_res_en   : conv3d_res_en;
-    assign conv_res_addr = is_conv1 ? conv1_res_addr  : conv3d_res_addr;
-    assign conv_res_data = is_conv1 ? conv1_res_data  : conv3d_res_data;
+    assign conv_res_en   = is_conv1 ? conv1_res_en[0]                : conv3d_res_en[0];
+    assign conv_res_addr = is_conv1 ? conv1_res_addr                 : conv3d_res_addr;
+    assign conv_res_data = is_conv1 ? conv1_res_data[N_BITS-1:0]     : conv3d_res_data[N_BITS-1:0];
 
     /* ================================================================
      *  Next State Logic
@@ -618,10 +622,22 @@ module inference_hdl #(
     /* ================================================================
      *  Conv3d Instance (K=3 convolution)
      * ================================================================ */
+    // Vectorized QP inputs for conv3d/conv1d: lane 0 carries the real
+    // per-cout scalar from QP_ROM; upper lanes are tied to 0. A later
+    // commit replaces these with per-lane QP fetches from QP_ROM.
+    localparam QP_ZERO_BIAS_W    = (MAX_COUT_PAR-1) * ACC_BITS;
+    localparam QP_ZERO_M0_W      = (MAX_COUT_PAR-1) * 32;
+    localparam QP_ZERO_NSHIFT_W  = (MAX_COUT_PAR-1) * 6;
+
+    wire signed [MAX_COUT_PAR*ACC_BITS-1:0] bias_packed    = {{QP_ZERO_BIAS_W{1'b0}},   r_bias};
+    wire signed [MAX_COUT_PAR*32-1:0]       m0_packed      = {{QP_ZERO_M0_W{1'b0}},     r_m0};
+    wire        [MAX_COUT_PAR*6-1:0]        nshift_packed  = {{QP_ZERO_NSHIFT_W{1'b0}}, r_nshift};
+
     conv3d #(
         .K            (K),
         .STRIDE       (1),
-        .C_PAR (C_PAR),
+        .C_PAR        (C_PAR),
+        .MAX_COUT_PAR (MAX_COUT_PAR),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
         .M0_BITS      (32),
@@ -636,9 +652,9 @@ module inference_hdl #(
         .log2_cin_group_size  (3'd4),  // hardcoded for now; layer_config wires it up in a later commit
         .zp_in                (r_cfg.zp_in),
         .zp_out               (r_cfg.zp_out),
-        .bias                 (r_bias),
-        .m0                   (r_m0),
-        .n_shift              (r_nshift),
+        .bias                 (bias_packed),
+        .m0                   (m0_packed),
+        .n_shift              (nshift_packed),
         .pixel_bram_addr      (conv3d_pixel_addr),
         .pixel_bram_en        (conv3d_pixel_en),
         .pixel_bram_data      (in_buf_rd_data),
@@ -661,7 +677,8 @@ module inference_hdl #(
      *  Conv1x1 Instance (K=1 pointwise convolution)
      * ================================================================ */
     conv1d #(
-        .C_PAR (C_PAR),
+        .C_PAR        (C_PAR),
+        .MAX_COUT_PAR (MAX_COUT_PAR),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
         .M0_BITS      (32),
@@ -675,9 +692,9 @@ module inference_hdl #(
         .cin                  (rt_cin),
         .zp_in                (r_cfg.zp_in),
         .zp_out               (r_cfg.zp_out),
-        .bias                 (r_bias),
-        .m0                   (r_m0),
-        .n_shift              (r_nshift),
+        .bias                 (bias_packed),
+        .m0                   (m0_packed),
+        .n_shift              (nshift_packed),
         .pixel_bram_addr      (conv1_pixel_addr),
         .pixel_bram_en        (conv1_pixel_en),
         .pixel_bram_data      (in_buf_rd_data),
@@ -708,9 +725,9 @@ module inference_hdl #(
     localparam ACC_ADDR_W = $clog2(ACC_DEPTH);  // 12
 
     sdp_ram #(
-        .DATA_WIDTH (ACC_BITS),
+        .DATA_WIDTH (ACC_DATA_W),    // MAX_COUT_PAR * ACC_BITS (128 for MAX_COUT_PAR=4)
         .DEPTH      (ACC_DEPTH),
-        .RAM_STYLE  ("block")
+        .RAM_STYLE  ("ultra")         // URAM: frees ~4 BRAM36; packed 4 x 32-bit per word
     ) u_acc_mem (
         .clk    (aclk),
         .en_a   (acc_wr_en),

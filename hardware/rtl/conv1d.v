@@ -4,10 +4,18 @@
 //
 // For each pixel: multiply 16 channels by 16 weights, sum.
 // No padding, no line buffers, no pipeline fill time.
-// ACC/RES interface matches conv3d.v for drop-in muxing.
+// ACC/RES interface matches conv3d.v for drop-in muxing at inference_hdl.sv.
+//
+// Cout parallelism support: this module participates in the MAX_COUT_PAR-wide
+// ACC/RES/QP interface (so the packed bus at inference_hdl.sv can be muxed
+// between conv3d and conv1d without any width mismatch), but internally it
+// computes lane 0 only. Upper lanes of the output ports are driven to 0.
+// CONV1 layers (10, 13, 16) never request cout_par > 1 in this revision, so
+// scalar internals are functionally sufficient.
 
 module conv1d #(
-    parameter C_PAR = 16,
+    parameter C_PAR        = 16,
+    parameter MAX_COUT_PAR = 1,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
@@ -22,33 +30,34 @@ module conv1d #(
     input  wire [8:0]                         act_size,
     input  wire [7:0]                         cin,
 
-    // Quantisation scalars
-    input  wire signed [N_BITS-1:0]           zp_in,
-    input  wire signed [N_BITS-1:0]           zp_out,
-    input  wire signed [ACC_BITS-1:0]         bias,
-    input  wire signed [M0_BITS-1:0]          m0,
-    input  wire        [SHIFT_BITS-1:0]       n_shift,
+    // Quantisation scalars (per-layer)
+    input  wire signed [N_BITS-1:0]                   zp_in,
+    input  wire signed [N_BITS-1:0]                   zp_out,
+    // Quantisation scalars (per-cout, packed; lane 0 used internally)
+    input  wire signed [MAX_COUT_PAR*ACC_BITS-1:0]    bias,
+    input  wire signed [MAX_COUT_PAR*M0_BITS-1:0]     m0,
+    input  wire        [MAX_COUT_PAR*SHIFT_BITS-1:0]  n_shift,
 
-    // Pixel BRAM interface (same as conv3d)
+    // Pixel BRAM interface
     output reg  [DEPTH_BITS-1:0]              pixel_bram_addr,
     output reg                                pixel_bram_en,
-    input  wire signed [C_PAR*N_BITS-1:0] pixel_bram_data,
+    input  wire signed [C_PAR*N_BITS-1:0]     pixel_bram_data,
 
     // Weights: 16 x int8 (one weight per channel, K=1)
-    input  wire signed [C_PAR*N_BITS-1:0] weights_all_channels,
+    input  wire signed [C_PAR*N_BITS-1:0]     weights_all_channels,
 
-    // ACC BRAM interface (same as conv3d)
-    output reg                                ACC_write_en,
-    output reg        [DEPTH_BITS-1:0]        ACC_write_address,
-    output reg signed [ACC_BITS-1:0]          ACC_write_data_in,
-    output reg                                ACC_read_en,
-    output reg        [DEPTH_BITS-1:0]        ACC_read_address,
-    input  signed     [ACC_BITS-1:0]          ACC_read_data_out,
+    // ACC RAM interface (packed MAX_COUT_PAR-wide to match conv3d)
+    output reg                                        ACC_write_en,
+    output reg        [DEPTH_BITS-1:0]                ACC_write_address,
+    output reg signed [MAX_COUT_PAR*ACC_BITS-1:0]     ACC_write_data_in,
+    output reg                                        ACC_read_en,
+    output reg        [DEPTH_BITS-1:0]                ACC_read_address,
+    input  signed     [MAX_COUT_PAR*ACC_BITS-1:0]     ACC_read_data_out,
 
-    // Result output (same as conv3d)
-    output reg                                RES_write_en,
-    output reg [DEPTH_BITS-1:0]               RES_write_address,
-    output reg signed [N_BITS-1:0]            RES_write_data_in,
+    // RES output (packed MAX_COUT_PAR-wide; only lane 0 fires)
+    output reg [MAX_COUT_PAR-1:0]                     RES_write_en,
+    output reg [DEPTH_BITS-1:0]                       RES_write_address,
+    output reg signed [MAX_COUT_PAR*N_BITS-1:0]       RES_write_data_in,
 
     // Weight loading control (same as conv3d)
     output reg                                req_weights,
@@ -63,11 +72,17 @@ module conv1d #(
 
     reg [17:0] act_size_sq;
 
-    // Registered scalars
+    // Registered scalars (lane 0 of the packed QP inputs)
     reg signed [N_BITS-1:0]     r_zp_out;
     reg signed [ACC_BITS-1:0]   r_bias;
     reg signed [M0_BITS-1:0]    r_m0;
     reg        [SHIFT_BITS-1:0] r_n_shift;
+
+    // Lane 0 slices (combinational views of the packed inputs)
+    wire signed [ACC_BITS-1:0]  bias_lane0    = $signed(bias   [0 +: ACC_BITS]);
+    wire signed [M0_BITS-1:0]   m0_lane0      = $signed(m0     [0 +: M0_BITS]);
+    wire        [SHIFT_BITS-1:0] n_shift_lane0 =          n_shift[0 +: SHIFT_BITS];
+    wire signed [ACC_BITS-1:0]  acc_rd_lane0  = $signed(ACC_read_data_out[0 +: ACC_BITS]);
 
     // FSM
     localparam S_IDLE       = 2'd0;
@@ -92,11 +107,11 @@ module conv1d #(
                         : C_PAR[$clog2(C_PAR+1)-1:0];
 
     // ------------------------------------------------------------------
-    // MAC array: combinational 16-wide multiply-accumulate
+    // MAC array: combinational 16-wide multiply-accumulate (scalar lane 0)
     // ------------------------------------------------------------------
     reg signed [ACC_BITS-1:0]            pix_acc;
     reg signed [ACC_BITS-1:0]            r_pix_acc;
-    reg signed [C_PAR*N_BITS-1:0] r_pixel_data;     // pipelined URAM read (Cone B fix)
+    reg signed [C_PAR*N_BITS-1:0]        r_pixel_data;     // pipelined URAM read (Cone B fix)
     integer vi;
 
     always @(*) begin
@@ -154,9 +169,9 @@ module conv1d #(
             S_IDLE: begin
                 if (start) begin
                     r_zp_out    <= zp_out;
-                    r_bias      <= bias;
-                    r_m0        <= m0;
-                    r_n_shift   <= n_shift;
+                    r_bias      <= bias_lane0;
+                    r_m0        <= m0_lane0;
+                    r_n_shift   <= n_shift_lane0;
                     round       <= 0;
                     pixel_count <= 0;
                     drain       <= 0;
@@ -210,11 +225,19 @@ module conv1d #(
     end
 
     // ------------------------------------------------------------------
-    // ACC accumulation (matches conv3d timing exactly)
+    // ACC accumulation (scalar; lane 0 driven, upper lanes tied to 0)
     // ------------------------------------------------------------------
+    reg signed [ACC_BITS-1:0] acc_wr_lane0;
     always @(*) begin
-        ACC_write_data_in = (round == 0) ? r_pix_acc + r_bias
-                                         : ACC_read_data_out + r_pix_acc;
+        acc_wr_lane0 = (round == 0) ? r_pix_acc + r_bias
+                                    : acc_rd_lane0 + r_pix_acc;
+    end
+
+    // Pack lane 0 into ACC_write_data_in, zero upper lanes.
+    integer cw_a;
+    always @(*) begin
+        ACC_write_data_in = 0;
+        ACC_write_data_in[0 +: ACC_BITS] = acc_wr_lane0;
     end
 
     always @(posedge clk) begin
@@ -267,7 +290,7 @@ module conv1d #(
         if (rst)
             scaled_pix_acc <= 0;
         else
-            scaled_pix_acc <= ACC_write_data_in * r_m0;
+            scaled_pix_acc <= acc_wr_lane0 * r_m0;
     end
 
     // Round-half-up nudge — see conv3d.v for rationale.
@@ -305,20 +328,21 @@ module conv1d #(
     end
 
     // ------------------------------------------------------------------
-    // RES output (only on last round) -- registered to break Cone A
+    // RES output (only lane 0 drives real data; upper lanes zero.
+    // RES_write_en per-lane; only lane 0 fires in this revision.)
     // ------------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
-            RES_write_en      <= 1'b0;
+            RES_write_en      <= {MAX_COUT_PAR{1'b0}};
             RES_write_address <= 0;
             RES_write_data_in <= 0;
         end else begin
-            RES_write_data_in <= q_pix;
+            RES_write_data_in <= 0;
+            RES_write_data_in[0 +: N_BITS] <= q_pix;
             RES_write_address <= ACC_write_address_d;
+            RES_write_en      <= {MAX_COUT_PAR{1'b0}};
             if (round == total_rounds - 1)
-                RES_write_en <= ACC_write_en_d;
-            else
-                RES_write_en <= 1'b0;
+                RES_write_en[0] <= ACC_write_en_d;
         end
     end
 
