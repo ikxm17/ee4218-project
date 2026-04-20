@@ -3,7 +3,7 @@
 
 module inference_top #(
     parameter AXI_DATA_WIDTH = 24,
-    parameter MAX_PARALLEL   = 16,  // must match C_PARALLEL in layer_config.svh
+    parameter C_PAR   = 16,  // must match C_PARALLEL in layer_config.svh
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
     parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
@@ -17,7 +17,7 @@ module inference_top #(
     output logic                             done,
     output logic [DEPTH_BITS-1:0]            pixel_bram_addr,
     output logic                             pixel_bram_en,
-    input  logic [MAX_PARALLEL*N_BITS-1:0]   pixel_bram_data,
+    input  logic [C_PAR*N_BITS-1:0]   pixel_bram_data,
 
     /* --- AXI4-Lite slave (active when TB_MODE=0) --- */
     input  logic [AXI_ADDR_W-1:0]           s_axi_lite_awaddr,
@@ -493,7 +493,7 @@ module inference_top #(
 
     logic [DEPTH_BITS-1:0]            pixel_addr_int;
     logic                             pixel_en_int;
-    logic [MAX_PARALLEL*N_BITS-1:0]   pixel_data_int;
+    logic [C_PAR*N_BITS-1:0]   pixel_data_int;
 
     logic                             out_buf_rd_en_int;
     logic [FMAP_ADDR_W-1:0]           out_buf_rd_addr_int;
@@ -703,7 +703,7 @@ module inference_top #(
      *  bit and re-run inference, no rebuild.
      * ================================================================ */
     inference_hdl #(
-        .MAX_PARALLEL (MAX_PARALLEL),
+        .C_PAR (C_PAR),
         .K            (3),
         .N_BITS       (N_BITS),
         .ACC_BITS     (32),

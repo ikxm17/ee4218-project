@@ -16,7 +16,7 @@
 module conv3d #(
     parameter K            = 3,
     parameter STRIDE       = 1,
-    parameter MAX_PARALLEL = 16,
+    parameter C_PAR = 16,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
@@ -39,17 +39,17 @@ module conv3d #(
     input  wire        [SHIFT_BITS-1:0]       n_shift,
 
     // -------------------------------------------------------------------------
-    // Pixel BRAM interface  (one BRAM that outputs MAX_PARALLEL pixels per cycle)
+    // Pixel BRAM interface  (one BRAM that outputs C_PAR pixels per cycle)
     //   pixel_bram_addr – read address issued to input BRAM
     //   pixel_bram_en   – enb for each channel BRAM (0 on padding pixels)
     //   pixel_bram_data – registered read data from each channel BRAM
     // -------------------------------------------------------------------------
     output reg  [DEPTH_BITS-1:0]                                                pixel_bram_addr,
     output reg                                                                  pixel_bram_en,
-    input  wire signed [MAX_PARALLEL*N_BITS-1:0]                                pixel_bram_data,
+    input  wire signed [C_PAR*N_BITS-1:0]                                pixel_bram_data,
 
     // Weight BRAM read ports (one per slot, addressed by global channel index)
-    input  wire signed [MAX_PARALLEL*K*K*N_BITS-1:0]   weights_all_channels,
+    input  wire signed [C_PAR*K*K*N_BITS-1:0]   weights_all_channels,
 
     // Acc BRAM interface
     // Store intermediate acc for each pixel here, store to RES after all channels and rescaling
@@ -111,15 +111,15 @@ module conv3d #(
     reg                                        is_padded_act; // lags one cycle behind is_padding
        
     // Track number of convolvers running in parallel (aka slots)
-    wire [$clog2(MAX_PARALLEL+1)-1:0] active_slots;
+    wire [$clog2(C_PAR+1)-1:0] active_slots;
     assign active_slots = (round == total_rounds - 1)
-                        ? last_round_cin[$clog2(MAX_PARALLEL+1)-1:0]
-                        : MAX_PARALLEL[$clog2(MAX_PARALLEL+1)-1:0];
+                        ? last_round_cin[$clog2(C_PAR+1)-1:0]
+                        : C_PAR[$clog2(C_PAR+1)-1:0];
 
     // Outputs of convolvers and pad streamers running in parallel
-    wire [ACC_BITS-1:0]     slot_conv_out [0:MAX_PARALLEL-1];
-    wire                    slot_valid    [0:MAX_PARALLEL-1];
-    wire                    slot_end      [0:MAX_PARALLEL-1];
+    wire [ACC_BITS-1:0]     slot_conv_out [0:C_PAR-1];
+    wire                    slot_valid    [0:C_PAR-1];
+    wire                    slot_end      [0:C_PAR-1];
 
     // Accumulators
     reg signed [ACC_BITS-1:0]      pix_acc;
@@ -176,7 +176,7 @@ module conv3d #(
 
     genvar gi;
     generate
-        for (gi = 0; gi < MAX_PARALLEL; gi = gi + 1) begin : SLOT
+        for (gi = 0; gi < C_PAR; gi = gi + 1) begin : SLOT
 
             wire slot_active = conv_running && (gi < active_slots);
 
@@ -336,7 +336,7 @@ module conv3d #(
 
     always @(*) begin
         pix_acc = 0;
-        for (vi = 0; vi < MAX_PARALLEL; vi = vi + 1) begin
+        for (vi = 0; vi < C_PAR; vi = vi + 1) begin
             if (vi < active_slots)
                 pix_acc = pix_acc + $signed(slot_conv_out[vi]);
         end

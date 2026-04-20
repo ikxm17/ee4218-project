@@ -18,7 +18,7 @@ module tb_tinyissimoyolo_accel;
 
     parameter ACT_SIZE     = 256;
     parameter C_IN         = 3;
-    parameter MAX_PARALLEL = 16;
+    parameter C_PAR = 16;
     parameter N_BITS       = 8;
     parameter DEPTH_BITS   = 16;
     parameter AXI_ADDR_W   = 13;
@@ -77,7 +77,7 @@ module tb_tinyissimoyolo_accel;
     logic                             tb_done;
     logic [DEPTH_BITS-1:0]            tb_pixel_bram_addr;
     logic                             tb_pixel_bram_en;
-    logic [MAX_PARALLEL*N_BITS-1:0]   tb_pixel_bram_data;
+    logic [C_PAR*N_BITS-1:0]   tb_pixel_bram_data;
     logic                             irq_done;
 
     assign tb_pixel_bram_data = '0;
@@ -86,7 +86,7 @@ module tb_tinyissimoyolo_accel;
     //  DUT (TB_MODE=0: AXI IP mode)
     // =========================================================================
     inference_top #(
-        .MAX_PARALLEL   (MAX_PARALLEL),
+        .C_PAR   (C_PAR),
         .N_BITS         (N_BITS),
         .DEPTH_BITS     (DEPTH_BITS),
         .TB_MODE (0),

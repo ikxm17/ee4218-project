@@ -9,7 +9,7 @@ module tb_inference_hdl;
     parameter POOL_OUT     = ACT_SIZE / 2;   // layer 0 is CONV3_POOL → 128x128
     parameter K            = 3;
     parameter C_IN         = 3;
-    parameter MAX_PARALLEL = 16;
+    parameter C_PAR = 16;
     parameter N_BITS       = 8;
     parameter ACC_BITS     = 32;
     parameter DEPTH_BITS   = 16;
@@ -30,7 +30,7 @@ module tb_inference_hdl;
     // Pixel BRAM interface
     logic [DEPTH_BITS-1:0]              pixel_bram_addr;
     logic                               pixel_bram_en;
-    logic [MAX_PARALLEL*N_BITS-1:0]     pixel_bram_data;
+    logic [C_PAR*N_BITS-1:0]     pixel_bram_data;
 
     // AXI stubs (TB_MODE=1, all tied off internally by inference_top.sv)
     logic [12:0] s_axi_lite_awaddr;
@@ -92,7 +92,7 @@ module tb_inference_hdl;
     //  DUT (TB_MODE=1: testbench mode, direct start/done/pixel_bram)
     // =========================================================================
     inference_top #(
-        .MAX_PARALLEL  (MAX_PARALLEL),
+        .C_PAR  (C_PAR),
         .N_BITS        (N_BITS),
         .DEPTH_BITS    (DEPTH_BITS),
         .TB_MODE(1)
@@ -187,7 +187,7 @@ module tb_inference_hdl;
     always_ff @(posedge clk) begin
         if (pixel_bram_en) begin
             pixel_bram_data <= '0;
-            for (int i = 0; i < MAX_PARALLEL; i++) begin
+            for (int i = 0; i < C_PAR; i++) begin
                 if (i < C_IN)
                     pixel_bram_data[i*N_BITS +: N_BITS] <=
                         pixel_mem[i][pixel_bram_addr % (ACT_SIZE * ACT_SIZE)];
@@ -305,7 +305,7 @@ module tb_inference_hdl;
         $display("  Backbone:  layers 0-10 (CONV3 + CONV1)");
         $display("  cv2 branch: layers 11-13 (offset 256)");
         $display("  cv3 branch: layers 14-16 (offset 512)");
-        $display("  Parallelism: %0d convolvers", MAX_PARALLEL);
+        $display("  Parallelism: %0d convolvers", C_PAR);
         $display("=========================================");
 
         // 1. Load test data

@@ -2,17 +2,17 @@
 `include "layer_config.svh"
 
 module inference_hdl #(
-    parameter MAX_PARALLEL = C_PARALLEL,
+    parameter C_PAR = C_PARALLEL,
     parameter K            = 3,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter DEPTH_BITS   = 16,
     parameter KSQ          = K * K,
-    parameter WT_DATA_W    = MAX_PARALLEL * N_BITS,
+    parameter WT_DATA_W    = C_PAR * N_BITS,
     parameter WT_ADDR_W    = $clog2(32768),
     parameter QP_ADDR_W    = $clog2(1024),
     parameter LUT_ADDR_W   = $clog2(ACT_LUT_DEPTH),
-    parameter FMAP_DATA_W  = MAX_PARALLEL * N_BITS,
+    parameter FMAP_DATA_W  = C_PAR * N_BITS,
     parameter FMAP_ADDR_W  = $clog2(16384)
 )(
     input  logic                             aclk,
@@ -38,7 +38,7 @@ module inference_hdl #(
     /* Input feature-map read port (inference_top routes to fmap_a/b) */
     output logic [DEPTH_BITS-1:0]            in_buf_rd_addr,
     output logic                             in_buf_rd_en,
-    input  logic [MAX_PARALLEL*N_BITS-1:0]   in_buf_rd_data,
+    input  logic [C_PAR*N_BITS-1:0]   in_buf_rd_data,
 
     /* Output feature-map RMW read-back port (inference_top routes to fmap_a/b) */
     output logic                             out_buf_rd_en,
@@ -141,15 +141,15 @@ module inference_hdl #(
      * ================================================================ */
 
     /* Two banks: 9 rows x 16 cols x 8 bits each (CONV1 uses only row 0) */
-    logic signed [N_BITS-1:0] wt_bank_a [0:KSQ-1][0:MAX_PARALLEL-1];
-    logic signed [N_BITS-1:0] wt_bank_b [0:KSQ-1][0:MAX_PARALLEL-1];
+    logic signed [N_BITS-1:0] wt_bank_a [0:KSQ-1][0:C_PAR-1];
+    logic signed [N_BITS-1:0] wt_bank_b [0:KSQ-1][0:C_PAR-1];
     logic                     wt_sel;   // 0 = bank A active, 1 = bank B active
 
     /* Transpose + mux: ROM [kp][channel] -> conv3d [channel][kp] */
-    logic [MAX_PARALLEL*KSQ*N_BITS-1:0] weights_flat;
+    logic [C_PAR*KSQ*N_BITS-1:0] weights_flat;
 
     generate
-        for (genvar slot = 0; slot < MAX_PARALLEL; slot++) begin : g_slot
+        for (genvar slot = 0; slot < C_PAR; slot++) begin : g_slot
             for (genvar kp = 0; kp < KSQ; kp++) begin : g_kp
                 assign weights_flat[slot*KSQ*N_BITS + kp*N_BITS +: N_BITS] =
                     wt_sel ? wt_bank_b[kp][slot] : wt_bank_a[kp][slot];
@@ -158,10 +158,10 @@ module inference_hdl #(
     endgenerate
 
     /* Conv1x1 weight bus: only row 0 of each bank (K=1, one weight per channel) */
-    logic [MAX_PARALLEL*N_BITS-1:0] weights_1x1;
+    logic [C_PAR*N_BITS-1:0] weights_1x1;
 
     generate
-        for (genvar s = 0; s < MAX_PARALLEL; s++) begin : g_w1
+        for (genvar s = 0; s < C_PAR; s++) begin : g_w1
             assign weights_1x1[s*N_BITS +: N_BITS] =
                 wt_sel ? wt_bank_b[0][s] : wt_bank_a[0][s];
         end
@@ -420,7 +420,7 @@ module inference_hdl #(
             case (state)
                 S_LOAD: begin
                     /* Latch weight row into shadow bank */
-                    for (int c = 0; c < MAX_PARALLEL; c++) begin
+                    for (int c = 0; c < C_PAR; c++) begin
                         if (wt_sel)   // shadow = A
                             wt_bank_a[load_cnt][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
                         else          // shadow = B
@@ -436,7 +436,7 @@ module inference_hdl #(
                     /* Background preload writes into shadow bank */
                     if (preload_active && !preload_done) begin
                         if (preload_cnt > 0) begin
-                            for (int c = 0; c < MAX_PARALLEL; c++) begin
+                            for (int c = 0; c < C_PAR; c++) begin
                                 if (wt_sel)   // shadow = A (active = B)
                                     wt_bank_a[preload_cnt - 1][c] <= $signed(wt_mem_dout_b[c*N_BITS +: N_BITS]);
                                 else          // shadow = B (active = A)
@@ -621,7 +621,7 @@ module inference_hdl #(
     conv3d #(
         .K            (K),
         .STRIDE       (1),
-        .MAX_PARALLEL (MAX_PARALLEL),
+        .C_PAR (C_PAR),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
         .M0_BITS      (32),
@@ -660,7 +660,7 @@ module inference_hdl #(
      *  Conv1x1 Instance (K=1 pointwise convolution)
      * ================================================================ */
     conv1d #(
-        .MAX_PARALLEL (MAX_PARALLEL),
+        .C_PAR (C_PAR),
         .N_BITS       (N_BITS),
         .ACC_BITS     (ACC_BITS),
         .M0_BITS      (32),

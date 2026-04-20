@@ -7,7 +7,7 @@
 // ACC/RES interface matches conv3d.v for drop-in muxing.
 
 module conv1d #(
-    parameter MAX_PARALLEL = 16,
+    parameter C_PAR = 16,
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
@@ -32,10 +32,10 @@ module conv1d #(
     // Pixel BRAM interface (same as conv3d)
     output reg  [DEPTH_BITS-1:0]              pixel_bram_addr,
     output reg                                pixel_bram_en,
-    input  wire signed [MAX_PARALLEL*N_BITS-1:0] pixel_bram_data,
+    input  wire signed [C_PAR*N_BITS-1:0] pixel_bram_data,
 
     // Weights: 16 x int8 (one weight per channel, K=1)
-    input  wire signed [MAX_PARALLEL*N_BITS-1:0] weights_all_channels,
+    input  wire signed [C_PAR*N_BITS-1:0] weights_all_channels,
 
     // ACC BRAM interface (same as conv3d)
     output reg                                ACC_write_en,
@@ -86,22 +86,22 @@ module conv1d #(
     reg [2:0] drain;
 
     // Active channel count
-    wire [$clog2(MAX_PARALLEL+1)-1:0] active_slots;
+    wire [$clog2(C_PAR+1)-1:0] active_slots;
     assign active_slots = (round == total_rounds - 1)
-                        ? last_round_cin[$clog2(MAX_PARALLEL+1)-1:0]
-                        : MAX_PARALLEL[$clog2(MAX_PARALLEL+1)-1:0];
+                        ? last_round_cin[$clog2(C_PAR+1)-1:0]
+                        : C_PAR[$clog2(C_PAR+1)-1:0];
 
     // ------------------------------------------------------------------
     // MAC array: combinational 16-wide multiply-accumulate
     // ------------------------------------------------------------------
     reg signed [ACC_BITS-1:0]            pix_acc;
     reg signed [ACC_BITS-1:0]            r_pix_acc;
-    reg signed [MAX_PARALLEL*N_BITS-1:0] r_pixel_data;     // pipelined URAM read (Cone B fix)
+    reg signed [C_PAR*N_BITS-1:0] r_pixel_data;     // pipelined URAM read (Cone B fix)
     integer vi;
 
     always @(*) begin
         pix_acc = 0;
-        for (vi = 0; vi < MAX_PARALLEL; vi = vi + 1) begin
+        for (vi = 0; vi < C_PAR; vi = vi + 1) begin
             if (vi < active_slots)
                 pix_acc = pix_acc
                     + $signed(r_pixel_data[vi*N_BITS +: N_BITS])
