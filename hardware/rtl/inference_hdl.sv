@@ -633,6 +633,7 @@ module inference_hdl #(
         .start                (conv3d_start),
         .act_size             (rt_act_size),
         .cin                  (rt_cin),
+        .log2_cin_group_size  (3'd4),  // hardcoded for now; layer_config wires it up in a later commit
         .zp_in                (r_cfg.zp_in),
         .zp_out               (r_cfg.zp_out),
         .bias                 (r_bias),

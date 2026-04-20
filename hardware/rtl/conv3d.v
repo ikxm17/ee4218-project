@@ -16,7 +16,9 @@
 module conv3d #(
     parameter K            = 3,
     parameter STRIDE       = 1,
-    parameter C_PAR = 16,
+    parameter C_PAR        = 16,
+    parameter MAX_COUT_PAR = 1,
+    parameter MAX_LOG2_CGS = $clog2(C_PAR),
     parameter N_BITS       = 8,
     parameter ACC_BITS     = 32,
     parameter M0_BITS      = 32,
@@ -30,6 +32,10 @@ module conv3d #(
     // Runtime layer dimensions
     input  wire [8:0]                         act_size,
     input  wire [7:0]                         cin,
+    // Runtime Cin/Cout parallelism split: log2(cin_group_size).
+    // 4 (default) = cin_group_size 16, cout_par 1 (legacy behavior).
+    // 2 = cin_group_size 4,  cout_par 4 (layer 0 Cout-parallel mode).
+    input  wire [2:0]                         log2_cin_group_size,
 
     // Quantisation scalars
     input  wire signed [N_BITS-1:0]           zp_in,
@@ -116,6 +122,13 @@ module conv3d #(
                         ? last_round_cin[$clog2(C_PAR+1)-1:0]
                         : C_PAR[$clog2(C_PAR+1)-1:0];
 
+    // Runtime Cin/Cout parallelism split:
+    //   cin_group_size  = slots per Cout group (power of 2)
+    //   cout_par_active = C_PAR / cin_group_size (parallel Couts per pass)
+    wire [4:0] cin_group_size  = 5'd1 << log2_cin_group_size;
+    wire [3:0] cin_group_mask  = cin_group_size[3:0] - 4'd1;
+    wire [4:0] cout_par_active = C_PAR[4:0] >> log2_cin_group_size;
+
     // Outputs of convolvers and pad streamers running in parallel
     wire [ACC_BITS-1:0]     slot_conv_out [0:C_PAR-1];
     wire                    slot_valid    [0:C_PAR-1];
@@ -178,7 +191,14 @@ module conv3d #(
     generate
         for (gi = 0; gi < C_PAR; gi = gi + 1) begin : SLOT
 
-            wire slot_active = conv_running && (gi < active_slots);
+            // Slot -> (Cout, Cin) mapping via shift/mask (free hardware).
+            // For log2_cin_group_size=4 (default): cout_idx=0 for all gi, cin_idx=gi → legacy behavior.
+            wire [3:0] slot_cout_idx   = gi >> log2_cin_group_size;
+            wire [3:0] slot_cin_idx    = gi & cin_group_mask;
+            wire [4:0] slot_cout_idx_w = {1'b0, slot_cout_idx};
+            wire slot_active = conv_running
+                            && (slot_cout_idx_w < cout_par_active)
+                            && ({1'b0, slot_cin_idx} < active_slots);
 
             // ------------------------------------------------------------------
             // convolver  (sees pad_size-wide stream)
