@@ -32,10 +32,13 @@ module inference_hdl #(
     output logic [QP_ADDR_W-1:0]             qp_mem_addr_b,
     input  logic [71:0]                      qp_mem_dout_b,
 
-    /* SiLU LUT ROM read port (inference_top u_silu_mem port B) */
-    output logic                             silu_mem_en_b,
-    output logic [LUT_ADDR_W-1:0]            silu_mem_addr_b,
-    input  logic [N_BITS-1:0]                silu_mem_dout_b,
+    /* SiLU LUT ROM read port — one BRAM replica per Cout lane.
+       inference_top instantiates MAX_COUT_PAR replicas of u_silu_mem and
+       routes each lane independently. Lanes beyond cout_par_active stay
+       idle (en_b=0) — masked by conv3d's per-lane cout_par_active gating. */
+    output logic [MAX_COUT_PAR-1:0]                            silu_mem_en_b,
+    output logic [MAX_COUT_PAR-1:0][LUT_ADDR_W-1:0]            silu_mem_addr_b,
+    input  logic [MAX_COUT_PAR-1:0][N_BITS-1:0]                silu_mem_dout_b,
 
     /* Input feature-map read port (inference_top routes to fmap_a/b) */
     output logic [DEPTH_BITS-1:0]            in_buf_rd_addr,
@@ -128,9 +131,18 @@ module inference_hdl #(
     logic [4:0] r_layer_idx;
 
     /* QP shadow registers (per output channel, from QP ROM) */
-    logic signed [31:0] r_bias;
-    logic        [31:0] r_m0;
-    logic         [5:0] r_nshift;
+    /* Per-Cout-lane quant params — sequentially loaded over cout_par_active
+       cycles in S_LOAD from the single-port shared QP ROM.  Lanes beyond
+       cout_par_active are don't-care (conv3d masks them via cout_par_active). */
+    logic signed [MAX_COUT_PAR-1:0][31:0] r_bias;
+    logic        [MAX_COUT_PAR-1:0][31:0] r_m0;
+    logic        [MAX_COUT_PAR-1:0][ 5:0] r_nshift;
+
+    /* Runtime Cin/Cout parallelism split.  Hardcoded here until step 7
+       plumbs r_cfg.log2_cin_group_size through; default log2_cgs=4 →
+       cin_group_size=16, cout_par_active=1 (legacy scalar behavior). */
+    wire [2:0] log2_cgs_curr    = 3'd4;
+    wire [4:0] cout_par_active  = C_PAR[4:0] >> log2_cgs_curr;
 
     /* ================================================================
      *  Runtime Layer-Type Derived Signals
@@ -228,12 +240,12 @@ module inference_hdl #(
     logic [DEPTH_BITS-1:0]                conv3d_res_addr, conv1_res_addr;
     logic signed [MAX_COUT_PAR*N_BITS-1:0] conv3d_res_data, conv1_res_data;
 
-    /* Muxed conv RES output — in this revision, only lane 0 propagates to
-       the activation stage. The packed output of the selected engine is
-       narrowed to its lane 0 slice below. */
-    logic                      conv_res_en;
-    logic [DEPTH_BITS-1:0]     conv_res_addr;
-    logic signed [N_BITS-1:0]  conv_res_data;
+    /* Muxed conv RES output — vectorized per-Cout-lane.
+       The selected engine drives all MAX_COUT_PAR lanes; lanes beyond
+       cout_par_active have res_en=0 (gated inside conv3d/conv1d). */
+    logic [MAX_COUT_PAR-1:0]                          conv_res_en;
+    logic [DEPTH_BITS-1:0]                            conv_res_addr;
+    logic signed [MAX_COUT_PAR-1:0][N_BITS-1:0]       conv_res_data;
 
     /* Muxed ACC URAM signals (packed MAX_COUT_PAR-wide) */
     logic                                 acc_wr_en;
@@ -252,9 +264,13 @@ module inference_hdl #(
     assign acc_rd_en   = is_conv1 ? conv1_acc_rd_en    : conv3d_acc_rd_en;
     assign acc_rd_addr = is_conv1 ? conv1_acc_rd_addr  : conv3d_acc_rd_addr;
 
-    assign conv_res_en   = is_conv1 ? conv1_res_en[0]                : conv3d_res_en[0];
-    assign conv_res_addr = is_conv1 ? conv1_res_addr                 : conv3d_res_addr;
-    assign conv_res_data = is_conv1 ? conv1_res_data[N_BITS-1:0]     : conv3d_res_data[N_BITS-1:0];
+    assign conv_res_addr = is_conv1 ? conv1_res_addr : conv3d_res_addr;
+    generate for (genvar c = 0; c < MAX_COUT_PAR; c = c + 1) begin : g_conv_res_mux
+        assign conv_res_en[c]   = is_conv1 ? conv1_res_en[c]
+                                           : conv3d_res_en[c];
+        assign conv_res_data[c] = is_conv1 ? conv1_res_data[c*N_BITS +: N_BITS]
+                                           : conv3d_res_data[c*N_BITS +: N_BITS];
+    end endgenerate
 
     /* ================================================================
      *  Next State Logic
@@ -272,7 +288,7 @@ module inference_hdl #(
                 if (compute_done)
                     next_state = S_NEXT_CHOUT;
             S_NEXT_CHOUT:
-                if (ch_out + 8'd1 < r_cfg.cout)
+                if (ch_out + {3'd0, cout_par_active} < r_cfg.cout)
                     next_state = S_LOAD;
                 else
                     next_state = S_NEXT_LAYER;
@@ -376,13 +392,13 @@ module inference_hdl #(
                 end
 
                 S_NEXT_CHOUT: begin
-                    if (ch_out + 8'd1 < r_cfg.cout) begin
-                        ch_out         <= ch_out + 8'd1;
+                    if (ch_out + {3'd0, cout_par_active} < r_cfg.cout) begin
+                        ch_out         <= ch_out + {3'd0, cout_par_active};
                         round_loaded   <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
                         wt_addr_reg    <= r_cfg.wt_base
-                                       + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words
+                                       + (ch_out + {3'd0, cout_par_active}) * r_cfg.cin_grp * wt_words
                                        + 1;
                         load_cnt       <= 4'd0;
                     end
@@ -470,10 +486,14 @@ module inference_hdl #(
             end
 
             S_LOAD: begin
-                if (load_cnt == 0) begin
-                    r_bias   <= $signed(qp_mem_dout_b[31:0]);
-                    r_m0     <= qp_mem_dout_b[63:32];
-                    r_nshift <= qp_mem_dout_b[69:64];
+                /* Sequential per-lane QP latch.  Cycle k of S_LOAD captures
+                   qp_mem_dout_b for lane k (where k = load_cnt < cout_par_active).
+                   For cout_par_active=1, only lane 0 is latched on cycle 0 —
+                   identical to legacy scalar behavior. */
+                if (load_cnt < cout_par_active) begin
+                    r_bias[load_cnt[2:0]]   <= $signed(qp_mem_dout_b[31:0]);
+                    r_m0[load_cnt[2:0]]     <= qp_mem_dout_b[63:32];
+                    r_nshift[load_cnt[2:0]] <= qp_mem_dout_b[69:64];
                 end
             end
 
@@ -566,6 +586,14 @@ module inference_hdl #(
                     wt_mem_en_b   = 1'b1;
                     wt_mem_addr_b = wt_addr_reg;
                 end
+                /* Sequential QP fetch for lanes 1..cout_par_active-1.
+                   Cycle k of S_LOAD requests qp_addr = qp_base + ch_out + k + 1,
+                   so the data lands at cycle k+1 to be latched into lane k+1.
+                   For cout_par_active=1 this never fires (load_cnt < 0). */
+                if (load_cnt < cout_par_active - 1) begin
+                    qp_mem_en_b   = 1'b1;
+                    qp_mem_addr_b = r_cfg.qp_base + ch_out + {6'd0, load_cnt} + 10'd1;
+                end
             end
 
             S_COMPUTE: begin
@@ -576,12 +604,15 @@ module inference_hdl #(
             end
 
             S_NEXT_CHOUT: begin
-                if (ch_out + 8'd1 < r_cfg.cout) begin
+                if (ch_out + {3'd0, cout_par_active} < r_cfg.cout) begin
+                    /* Drive QP addr for the FIRST lane of the next pass.
+                       S_LOAD then drives addrs for lanes 1..cout_par_active-1
+                       on its own cycles 0..cout_par_active-2. */
                     qp_mem_en_b   = 1'b1;
-                    qp_mem_addr_b = r_cfg.qp_base + ch_out + 10'd1;
+                    qp_mem_addr_b = r_cfg.qp_base + ch_out + {5'd0, cout_par_active};
                     wt_mem_en_b   = 1'b1;
                     wt_mem_addr_b = r_cfg.wt_base
-                                 + (ch_out + 8'd1) * r_cfg.cin_grp * wt_words;
+                                 + (ch_out + {3'd0, cout_par_active}) * r_cfg.cin_grp * wt_words;
                 end
             end
 
@@ -622,16 +653,12 @@ module inference_hdl #(
     /* ================================================================
      *  Conv3d Instance (K=3 convolution)
      * ================================================================ */
-    // Vectorized QP inputs for conv3d/conv1d: lane 0 carries the real
-    // per-cout scalar from QP_ROM; upper lanes are tied to 0. A later
-    // commit replaces these with per-lane QP fetches from QP_ROM.
-    localparam QP_ZERO_BIAS_W    = (MAX_COUT_PAR-1) * ACC_BITS;
-    localparam QP_ZERO_M0_W      = (MAX_COUT_PAR-1) * 32;
-    localparam QP_ZERO_NSHIFT_W  = (MAX_COUT_PAR-1) * 6;
-
-    wire signed [MAX_COUT_PAR*ACC_BITS-1:0] bias_packed    = {{QP_ZERO_BIAS_W{1'b0}},   r_bias};
-    wire signed [MAX_COUT_PAR*32-1:0]       m0_packed      = {{QP_ZERO_M0_W{1'b0}},     r_m0};
-    wire        [MAX_COUT_PAR*6-1:0]        nshift_packed  = {{QP_ZERO_NSHIFT_W{1'b0}}, r_nshift};
+    /* Per-lane QP vectors are latched directly into packed r_bias/r_m0/r_nshift
+       by the sequential S_LOAD fetch.  Lane packing matches conv3d/conv1d's
+       expected bit layout: lane c occupies bits [c*W +: W]. */
+    wire signed [MAX_COUT_PAR*ACC_BITS-1:0] bias_packed   = r_bias;
+    wire signed [MAX_COUT_PAR*32-1:0]       m0_packed     = r_m0;
+    wire        [MAX_COUT_PAR*6-1:0]        nshift_packed = r_nshift;
 
     conv3d #(
         .K            (K),
@@ -740,54 +767,59 @@ module inference_hdl #(
     );
 
     /* ================================================================
-     *  Activation Stage (SiLU LUT with CONV1_LIN bypass)
+     *  Activation + Max-Pool Stages — replicated MAX_COUT_PAR× per Cout lane
+     *
+     *  Each lane gets its own activation (with private silu_mem replica)
+     *  and max_pool instance. Lanes beyond cout_par_active receive
+     *  conv_res_en=0 from conv3d/conv1d and therefore produce no output —
+     *  behavior is bit-identical to the legacy scalar path when
+     *  cout_par_active=1.
      * ================================================================ */
-    logic                        act_out_valid;
-    logic [DEPTH_BITS-1:0]       act_out_addr;
-    logic signed [N_BITS-1:0]    act_out_data;
+    logic [MAX_COUT_PAR-1:0]                          act_out_valid;
+    logic [MAX_COUT_PAR-1:0][DEPTH_BITS-1:0]          act_out_addr;
+    logic signed [MAX_COUT_PAR-1:0][N_BITS-1:0]       act_out_data;
 
-    activation #(
-        .N_BITS     (N_BITS),
-        .DEPTH_BITS (DEPTH_BITS),
-        .LUT_ADDR_W (LUT_ADDR_W)
-    ) u_activation (
-        .clk        (aclk),
-        .rst_n      (aresetn),
-        .layer_type (curr_layer_type),
-        .layer_idx  (curr_layer_idx),
-        .in_valid   (conv_res_en),
-        .in_addr    (conv_res_addr),
-        .in_data    (conv_res_data),
-        .lut_en     (silu_mem_en_b),
-        .lut_addr   (silu_mem_addr_b),
-        .lut_rdata  (silu_mem_dout_b),
-        .out_valid  (act_out_valid),
-        .out_addr   (act_out_addr),
-        .out_data   (act_out_data)
-    );
+    logic [MAX_COUT_PAR-1:0]                          pool_out_valid;
+    logic [MAX_COUT_PAR-1:0][DEPTH_BITS-1:0]          pool_out_addr;
+    logic signed [MAX_COUT_PAR-1:0][N_BITS-1:0]       pool_out_data;
 
-    /* ================================================================
-     *  Max Pooling Stage (2x2 stride-2, CONV3_POOL layers only)
-     * ================================================================ */
-    logic                        pool_out_valid;
-    logic [DEPTH_BITS-1:0]       pool_out_addr;
-    logic signed [N_BITS-1:0]    pool_out_data;
+    generate for (genvar c = 0; c < MAX_COUT_PAR; c = c + 1) begin : g_downstream
+        activation #(
+            .N_BITS     (N_BITS),
+            .DEPTH_BITS (DEPTH_BITS),
+            .LUT_ADDR_W (LUT_ADDR_W)
+        ) u_activation (
+            .clk        (aclk),
+            .rst_n      (aresetn),
+            .layer_type (curr_layer_type),
+            .layer_idx  (curr_layer_idx),
+            .in_valid   (conv_res_en[c]),
+            .in_addr    (conv_res_addr),
+            .in_data    (conv_res_data[c]),
+            .lut_en     (silu_mem_en_b[c]),
+            .lut_addr   (silu_mem_addr_b[c]),
+            .lut_rdata  (silu_mem_dout_b[c]),
+            .out_valid  (act_out_valid[c]),
+            .out_addr   (act_out_addr[c]),
+            .out_data   (act_out_data[c])
+        );
 
-    max_pool #(
-        .N_BITS     (N_BITS),
-        .DEPTH_BITS (DEPTH_BITS)
-    ) u_max_pool (
-        .clk        (aclk),
-        .rst_n      (aresetn),
-        .layer_type (curr_layer_type),
-        .act_size   (curr_act_size),
-        .in_valid   (act_out_valid),
-        .in_addr    (act_out_addr),
-        .in_data    (act_out_data),
-        .out_valid  (pool_out_valid),
-        .out_addr   (pool_out_addr),
-        .out_data   (pool_out_data)
-    );
+        max_pool #(
+            .N_BITS     (N_BITS),
+            .DEPTH_BITS (DEPTH_BITS)
+        ) u_max_pool (
+            .clk        (aclk),
+            .rst_n      (aresetn),
+            .layer_type (curr_layer_type),
+            .act_size   (curr_act_size),
+            .in_valid   (act_out_valid[c]),
+            .in_addr    (act_out_addr[c]),
+            .in_data    (act_out_data[c]),
+            .out_valid  (pool_out_valid[c]),
+            .out_addr   (pool_out_addr[c]),
+            .out_data   (pool_out_data[c])
+        );
+    end endgenerate
 
     /* ================================================================
      *  RMW Output Writer
@@ -798,10 +830,14 @@ module inference_hdl #(
      *  out_buf_rd_data.  inference_top routes both ports to whichever
      *  fmap_a/b URAM is the current output buffer.
      * ================================================================ */
-    logic                     rmw_s0_valid;
-    logic [FMAP_ADDR_W-1:0]   rmw_s0_addr;
-    logic signed [N_BITS-1:0] rmw_s0_data;
-    logic [3:0]               rmw_s0_byte_pos;
+    /* Per-lane RMW stage-0 — each Cout lane registers its own valid/data.
+       All lanes share a single URAM word address (same spatial pixel).
+       Lane 0 drives the shared addr/byte_pos_base (h_out/w_out identical
+       across lanes in lockstep). */
+    logic [MAX_COUT_PAR-1:0]                          rmw_s0_valid;
+    logic [FMAP_ADDR_W-1:0]                           rmw_s0_addr;
+    logic signed [MAX_COUT_PAR-1:0][N_BITS-1:0]       rmw_s0_data;
+    logic [3:0]                                       rmw_s0_byte_pos_base;
 
     wire [8:0] h_out = (curr_layer_type == CONV3_POOL) ? (curr_act_size >> 1) : curr_act_size;
     wire [FMAP_ADDR_W-1:0] rmw_base_addr = curr_pp_wr_offset + (curr_ch_out >> 4) * h_out * h_out;
@@ -809,22 +845,35 @@ module inference_hdl #(
     /* Synchronous reset (see state_memory header). */
     always_ff @(posedge aclk) begin : rmw_s0_pipeline
         if (!aresetn) begin
-            rmw_s0_valid <= 1'b0;
+            rmw_s0_valid <= '0;
         end else begin
-            rmw_s0_valid    <= pool_out_valid;
-            rmw_s0_addr     <= rmw_base_addr + pool_out_addr[FMAP_ADDR_W-1:0];
-            rmw_s0_data     <= pool_out_data;
-            rmw_s0_byte_pos <= curr_ch_out[3:0];
+            for (int c = 0; c < MAX_COUT_PAR; c++) begin
+                rmw_s0_valid[c] <= pool_out_valid[c];
+                rmw_s0_data[c]  <= pool_out_data[c];
+            end
+            rmw_s0_addr          <= rmw_base_addr + pool_out_addr[0][FMAP_ADDR_W-1:0];
+            rmw_s0_byte_pos_base <= curr_ch_out[3:0];
         end
     end
 
-    assign out_buf_rd_en   = pool_out_valid;
-    assign out_buf_rd_addr = rmw_base_addr + pool_out_addr[FMAP_ADDR_W-1:0];
+    /* Read-back port — fires whenever any lane produces output. */
+    assign out_buf_rd_en   = |pool_out_valid;
+    assign out_buf_rd_addr = rmw_base_addr + pool_out_addr[0][FMAP_ADDR_W-1:0];
 
+    /* Multi-byte splice: each active lane c writes its byte at
+       (byte_pos_base + c). When byte_pos_base == 0 the word starts fresh
+       (no read-back dependency), matching the legacy semantics where the
+       first byte into a word zero-initializes the rest. */
     logic [FMAP_DATA_W-1:0] spliced_word;
     always_comb begin
-        spliced_word = (rmw_s0_byte_pos == 4'd0) ? {FMAP_DATA_W{1'b0}} : out_buf_rd_data;
-        spliced_word[rmw_s0_byte_pos * 8 +: 8] = rmw_s0_data;
+        spliced_word = (rmw_s0_byte_pos_base == 4'd0) ? {FMAP_DATA_W{1'b0}} : out_buf_rd_data;
+        for (int c = 0; c < MAX_COUT_PAR; c++) begin
+            if (rmw_s0_valid[c]) begin
+                /* 4-bit (byte_pos_base) + 3-bit lane index = 5-bit byte index,
+                   bounded by cout_par_active placement so it never exceeds 15. */
+                spliced_word[({1'b0, rmw_s0_byte_pos_base} + 5'(c)) * 8 +: 8] = rmw_s0_data[c];
+            end
+        end
     end
 
     /* Synchronous reset (see state_memory header). */
@@ -832,7 +881,7 @@ module inference_hdl #(
         if (!aresetn) begin
             out_buf_wr_en <= 1'b0;
         end else begin
-            out_buf_wr_en   <= rmw_s0_valid;
+            out_buf_wr_en   <= |rmw_s0_valid;
             out_buf_wr_addr <= rmw_s0_addr;
             out_buf_wr_data <= spliced_word;
         end
@@ -911,8 +960,10 @@ module inference_hdl #(
             rmw_s0_done      <= 1'b0;
             out_wr_done      <= 1'b0;
         end else begin
-            // Capture conv_res write address (layer 0 only, first 4)
-            if (conv_res_en && !conv_res_done && (curr_layer_idx == 5'd0)) begin
+            /* Layer-0 debug captures use lane 0 only — bit-identical to the
+               legacy scalar pipeline when cout_par_active=1.  When cout_par
+               engages later, these still show lane 0's behavior. */
+            if (conv_res_en[0] && !conv_res_done && (curr_layer_idx == 5'd0)) begin
                 case (conv_res_cap_idx)
                     2'd0: dbg_conv_res_addr_0 <= conv_res_addr;
                     2'd1: dbg_conv_res_addr_1 <= conv_res_addr;
@@ -926,12 +977,12 @@ module inference_hdl #(
             end
 
             // Capture pool_out_addr (layer 0 only, first 4)
-            if (pool_out_valid && !pool_done && (curr_layer_idx == 5'd0)) begin
+            if (pool_out_valid[0] && !pool_done && (curr_layer_idx == 5'd0)) begin
                 case (pool_cap_idx)
-                    2'd0: dbg_pool_out_addr_0 <= pool_out_addr[13:0];
-                    2'd1: dbg_pool_out_addr_1 <= pool_out_addr[13:0];
-                    2'd2: dbg_pool_out_addr_2 <= pool_out_addr[13:0];
-                    2'd3: dbg_pool_out_addr_3 <= pool_out_addr[13:0];
+                    2'd0: dbg_pool_out_addr_0 <= pool_out_addr[0][13:0];
+                    2'd1: dbg_pool_out_addr_1 <= pool_out_addr[0][13:0];
+                    2'd2: dbg_pool_out_addr_2 <= pool_out_addr[0][13:0];
+                    2'd3: dbg_pool_out_addr_3 <= pool_out_addr[0][13:0];
                 endcase
                 if (pool_cap_idx == 2'd3)
                     pool_done <= 1'b1;
@@ -942,7 +993,7 @@ module inference_hdl #(
             // Capture rmw_s0_addr + rmw_base_addr at rmw_s0_valid transitions.
             // Also snapshot pp_wr_offset/ch_out/h_out at the first capture
             // so we can see what the buggy computation inputs are.
-            if (rmw_s0_valid && !rmw_s0_done && (curr_layer_idx == 5'd0)) begin
+            if (rmw_s0_valid[0] && !rmw_s0_done && (curr_layer_idx == 5'd0)) begin
                 case (rmw_s0_cap_idx)
                     2'd0: begin
                         dbg_rmw_s0_addr_0 <= rmw_s0_addr;

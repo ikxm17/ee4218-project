@@ -528,8 +528,9 @@ module inference_top #(
     logic [WT_MEM_ADDR_W-1:0]   hdl_wt_addr_b;
     logic                       hdl_qp_en_b;
     logic [QP_MEM_ADDR_W-1:0]   hdl_qp_addr_b;
-    logic                       hdl_act_en_b;
-    logic [ACT_MEM_ADDR_W-1:0]  hdl_act_addr_b;
+    /* HDL drives all MAX_COUT_PAR SiLU lanes (one per Cout-parallel lane). */
+    logic [MAX_COUT_PAR-1:0]                         hdl_act_en_b;
+    logic [MAX_COUT_PAR-1:0][ACT_MEM_ADDR_W-1:0]     hdl_act_addr_b;
 
     logic                       hls_wt_en_b;
     logic [WT_MEM_ADDR_W-1:0]   hls_wt_addr_b;
@@ -556,14 +557,14 @@ module inference_top #(
     assign wt_mem_addr_b  = engine_sel_latched ? hls_wt_addr_b : hdl_wt_addr_b;
     assign qp_mem_en_b    = engine_sel_latched ? hls_qp_en_b   : hdl_qp_en_b;
     assign qp_mem_addr_b  = engine_sel_latched ? hls_qp_addr_b : hdl_qp_addr_b;
-    /* SiLU lane 0 — driven by active engine.  HLS taps lane 0 only (scalar);
-       HDL drives lane 0 today (scalar port) and gains lanes 1..N-1 in step 6. */
-    assign act_mem_en_b[0]   = engine_sel_latched ? hls_act_en_b  : hdl_act_en_b;
-    assign act_mem_addr_b[0] = engine_sel_latched ? hls_act_addr_b: hdl_act_addr_b;
-    /* SiLU lanes 1..MAX_COUT_PAR-1 — instantiated but idle until step 6. */
-    generate for (genvar c = 1; c < MAX_COUT_PAR; c = c + 1) begin : gen_silu_lane_tieoff
-        assign act_mem_en_b[c]   = 1'b0;
-        assign act_mem_addr_b[c] = '0;
+    /* SiLU mux: HDL drives all lanes; HLS (still scalar) taps lane 0 only.
+       Lane 0 is muxed between the two engines; lanes 1..N-1 are HDL-only
+       and idle when HLS is selected. */
+    assign act_mem_en_b[0]   = engine_sel_latched ? hls_act_en_b   : hdl_act_en_b[0];
+    assign act_mem_addr_b[0] = engine_sel_latched ? hls_act_addr_b : hdl_act_addr_b[0];
+    generate for (genvar c = 1; c < MAX_COUT_PAR; c = c + 1) begin : gen_silu_lane_hdl
+        assign act_mem_en_b[c]   = engine_sel_latched ? 1'b0 : hdl_act_en_b[c];
+        assign act_mem_addr_b[c] = engine_sel_latched ? '0   : hdl_act_addr_b[c];
     end endgenerate
 
     /* Done mux: only the active engine's done feeds the FSM */
@@ -740,9 +741,9 @@ module inference_top #(
         .qp_mem_en_b       (hdl_qp_en_b),
         .qp_mem_addr_b     (hdl_qp_addr_b),
         .qp_mem_dout_b     (qp_mem_dout_b),
-        .silu_mem_en_b     (hdl_act_en_b),
-        .silu_mem_addr_b   (hdl_act_addr_b),
-        .silu_mem_dout_b   (act_mem_dout_b[0]),
+        .silu_mem_en_b     (hdl_act_en_b),    // [MAX_COUT_PAR-1:0] packed array
+        .silu_mem_addr_b   (hdl_act_addr_b),  // [MAX_COUT_PAR-1:0][LUT_ADDR_W-1:0]
+        .silu_mem_dout_b   (act_mem_dout_b),  // [MAX_COUT_PAR-1:0][N_BITS-1:0]
         .in_buf_rd_addr    (pixel_addr_int),
         .in_buf_rd_en      (pixel_en_int),
         .in_buf_rd_data    (pixel_data_int),
