@@ -138,11 +138,13 @@ module inference_hdl #(
     logic        [MAX_COUT_PAR-1:0][31:0] r_m0;
     logic        [MAX_COUT_PAR-1:0][ 5:0] r_nshift;
 
-    /* Runtime Cin/Cout parallelism split.  Hardcoded here until step 7
-       plumbs r_cfg.log2_cin_group_size through; default log2_cgs=4 →
-       cin_group_size=16, cout_par_active=1 (legacy scalar behavior). */
-    wire [2:0] log2_cgs_curr    = 3'd4;
-    wire [4:0] cout_par_active  = C_PAR[4:0] >> log2_cgs_curr;
+    /* Runtime Cin/Cout parallelism split, sourced from per-layer config.
+       log2_cgs=4 → cin_group_size=16, cout_par_active=1 (legacy scalar).
+       log2_cgs=2 → cin_group_size=4,  cout_par_active=4 (Cout-parallel). */
+    localparam int LOG2_CPAR        = $clog2(C_PAR);     // 4 for C_PAR=16
+    wire [2:0]     log2_cgs_curr    = r_cfg.log2_cin_group_size;
+    wire [4:0]     cout_par_active  = C_PAR[4:0] >> log2_cgs_curr;
+    wire [2:0]     log2_cout_par    = LOG2_CPAR[2:0] - log2_cgs_curr;
 
     /* ================================================================
      *  Runtime Layer-Type Derived Signals
@@ -397,8 +399,12 @@ module inference_hdl #(
                         round_loaded   <= 0;
                         preload_active <= 1'b0;
                         preload_done   <= 1'b0;
+                        /* Each Cout-pass consumes cin_grp*wt_words ROM words
+                           (regardless of how many Couts are interleaved per
+                           pass).  pass_idx = next_ch_out >> log2_cout_par. */
                         wt_addr_reg    <= r_cfg.wt_base
-                                       + (ch_out + {3'd0, cout_par_active}) * r_cfg.cin_grp * wt_words
+                                       + ((ch_out + {3'd0, cout_par_active}) >> log2_cout_par)
+                                         * r_cfg.cin_grp * wt_words
                                        + 1;
                         load_cnt       <= 4'd0;
                     end
@@ -611,8 +617,11 @@ module inference_hdl #(
                     qp_mem_en_b   = 1'b1;
                     qp_mem_addr_b = r_cfg.qp_base + ch_out + {5'd0, cout_par_active};
                     wt_mem_en_b   = 1'b1;
+                    /* First word of next pass: same pass_idx shift as wt_addr_reg
+                       above so the layout matches generate_hdl_weights.py packing. */
                     wt_mem_addr_b = r_cfg.wt_base
-                                 + (ch_out + {3'd0, cout_par_active}) * r_cfg.cin_grp * wt_words;
+                                 + ((ch_out + {3'd0, cout_par_active}) >> log2_cout_par)
+                                   * r_cfg.cin_grp * wt_words;
                 end
             end
 
@@ -676,7 +685,7 @@ module inference_hdl #(
         .start                (conv3d_start),
         .act_size             (rt_act_size),
         .cin                  (rt_cin),
-        .log2_cin_group_size  (3'd4),  // hardcoded for now; layer_config wires it up in a later commit
+        .log2_cin_group_size  (r_cfg.log2_cin_group_size),
         .zp_in                (r_cfg.zp_in),
         .zp_out               (r_cfg.zp_out),
         .bias                 (bias_packed),

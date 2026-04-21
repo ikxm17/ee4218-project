@@ -77,6 +77,10 @@ class HdlLayer:
     w_in: int
     cin: int
     cout: int
+    # log2(cin_group_size) — determines per-layer Cin/Cout parallelism split.
+    #   4 (default) = cin_group_size 16, cout_par 1 (legacy scalar layout)
+    #   2           = cin_group_size 4,  cout_par 4 (Cout-parallel for low-Cin layers)
+    log2_cin_group_size: int = 4
     # Computed fields (filled after construction)
     cin_groups: int = 0
     kernel_size: int = 0   # 3 or 1
@@ -87,8 +91,11 @@ class HdlLayer:
 
 # The 17 HDL layers mapped from TinyissimoYOLO TFLite.
 # H/W are INPUT spatial dimensions (pre-pool for fused layers).
+# Layer 0 uses log2_cin_group_size=2 (cin_grp_size=4, cout_par=4) because
+# Cin=3 wastes 13/16 MAC slots in the default 16-wide pack; the 4-wide pack
+# wastes only 1/4 (75% utilisation) and engages 4 Cout lanes per cycle.
 HDL_LAYERS = [
-    HdlLayer( 0, CONV3_POOL, 256, 256,   3,  16),
+    HdlLayer( 0, CONV3_POOL, 256, 256,   3,  16, log2_cin_group_size=2),
     HdlLayer( 1, CONV3,      128, 128,  16,  16),
     HdlLayer( 2, CONV3_POOL, 128, 128,  16,  16),
     HdlLayer( 3, CONV3,       64,  64,  16,  32),
@@ -318,7 +325,10 @@ def validate_layers(extracted: list[ExtractedLayer], c_par: int):
             sys.exit(f"ERROR: Layer {i} validation failed:\n  " + "\n  ".join(errors))
 
         hdl.kernel_size = expected_k
-        hdl.cin_groups = math.ceil(hdl.cin / c_par)
+        # Per-layer cin_group_size depends on log2_cin_group_size, NOT c_par.
+        # For default log2_cgs=4 with c_par=16, cin_group_size==c_par (legacy).
+        cin_group_size = 1 << hdl.log2_cin_group_size
+        hdl.cin_groups = math.ceil(hdl.cin / cin_group_size)
 
     print(f"  Validated {NUM_LAYERS} layers against HDL table.")
 
@@ -328,14 +338,28 @@ def validate_layers(extracted: list[ExtractedLayer], c_par: int):
 # ---------------------------------------------------------------------------
 def pack_weight_rom(extracted: list[ExtractedLayer], c_par: int) -> list[list[int]]:
     """
-    Pack all layer weights into 128-bit ROM words.
+    Pack all layer weights into 128-bit ROM words using per-layer
+    Cin/Cout parallelism splits.
 
     Returns a list of 16-byte lists (each byte is uint8, representing the
     two's complement of the int8 weight).
 
+    Slot mapping (mirrors conv3d.v):
+      slot s in [0, c_par) → (slot_cout_idx, slot_cin_idx)
+        slot_cout_idx = s >> log2_cgs
+        slot_cin_idx  = s & ((1 << log2_cgs) - 1)
+
     ROM layout per layer:
-      For each k_out, for each cin_group, K consecutive words (K=9 or 1).
-      Each word: 16 int8 weights at one kernel position across c_par channels.
+      For each cout_pass in [0, ceil(cout/cout_par)):
+        For each cin_grp in [0, ceil(cin/cin_group_size)):
+          For each kp in [0, K):
+            One 16-byte word with slots filled per the mapping above.
+            Out-of-range (cin_idx >= cin or k_out >= cout) → 0.
+
+    Layer 0 example (log2_cgs=2, cout_par=4, cin_group_size=4):
+      4 cout_passes × 1 cin_grp × 9 kp = 36 words (vs 144 in legacy 16-wide).
+    Default layers (log2_cgs=4, cout_par=1, cin_group_size=16):
+      Layout reduces to the legacy {k_out, cin_grp, kp} ordering.
     """
     rom_words = []
     qp_offset = 0
@@ -345,23 +369,32 @@ def pack_weight_rom(extracted: list[ExtractedLayer], c_par: int) -> list[list[in
         w = ext.weights  # [Cout, kH, kW, Cin]
         cout, kh, kw, cin = w.shape
         K = kh * kw
-        cin_groups = hdl.cin_groups
+
+        log2_cgs       = hdl.log2_cin_group_size
+        cin_group_size = 1 << log2_cgs
+        cout_par       = c_par >> log2_cgs
+        cout_passes    = math.ceil(cout / cout_par)
+        cin_groups     = hdl.cin_groups
 
         hdl.wt_base_addr = len(rom_words)
         hdl.qp_base_addr = qp_offset
 
-        for k_out in range(cout):
+        for cout_pass in range(cout_passes):
             for cin_grp in range(cin_groups):
                 for kp in range(K):
                     ky = kp // kw
                     kx = kp % kw
                     word = []
-                    for c in range(c_par):
-                        cin_idx = cin_grp * c_par + c
-                        if cin_idx < cin:
+                    for s in range(c_par):
+                        slot_cout_idx = s >> log2_cgs
+                        slot_cin_idx  = s & (cin_group_size - 1)
+                        k_out   = cout_pass * cout_par + slot_cout_idx
+                        cin_idx = cin_grp   * cin_group_size + slot_cin_idx
+                        if (slot_cout_idx < cout_par and k_out < cout
+                                and cin_idx < cin):
                             val = int(w[k_out, ky, kx, cin_idx])
                         else:
-                            val = 0  # zero-pad
+                            val = 0  # idle-slot or out-of-range zero-pad
                         word.append(val & 0xFF)
                     rom_words.append(word)
 
@@ -523,6 +556,8 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
         "    logic [7:0]        cin;",
         "    logic [7:0]        cout;",
         "    logic [3:0]        cin_grp;",
+        "    logic [2:0]        log2_cin_group_size; // 4=legacy (cin_grp_sz=16, cout_par=1)",
+        "                                            // 2=Cout-parallel (cin_grp_sz=4, cout_par=4)",
         "    logic [14:0]       wt_base;",
         "    logic [9:0]        qp_base;",
         "    logic signed [7:0] zp_in;",
@@ -565,6 +600,7 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
             f" {hdl.h_in:4d}, {hdl.w_in:4d},"
             f" {hdl.cin:4d}, {hdl.cout:4d},"
             f" {hdl.cin_groups:2d},"
+            f" 3'd{hdl.log2_cin_group_size},"
             f" 15'h{hdl.wt_base_addr:04x},"
             f" 10'h{hdl.qp_base_addr:03x},"
             f" {zp_in:5d}, {zp_out:5d},"
@@ -781,7 +817,8 @@ def generate_golden_npz(out_dir: str, rom_words: list,
 # ---------------------------------------------------------------------------
 def verify_weight_rom(rom_words: list, extracted: list[ExtractedLayer],
                       c_par: int) -> bool:
-    """Re-derive ROM contents from TFLite weights and compare."""
+    """Re-derive ROM contents from TFLite weights and compare.
+    Mirrors pack_weight_rom's per-layer slot mapping."""
     print("\n=== Verification ===")
     all_ok = True
 
@@ -790,24 +827,32 @@ def verify_weight_rom(rom_words: list, extracted: list[ExtractedLayer],
         w = ext.weights
         cout, kh, kw, cin = w.shape
         K = kh * kw
-        cin_groups = hdl.cin_groups
+
+        log2_cgs       = hdl.log2_cin_group_size
+        cin_group_size = 1 << log2_cgs
+        cout_par       = c_par >> log2_cgs
+        cout_passes    = math.ceil(cout / cout_par)
+        cin_groups     = hdl.cin_groups
 
         mismatches = 0
         addr = hdl.wt_base_addr
 
-        for k_out in range(cout):
+        for cout_pass in range(cout_passes):
             for cin_grp in range(cin_groups):
                 for kp in range(K):
                     ky = kp // kw
                     kx = kp % kw
                     rom_word = rom_words[addr]
-                    for c in range(c_par):
-                        cin_idx = cin_grp * c_par + c
+                    for s in range(c_par):
+                        slot_cout_idx = s >> log2_cgs
+                        slot_cin_idx  = s & (cin_group_size - 1)
+                        k_out   = cout_pass * cout_par + slot_cout_idx
+                        cin_idx = cin_grp   * cin_group_size + slot_cin_idx
                         expected = 0
-                        if cin_idx < cin:
+                        if (slot_cout_idx < cout_par and k_out < cout
+                                and cin_idx < cin):
                             expected = int(w[k_out, ky, kx, cin_idx])
-                        # Convert ROM uint8 back to int8
-                        got = rom_word[c]
+                        got = rom_word[s]
                         got_signed = got if got < 128 else got - 256
                         if got_signed != expected:
                             mismatches += 1

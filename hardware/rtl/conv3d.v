@@ -238,12 +238,12 @@ module conv3d #(
 
             always @(*) begin
                 if (!is_padded_act) begin
-                    // is_padding is used to determine enable BRAM read
-                    // use enable to get correct act_zp
-
-                    // TODO: think about how to handle future rounds
-                    // bake zp_in into the bias calculation later
-                    act_zp = pixel_bram_data[gi * N_BITS +: N_BITS];
+                    // Slot gi reads channel slot_cin_idx of the loaded
+                    // cin_group. In legacy mode (log2_cgs=4) slot_cin_idx==gi
+                    // → identical to historic behaviour. In Cout-parallel
+                    // mode (log2_cgs=2) slots in different cout lanes share
+                    // the same Cin channels (slot_cin_idx = gi & 3).
+                    act_zp = pixel_bram_data[slot_cin_idx * N_BITS +: N_BITS];
                 end
                 else begin
                     // zp_in subtraction: padding→0, real pixel→(pixel-zp_in)
