@@ -3,7 +3,8 @@
 
 module inference_top #(
     parameter AXI_DATA_WIDTH = 24,
-    parameter C_PAR   = 16,  // must match C_PARALLEL in layer_config.svh
+    parameter C_PAR        = 16,  // must match C_PARALLEL in layer_config.svh
+    parameter MAX_COUT_PAR = 4,   // SiLU LUT replicas + downstream-lane count for HDL Cout-par
     parameter N_BITS         = 8,
     parameter DEPTH_BITS     = 16,
     parameter TB_MODE = 0,  // 0 = AXI IP mode (production), 1 = ext pixel BRAM (testbench)
@@ -88,9 +89,12 @@ module inference_top #(
     logic                        act_mem_en_a,  act_mem_we_a;
     logic [ACT_MEM_ADDR_W-1:0]  act_mem_addr_a;
     logic [ACT_MEM_DATA_W-1:0]  act_mem_din_a;
-    logic                        act_mem_en_b;
-    logic [ACT_MEM_ADDR_W-1:0]  act_mem_addr_b;
-    logic [ACT_MEM_DATA_W-1:0]  act_mem_dout_b;
+    /* Per-lane read ports — one BRAM replica per Cout lane.
+       Step 5 wires only lane 0 (HDL/HLS engines still scalar);
+       lanes 1..MAX_COUT_PAR-1 sit idle until step 6 widens the engine ports. */
+    logic [MAX_COUT_PAR-1:0]                          act_mem_en_b;
+    logic [MAX_COUT_PAR-1:0][ACT_MEM_ADDR_W-1:0]      act_mem_addr_b;
+    logic [MAX_COUT_PAR-1:0][ACT_MEM_DATA_W-1:0]      act_mem_dout_b;
 
     logic                      fmap_a_en_a,  fmap_a_we_a;
     logic [FMAP_ADDR_W-1:0]   fmap_a_addr_a;
@@ -143,22 +147,28 @@ module inference_top #(
         .dout_b (qp_mem_dout_b)
     );
 
-    /* Activation LUT Memory — Block RAM, 8-bit x 4352 */
-    sdp_ram #(
-        .DATA_WIDTH (ACT_MEM_DATA_W),
-        .DEPTH      (ACT_MEM_DEPTH),
-        .RAM_STYLE  ("block"),
-        .MEM_FILE   ("silu_lut.mem")
-    ) u_silu_mem (
-        .clk    (aclk),
-        .en_a   (act_mem_en_a),
-        .en_b   (act_mem_en_b),
-        .we_a   (act_mem_we_a),
-        .addr_a (act_mem_addr_a),
-        .addr_b (act_mem_addr_b),
-        .din_a  (act_mem_din_a),
-        .dout_b (act_mem_dout_b)
-    );
+    /* Activation LUT Memory — Block RAM, 8-bit x 4352, replicated MAX_COUT_PAR×.
+       SiLU LUT is the only shared parameter buffer with a data-dependent address
+       (lower 8 bits = post-requantize value, varies per Cout lane every cycle).
+       N parallel lookups per cycle require N physical read ports → N BRAM replicas.
+       All replicas load the same `silu_lut.mem` at bitstream load. */
+    generate for (genvar c = 0; c < MAX_COUT_PAR; c = c + 1) begin : gen_silu_mem
+        sdp_ram #(
+            .DATA_WIDTH (ACT_MEM_DATA_W),
+            .DEPTH      (ACT_MEM_DEPTH),
+            .RAM_STYLE  ("block"),
+            .MEM_FILE   ("silu_lut.mem")
+        ) u_silu_mem (
+            .clk    (aclk),
+            .en_a   (act_mem_en_a),
+            .en_b   (act_mem_en_b[c]),
+            .we_a   (act_mem_we_a),
+            .addr_a (act_mem_addr_a),
+            .addr_b (act_mem_addr_b[c]),
+            .din_a  (act_mem_din_a),
+            .dout_b (act_mem_dout_b[c])
+        );
+    end endgenerate
 
     /* Feature Map Buffer A — URAM, 128-bit x 16384 */
     sdp_ram #(
@@ -546,8 +556,15 @@ module inference_top #(
     assign wt_mem_addr_b  = engine_sel_latched ? hls_wt_addr_b : hdl_wt_addr_b;
     assign qp_mem_en_b    = engine_sel_latched ? hls_qp_en_b   : hdl_qp_en_b;
     assign qp_mem_addr_b  = engine_sel_latched ? hls_qp_addr_b : hdl_qp_addr_b;
-    assign act_mem_en_b   = engine_sel_latched ? hls_act_en_b  : hdl_act_en_b;
-    assign act_mem_addr_b = engine_sel_latched ? hls_act_addr_b: hdl_act_addr_b;
+    /* SiLU lane 0 — driven by active engine.  HLS taps lane 0 only (scalar);
+       HDL drives lane 0 today (scalar port) and gains lanes 1..N-1 in step 6. */
+    assign act_mem_en_b[0]   = engine_sel_latched ? hls_act_en_b  : hdl_act_en_b;
+    assign act_mem_addr_b[0] = engine_sel_latched ? hls_act_addr_b: hdl_act_addr_b;
+    /* SiLU lanes 1..MAX_COUT_PAR-1 — instantiated but idle until step 6. */
+    generate for (genvar c = 1; c < MAX_COUT_PAR; c = c + 1) begin : gen_silu_lane_tieoff
+        assign act_mem_en_b[c]   = 1'b0;
+        assign act_mem_addr_b[c] = '0;
+    end endgenerate
 
     /* Done mux: only the active engine's done feeds the FSM */
     assign inference_done = engine_sel_latched ? hls_done : hdl_done;
@@ -703,7 +720,8 @@ module inference_top #(
      *  bit and re-run inference, no rebuild.
      * ================================================================ */
     inference_hdl #(
-        .C_PAR (C_PAR),
+        .C_PAR        (C_PAR),
+        .MAX_COUT_PAR (MAX_COUT_PAR),
         .K            (3),
         .N_BITS       (N_BITS),
         .ACC_BITS     (32),
@@ -724,7 +742,7 @@ module inference_top #(
         .qp_mem_dout_b     (qp_mem_dout_b),
         .silu_mem_en_b     (hdl_act_en_b),
         .silu_mem_addr_b   (hdl_act_addr_b),
-        .silu_mem_dout_b   (act_mem_dout_b),
+        .silu_mem_dout_b   (act_mem_dout_b[0]),
         .in_buf_rd_addr    (pixel_addr_int),
         .in_buf_rd_en      (pixel_en_int),
         .in_buf_rd_data    (pixel_data_int),
@@ -801,7 +819,7 @@ module inference_top #(
 
         .silu_mem_en_b   (hls_act_en_b),
         .silu_mem_addr_b (hls_act_addr_b),
-        .silu_mem_dout_b (act_mem_dout_b),
+        .silu_mem_dout_b (act_mem_dout_b[0]),
 
         .curr_layer_idx  (hls_curr_layer_idx)
     );
