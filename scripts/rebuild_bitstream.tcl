@@ -36,6 +36,26 @@ foreach r [get_runs] {
 }
 puts "  discovered OOC runs: $ooc_runs"
 
+# Step 0: refresh IP catalog and force-upgrade any locked accelerator IPs.
+#
+# When `package_accelerator_ip.tcl` re-emits the IP without a version bump,
+# the BD's IP instance becomes "locked" — the source content changed but the
+# version key did not, so the BD refuses to use it until upgrade_ip is called.
+# Without this step, the OOC synth either errors out ("File does not exist")
+# or silently reuses cached output (cache-ID hit on identical version key),
+# producing a bitstream with stale RTL while sim sees the new RTL via a
+# different source path. Always upgrade locked IPs before regenerating.
+puts "\n=== refreshing IP catalog + upgrading locked IPs ==="
+update_ip_catalog -rebuild
+config_ip_cache -clear_output_repo
+config_ip_cache -clear_local_cache
+foreach ip [get_ips] {
+    if {[get_property IS_LOCKED $ip]} {
+        puts "  upgrade_ip $ip (locked — re-pulling fresh source from packaged IP)"
+        upgrade_ip $ip
+    }
+}
+
 # Step 1: refresh BD output products. The accelerator IP is nested
 # inside playground.bd, so we have to regenerate the parent BD to
 # refresh the IP's source files (Vivado error 12-3563 if you try
@@ -44,7 +64,7 @@ puts "\n=== refreshing BD output products (playground.bd) ==="
 set bd_file [get_files playground.bd]
 puts "  BD file: $bd_file"
 reset_target {synthesis simulation} $bd_file -quiet
-generate_target {synthesis simulation} $bd_file
+generate_target -force {synthesis simulation} $bd_file
 
 # Step 2: reset runs
 puts "\n=== resetting runs ==="
