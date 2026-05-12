@@ -107,8 +107,8 @@
       "zynq_ultra_ps_e_0": {
         "vlnv": "xilinx.com:ip:zynq_ultra_ps_e:3.5",
         "ip_revision": "8",
-        "xci_name": "tinyissimoyolo_zynq_ultra_ps_e_0_3",
-        "xci_path": "ip/tinyissimoyolo_zynq_ultra_ps_e_0_3/tinyissimoyolo_zynq_ultra_ps_e_0_3.xci",
+        "xci_name": "tinyissimoyolo_zynq_ultra_ps_e_0_0",
+        "xci_path": "ip/tinyissimoyolo_zynq_ultra_ps_e_0_0/tinyissimoyolo_zynq_ultra_ps_e_0_0.xci",
         "inst_hier_path": "zynq_ultra_ps_e_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3280,8 +3280,8 @@
       "mipi_csi2_rx_subsyst_0": {
         "vlnv": "xilinx.com:ip:mipi_csi2_rx_subsystem:6.0",
         "ip_revision": "7",
-        "xci_name": "tinyissimoyolo_mipi_csi2_rx_subsyst_0_1",
-        "xci_path": "ip/tinyissimoyolo_mipi_csi2_rx_subsyst_0_1/tinyissimoyolo_mipi_csi2_rx_subsyst_0_1.xci",
+        "xci_name": "tinyissimoyolo_mipi_csi2_rx_subsyst_0_0",
+        "xci_path": "ip/tinyissimoyolo_mipi_csi2_rx_subsyst_0_0/tinyissimoyolo_mipi_csi2_rx_subsyst_0_0.xci",
         "inst_hier_path": "mipi_csi2_rx_subsyst_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3392,8 +3392,8 @@
       "v_demosaic_0": {
         "vlnv": "xilinx.com:ip:v_demosaic:1.1",
         "ip_revision": "17",
-        "xci_name": "tinyissimoyolo_v_demosaic_0_1",
-        "xci_path": "ip/tinyissimoyolo_v_demosaic_0_1/tinyissimoyolo_v_demosaic_0_1.xci",
+        "xci_name": "tinyissimoyolo_v_demosaic_0_0",
+        "xci_path": "ip/tinyissimoyolo_v_demosaic_0_0/tinyissimoyolo_v_demosaic_0_0.xci",
         "inst_hier_path": "v_demosaic_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3411,8 +3411,8 @@
       "v_gamma_lut_0": {
         "vlnv": "xilinx.com:ip:v_gamma_lut:1.1",
         "ip_revision": "17",
-        "xci_name": "tinyissimoyolo_v_gamma_lut_0_1",
-        "xci_path": "ip/tinyissimoyolo_v_gamma_lut_0_1/tinyissimoyolo_v_gamma_lut_0_1.xci",
+        "xci_name": "tinyissimoyolo_v_gamma_lut_0_0",
+        "xci_path": "ip/tinyissimoyolo_v_gamma_lut_0_0/tinyissimoyolo_v_gamma_lut_0_0.xci",
         "inst_hier_path": "v_gamma_lut_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3430,8 +3430,8 @@
       "axis_broadcaster_0": {
         "vlnv": "xilinx.com:ip:axis_broadcaster:1.1",
         "ip_revision": "35",
-        "xci_name": "tinyissimoyolo_axis_broadcaster_0_1",
-        "xci_path": "ip/tinyissimoyolo_axis_broadcaster_0_1/tinyissimoyolo_axis_broadcaster_0_1.xci",
+        "xci_name": "tinyissimoyolo_axis_broadcaster_0_0",
+        "xci_path": "ip/tinyissimoyolo_axis_broadcaster_0_0/tinyissimoyolo_axis_broadcaster_0_0.xci",
         "inst_hier_path": "axis_broadcaster_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3506,8 +3506,8 @@
       "axi_vdma_0": {
         "vlnv": "xilinx.com:ip:axi_vdma:6.3",
         "ip_revision": "24",
-        "xci_name": "tinyissimoyolo_axi_vdma_0_3",
-        "xci_path": "ip/tinyissimoyolo_axi_vdma_0_3/tinyissimoyolo_axi_vdma_0_3.xci",
+        "xci_name": "tinyissimoyolo_axi_vdma_0_0",
+        "xci_path": "ip/tinyissimoyolo_axi_vdma_0_0/tinyissimoyolo_axi_vdma_0_0.xci",
         "inst_hier_path": "axi_vdma_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3557,8 +3557,8 @@
       "v_proc_ss_0": {
         "vlnv": "xilinx.com:ip:v_proc_ss:2.3",
         "ip_revision": "17",
-        "xci_name": "tinyissimoyolo_v_proc_ss_0_3",
-        "xci_path": "ip/tinyissimoyolo_v_proc_ss_0_3/tinyissimoyolo_v_proc_ss_0_3.xci",
+        "xci_name": "tinyissimoyolo_v_proc_ss_0_0",
+        "xci_path": "ip/tinyissimoyolo_v_proc_ss_0_0/tinyissimoyolo_v_proc_ss_0_0.xci",
         "inst_hier_path": "v_proc_ss_0",
         "has_run_ip_tcl": "true",
         "parameters": {
@@ -3969,24 +3969,24 @@
       "rst_ps8_0_99M": {
         "vlnv": "xilinx.com:ip:proc_sys_reset:5.0",
         "ip_revision": "17",
-        "xci_name": "tinyissimoyolo_rst_ps8_0_99M_3",
-        "xci_path": "ip/tinyissimoyolo_rst_ps8_0_99M_3/tinyissimoyolo_rst_ps8_0_99M_3.xci",
+        "xci_name": "tinyissimoyolo_rst_ps8_0_99M_0",
+        "xci_path": "ip/tinyissimoyolo_rst_ps8_0_99M_0/tinyissimoyolo_rst_ps8_0_99M_0.xci",
         "inst_hier_path": "rst_ps8_0_99M",
         "has_run_ip_tcl": "true"
       },
       "axi_iic_0": {
         "vlnv": "xilinx.com:ip:axi_iic:2.1",
         "ip_revision": "11",
-        "xci_name": "tinyissimoyolo_axi_iic_0_1",
-        "xci_path": "ip/tinyissimoyolo_axi_iic_0_1/tinyissimoyolo_axi_iic_0_1.xci",
+        "xci_name": "tinyissimoyolo_axi_iic_0_0",
+        "xci_path": "ip/tinyissimoyolo_axi_iic_0_0/tinyissimoyolo_axi_iic_0_0.xci",
         "inst_hier_path": "axi_iic_0",
         "has_run_ip_tcl": "true"
       },
       "xlconcat_0": {
         "vlnv": "xilinx.com:ip:xlconcat:2.1",
         "ip_revision": "7",
-        "xci_name": "tinyissimoyolo_xlconcat_0_1",
-        "xci_path": "ip/tinyissimoyolo_xlconcat_0_1/tinyissimoyolo_xlconcat_0_1.xci",
+        "xci_name": "tinyissimoyolo_xlconcat_0_0",
+        "xci_path": "ip/tinyissimoyolo_xlconcat_0_0/tinyissimoyolo_xlconcat_0_0.xci",
         "inst_hier_path": "xlconcat_0",
         "has_run_ip_tcl": "true",
         "parameters": {

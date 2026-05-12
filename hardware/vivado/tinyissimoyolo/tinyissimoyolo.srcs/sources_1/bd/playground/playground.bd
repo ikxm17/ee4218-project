@@ -7,7 +7,8 @@
       "name": "playground",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
-      "tool_version": "2025.2"
+      "tool_version": "2025.2",
+      "validated": "true"
     },
     "design_tree": {
       "zynq_ultra_ps_e_0": "",
@@ -3167,7 +3168,7 @@
       },
       "tinyissimoyolo_accel_0": {
         "vlnv": "user.org:user:tinyissimoyolo_accelerator:1.0",
-        "ip_revision": "16",
+        "ip_revision": "1",
         "xci_name": "playground_tinyissimoyolo_accel_0_0",
         "xci_path": "ip/playground_tinyissimoyolo_accel_0_0/playground_tinyissimoyolo_accel_0_0.xci",
         "inst_hier_path": "tinyissimoyolo_accel_0",
@@ -3288,8 +3289,8 @@
           "zynq_ultra_ps_e_0/pl_clk0",
           "axi_smc/aclk",
           "rst_ps8_0_99M/slowest_sync_clk",
-          "tinyissimoyolo_accel_0/aclk",
-          "zynq_ultra_ps_e_0/maxihpm0_fpd_aclk"
+          "zynq_ultra_ps_e_0/maxihpm0_fpd_aclk",
+          "tinyissimoyolo_accel_0/aclk"
         ]
       },
       "zynq_ultra_ps_e_0_pl_resetn0": {
