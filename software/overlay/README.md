@@ -23,7 +23,7 @@ Each driver targets one Xilinx/user IP block in the PL. The class-level
 | `gamma_lut.py`                  | `v_gamma_lut:1.1`            | 256-entry gamma LUT load + bypass |
 | `vdma.py`                       | `axi_vdma:6.3`               | S2MM/MM2S DMA channel setup, frame-store management, DMASR status decoding |
 | `imx219.py`                     | `axi_iic:2.1` (I2C bus)      | IMX219 sensor register table writes, mode select |
-| `vpss.py`                       | `v_proc_ss:2.3`              | Multi-Scaler driver (currently unused — hardware bypass; see `_vpss_coeff.py` for Lanczos tap table) |
+| `vpss.py`                       | `v_proc_ss:2.3`              | VPSS Scaler Only (PG231) — active 1080p→256×256 downscaler in the streaming-split pipeline (Broadcaster → VPSS → VDMA); polyphase 6-tap/64-phase Lanczos taps from `_vpss_coeff.py` |
 | `tinyissimoyolo_accelerator.py` | `user.org:user:tinyissimoyolo_accelerator` | HDL + HLS accelerator control — `set_engine`, `set_mode`, URAM preload/readback, result window decode, `nms()` post-processing |
 | `_hls_common.py`                | (helper)                     | Shared HLS-backed driver logic |
 | `_imx219_regs.py`               | (helper)                     | IMX219 register table constants |
