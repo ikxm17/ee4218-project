@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime as _dt
 import math
 import pathlib
+import shutil
 import sys
 
 
@@ -154,6 +156,31 @@ def render_png(rows: list[dict], png_path: pathlib.Path) -> None:
     print(f"[report] wrote {png_path}")
 
 
+def snapshot_to_history(csv_path: pathlib.Path, round_name: str,
+                        rows: list[dict]) -> None:
+    """Copy csv_path into notes/cycle-breakdowns/<round_name>.csv and print
+    a ready-to-paste SUMMARY.md table row."""
+    repo_root = pathlib.Path(__file__).resolve().parent.parent
+    dest_dir = repo_root / "notes" / "cycle-breakdowns"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{round_name}.csv"
+    shutil.copy2(csv_path, dest)
+    print(f"\n[snapshot] copied {csv_path} → {dest}", file=sys.stderr)
+
+    total = sum(r["total"] for r in rows)
+    fps = 100e6 / total  # cycles/sec / cycles/frame
+    hot = max(rows, key=lambda r: r["total"])
+    hot_name = LAYER_TYPE_NAME.get(hot["layer_type"], "?")
+    hot_pct = 100.0 * hot["total"] / total
+    today = _dt.date.today().isoformat()
+
+    row = (f"| {round_name} | {today} | {total:,} | ~{fps:.0f} | — | — | "
+           f"L{hot['layer_idx']} {hot_name} {hot_pct:.1f}% | <fill> | <hash> |")
+    print("[snapshot] SUMMARY.md row (edit Δ and commit hash, then paste):",
+          file=sys.stderr)
+    print(row, file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("csv", type=pathlib.Path,
@@ -163,6 +190,9 @@ def main() -> int:
     ap.add_argument("--png", type=pathlib.Path,
                     default=pathlib.Path("cycle_breakdown.png"),
                     help="PNG output path (default: cycle_breakdown.png)")
+    ap.add_argument("--snapshot", metavar="ROUND_NAME",
+                    help="Also archive CSV into notes/cycle-breakdowns/<name>.csv "
+                         "and print a SUMMARY.md table row")
     args = ap.parse_args()
 
     rows = load_sim(args.csv)
@@ -170,6 +200,8 @@ def main() -> int:
 
     print(render_markdown(rows, silicon))
     render_png(rows, args.png)
+    if args.snapshot:
+        snapshot_to_history(args.csv, args.snapshot, rows)
     return 0
 
 

@@ -521,6 +521,7 @@ def generate_silu_lut(extracted: list[ExtractedLayer]) -> list[int]:
 # ---------------------------------------------------------------------------
 def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
                  act_lut_depth: int, model_path: str,
+                 c_par: int,
                  extracted: list[ExtractedLayer] | None = None):
     """Generate layer_config.svh with the layer table and ROM constants."""
     lines = [
@@ -533,7 +534,7 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
         "`define LAYER_CONFIG_SVH",
         "",
         f"localparam int NUM_LAYERS        = {NUM_LAYERS};",
-        f"localparam int C_PARALLEL             = 16;",
+        f"localparam int C_PARALLEL             = {c_par};",
         f"localparam int WEIGHT_ROM_DEPTH  = {rom_depth};",
         f"localparam int BIAS_ROM_DEPTH    = {bias_depth};",
         f"localparam int QP_ROM_DEPTH      = {bias_depth};",
@@ -617,6 +618,7 @@ def generate_svh(out_dir: str, rom_depth: int, bias_depth: int,
 
 
 def generate_layer_config_h(out_dir: str, act_lut_depth: int, model_path: str,
+                            c_par: int,
                             extracted: list[ExtractedLayer] | None = None):
     """Generate hardware/hls/layer_config.h — C++ mirror of layer_config.svh.
 
@@ -660,7 +662,7 @@ def generate_layer_config_h(out_dir: str, act_lut_depth: int, model_path: str,
         "#include <cstdint>",
         "",
         f"constexpr int NUM_LAYERS    = {NUM_LAYERS};",
-        f"constexpr int C_PARALLEL    = 16;",
+        f"constexpr int C_PARALLEL    = {c_par};",
         f"constexpr int ACT_LUT_DEPTH = {act_lut_depth};",
         "",
         "enum LayerType : uint8_t {",
@@ -973,11 +975,11 @@ def main():
     # --- Step 8: SystemVerilog header ---
     total_qp = sum(h.cout for h in HDL_LAYERS)
     generate_svh(args.out, len(rom_words), total_qp, len(silu_flat), args.model,
-                 extracted=extracted)
+                 c_par=c_par, extracted=extracted)
 
     # --- Step 8b: C++ mirror header for HLS ---
     generate_layer_config_h(args.hls_out, len(silu_flat), args.model,
-                            extracted=extracted)
+                            c_par=c_par, extracted=extracted)
 
     # --- Step 9: Summary JSON + golden NPZ ---
     summary = generate_summary(args.out, extracted, rom_words, args.model)
